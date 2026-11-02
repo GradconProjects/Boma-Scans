@@ -1,0 +1,87 @@
+"use client";
+
+import { useState } from "react";
+import { Bell, BellRing, CheckCheck, ChevronDown, Copy, LineChart, Radio, Volume2, VolumeX } from "lucide-react";
+import { toast } from "sonner";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Slider } from "@/components/ui/slider";
+import { formatPrice, type ScannerRow } from "@/app/lib/market";
+import { notificationStatus, snapshotSignal, telegramSignalText, type SignalSnapshot } from "@/app/lib/signal-alerts";
+import type { useSignalAlerts } from "@/app/components/use-signal-alerts";
+import { EntryInstructions } from "@/app/components/entry-instructions";
+
+export type SignalTab = "signals" | "notifications";
+type Alerts = ReturnType<typeof useSignalAlerts>;
+
+function utc(timestamp: number) {
+  return new Date(timestamp).toLocaleString("en-GB", {day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC"}) + " UTC";
+}
+
+function SignalCard({signal, historical = false, now, onReview, onPaper}: {
+  signal: SignalSnapshot; historical?: boolean; now: number;
+  onReview: () => void; onPaper?: () => void;
+}) {
+  const [copyFallback, setCopyFallback] = useState("");
+  const bullish = signal.side === "LONG";
+  const warning = historical && (signal.withdrawnAt || now >= signal.expiresAt);
+  async function copy() {
+    const text = telegramSignalText(signal, historical, now);
+    try { await navigator.clipboard.writeText(text); toast.success("Telegram-style signal copied"); setCopyFallback(""); }
+    catch { setCopyFallback(text); }
+  }
+  return <article className={"min-w-0 overflow-hidden rounded-2xl border border-l-[3px] bg-[#101923] " + (warning ? "border-slate-600/40 border-l-slate-500" : bullish ? "border-emerald-300/20 border-l-emerald-300" : "border-rose-300/20 border-l-rose-300")}>
+    <div className={"border-b border-white/[0.06] p-4 sm:p-5 " + (bullish ? "bg-emerald-300/[0.035]" : "bg-rose-300/[0.035]")}>
+      <div className="flex flex-wrap items-center justify-between gap-2"><p className="text-xs font-bold uppercase tracking-widest text-cyan-200">📡 Boma Scans · signal</p><span className="rounded-full border border-white/10 bg-slate-950/40 px-2.5 py-1 text-xs font-semibold text-slate-300">{historical ? notificationStatus(signal, now) : "QUALIFIED SCAN"}</span></div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-3"><h3 className="flex flex-wrap items-center gap-2 text-xl font-bold text-white"><span aria-hidden="true">{bullish ? "🟢" : "🔴"}</span><span className={bullish ? "text-emerald-300" : "text-rose-300"}>{signal.side}</span><span className="font-mono">{signal.symbol}</span></h3><p className="font-mono text-xl font-semibold text-cyan-100">{signal.grade} <span className="text-sm text-slate-400">{signal.rating}/100</span></p></div>
+      <p className="mt-2 text-sm text-slate-300">🛡️ {signal.riskBand} relative risk · {signal.style} · {signal.setupType}</p>
+      <p className="mt-1 text-xs text-slate-500">{signal.flexibility} · TA {signal.score} · entry {signal.entryGrade} {signal.entryQuality} · {utc(signal.createdAt)}</p>
+    </div>
+    <div className="space-y-4 p-4 sm:p-5">
+      {signal.executionPlan && <EntryInstructions plan={signal.executionPlan} ready={false} compact
+        reason={historical ? "Saved instructions from this alert. Open the live chart for a current entry decision." : "Confirmed at scan time. Open the chart; enter only if READY and the current quote remains inside this range."}/>}
+      <div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-white/[0.035] p-3"><p className="text-sm text-slate-400">📍 Entry</p><p className="mt-1 break-all font-mono text-lg font-semibold text-white">{formatPrice(signal.entry)}</p></div><div className="rounded-xl bg-rose-300/[0.045] p-3"><p className="text-sm text-rose-200/80">🛑 Stop loss</p><p className="mt-1 break-all font-mono text-lg font-semibold text-rose-200">{formatPrice(signal.stop)}</p></div></div>
+      <ol className="divide-y divide-white/[0.05]">{signal.targets.map(target => <li key={target.level} className="py-2 first:pt-0 last:pb-0"><div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm"><span className="text-slate-300">🎯 TP{target.level} <strong className="ml-2 font-mono text-emerald-200">{formatPrice(target.price)}</strong></span><span className="font-mono text-xs text-slate-400">{target.rewardR.toFixed(2)}R · close {target.exitPct}%</span></div><p className="mt-0.5 text-xs leading-5 text-slate-500">{target.source}</p></li>)}</ol>
+      <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[0.06] bg-slate-950/30 p-3"><div><p className="text-xs text-slate-400">⚖️ Leverage</p><p className="mt-1 font-mono text-lg font-semibold text-cyan-200">{signal.leverage}×</p></div><div><p className="text-xs text-slate-400">💼 Stop-risk</p><p className="mt-1 font-mono text-lg font-semibold text-white">{signal.riskPct.toFixed(2)}%</p></div><div><p className="text-xs text-slate-400">📐 After spread</p><p className="mt-1 font-mono text-lg font-semibold text-white">{signal.netRewardR.toFixed(2)}R</p></div></div>
+      <p className="text-xs leading-5 text-slate-400">Risk {signal.riskAmount.toFixed(2)} USDT · estimated margin {signal.margin.toFixed(2)} USDT. Reward excludes fees and funding.</p>
+      <p className="text-sm leading-6 text-violet-200">₿ {signal.btcRelationship} · {signal.btcVerdict}</p>
+      {signal.needsAcknowledgement && <p className="rounded-xl bg-amber-300/10 p-3 text-sm leading-6 text-amber-200">⚠️ Reduced-size acknowledgement required for BTC caution or a quality override.</p>}
+      <p className="text-xs leading-5 text-slate-400">{historical ? "🗂️ Original alert levels. Open the chart for a fresh plan." : "✅ Required entry checks passed at the scan. Recheck the live chart and portfolio before entry."}</p>
+      <div className="flex flex-wrap gap-2"><Button type="button" onClick={onReview} className="rounded-xl"><LineChart className="mr-1.5 h-4 w-4"/>Review chart</Button><Button type="button" variant="outline" onClick={() => void copy()} className="rounded-xl"><Copy className="mr-1.5 h-4 w-4"/>Copy signal</Button>{onPaper && <Button type="button" variant="outline" className="rounded-xl" onClick={onPaper}>📄 Paper plan</Button>}</div>
+      {copyFallback && <label className="block text-sm text-amber-200">Copy is blocked by your browser. Select this text:<textarea readOnly value={copyFallback} onFocus={event => event.currentTarget.select()} rows={10} className="mt-2 w-full rounded-xl border border-border bg-slate-950 p-3 font-mono text-xs text-slate-200"/></label>}
+    </div>
+  </article>;
+}
+
+export function SignalCenter({alerts, tab, onTabChange, now, scanning, live, onReview, onPaper}: {
+  alerts: Alerts; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
+  now: number; scanning: boolean; live: boolean;
+  onReview: (signal: Pick<SignalSnapshot, "symbol" | "style" | "flexibility">) => void;
+  onPaper: (row: ScannerRow) => void;
+}) {
+  const [showAll, setShowAll] = useState(false);
+  const [historyCount, setHistoryCount] = useState(10);
+  const soundActive = alerts.soundEnabled && alerts.soundReady;
+  const visiblePicks = showAll ? alerts.picks : alerts.picks.slice(0, 2);
+  return <section id="signals-center" className="mb-5 scroll-mt-52 rounded-3xl border border-cyan-300/20 bg-[#09131e]/95 shadow-[0_18px_80px_-45px_rgba(103,232,249,0.35)]">
+    <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6 sm:pt-5"><div><div className="flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-200"/><h2 className="text-lg font-semibold text-white">Trade signals</h2>{alerts.picks.length > 0 && <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-sm font-semibold text-emerald-200">{alerts.picks.length} ready to review</span>}</div><p className="mt-1 text-sm text-slate-400">Telegram-style plans · long and short · live checks before entry</p></div>
+      <Button type="button" variant="outline" onClick={alerts.toggleSound} aria-pressed={soundActive} className={"rounded-xl " + (soundActive ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200" : "text-slate-300")}>{soundActive ? <Volume2 className="mr-2 h-4 w-4"/> : <VolumeX className="mr-2 h-4 w-4"/>}{soundActive ? alerts.volume === 0 ? "Sound muted · 0%" : "Sound on · tap to mute" : "Enable sound"}</Button>
+    </div>
+    {alerts.soundError && <p role="alert" className="px-5 pb-3 text-sm text-amber-200">{alerts.soundError}</p>}
+    <Tabs value={tab} onValueChange={value => onTabChange(value as SignalTab)} className="gap-0">
+      <div className="border-b border-white/[0.07] px-4 pb-3 sm:px-6"><TabsList className="h-11 w-full rounded-xl bg-slate-950/60 sm:w-auto" aria-label="Signals and notifications"><TabsTrigger value="signals" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Radio className="h-4 w-4"/>Signals <span className="font-mono">{alerts.picks.length}</span></TabsTrigger><TabsTrigger value="notifications" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Bell className="h-4 w-4"/>Notifications {alerts.unread > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-xs font-bold text-white">{alerts.unread}</span>}</TabsTrigger></TabsList></div>
+      <TabsContent value="signals" className="p-4 sm:p-6">
+        {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
+      </TabsContent>
+      <TabsContent value="notifications" className="space-y-4 p-4 sm:p-6">
+        <div className="flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-sm text-slate-300">{alerts.unread} unread · {alerts.notifications.length} saved alerts</p><Button type="button" variant="outline" size="sm" onClick={() => alerts.markRead()} disabled={!alerts.unread} className="rounded-xl"><CheckCheck className="mr-2 h-4 w-4"/>Mark all read</Button></div>
+        <div className="grid gap-4 rounded-2xl border border-white/[0.07] bg-white/[0.025] p-4 md:grid-cols-[1fr_240px]"><div><p className="text-sm font-semibold text-slate-200">🔊 Setup alert sound</p><p className="mt-1 text-xs leading-5 text-slate-400">{soundActive ? "One chime for a batch of newly qualified setups. Continuing setups stay quiet across scans." : "Tap Enable sound once in this tab to activate audio. Your sound preference and volume are saved."} Keep Boma Scans open; sleeping or closed tabs cannot reliably alert.</p><Button type="button" variant="outline" size="sm" className="mt-3 rounded-lg" onClick={() => void alerts.testSound()}>Test sound</Button></div><div className="self-center"><label htmlFor="signal-alert-volume" className="mb-3 block text-sm text-slate-300">Volume · {Math.round(alerts.volume * 100)}%{alerts.volume === 0 ? " (muted)" : ""}</label><Slider id="signal-alert-volume" aria-label="Signal alert volume" min={0} max={100} step={5} value={[alerts.volume * 100]} onValueChange={values => alerts.setVolume(values[0] / 100)}/></div></div>
+        {alerts.storageError && <p role="alert" className="text-sm text-amber-200">Device storage is unavailable. Alerts still appear here, but may not survive a reload.</p>}
+        {!alerts.storageReady ? <p className="py-5 text-sm text-slate-400">Loading notification history…</p> : !alerts.notifications.length ? <div className="rounded-2xl border border-dashed border-white/10 px-5 py-8 text-center"><BellRing className="mx-auto h-7 w-7 text-cyan-200"/><p className="mt-3 text-base font-semibold text-white">Your next qualified setup lands here</p><p className="mt-2 text-sm text-slate-400">New setup alerts include the original entry, stop, targets, risk and leverage.</p></div> : <div className="space-y-3">{alerts.notifications.slice(0,historyCount).map(item => <Collapsible key={item.id} onOpenChange={open => {if (open) alerts.markRead(item.id);}} className={"rounded-2xl border " + (item.readAt ? "border-white/[0.07]" : "border-cyan-300/25 bg-cyan-300/[0.035]")}><CollapsibleTrigger className="flex w-full items-center justify-between gap-3 p-4 text-left"><span className="min-w-0"><span className="flex flex-wrap items-center gap-2 text-sm font-semibold text-slate-100">{!item.readAt && <span aria-label="Unread" className="h-2 w-2 rounded-full bg-cyan-200"/>}{item.side === "LONG" ? "🟢" : "🔴"} {item.side} · {item.symbol}<span className="font-mono text-cyan-200">{item.grade} {item.rating}</span></span><span className="mt-1 block text-xs leading-5 text-slate-400">{utc(item.createdAt)} · {item.style} · {item.flexibility} · {notificationStatus(item,now)}</span></span><ChevronDown className="h-4 w-4 shrink-0 text-slate-500"/></CollapsibleTrigger><CollapsibleContent className="px-3 pb-3"><SignalCard signal={item} historical now={now} onReview={() => {alerts.markRead(item.id); onReview(item);}}/></CollapsibleContent></Collapsible>)}</div>}
+        {alerts.notifications.length > historyCount && <Button type="button" variant="outline" onClick={() => setHistoryCount(value => value+10)} className="w-full rounded-xl">Show more notifications</Button>}
+        <p className="text-xs leading-5 text-slate-500">Last 100 alerts saved on this device. Read status does not mean a trade was taken. Copy signal prepares Telegram-style text; messages are not sent to Telegram automatically.</p>
+      </TabsContent>
+    </Tabs>
+  </section>;
+}

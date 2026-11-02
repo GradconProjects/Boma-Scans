@@ -1,0 +1,30 @@
+{
+  "name": "Boma W Telegram",
+  "short_name": "Boma W Telegram",
+  "description": "Live Bybit market scanning, technical analysis, trade planning, and risk-management guidance.",
+  "id": "/",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#080c13",
+  "theme_color": "#080c13",
+  "categories": [
+    "finance",
+    "utilities"
+  ],
+  "icons": [
+    {
+      "src": "/icons/boma-scans-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/boma-scans-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
