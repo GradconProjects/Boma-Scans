@@ -5,6 +5,9 @@ import Module,{createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 const require=createRequire(import.meta.url);
+const memoryFile=new URL('../app/server/memory-store.ts',import.meta.url).pathname;
+const memoryMod=new Module(memoryFile);memoryMod.require=require;
+memoryMod._compile(ts.transpileModule(readFileSync(memoryFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,memoryFile);
 const sqlite=new DatabaseSync(':memory:');
 sqlite.exec(readFileSync(new URL('../drizzle/0000_stiff_leader.sql',import.meta.url),'utf8'));
 let user={userId:'alice'};
@@ -13,6 +16,7 @@ const file=new URL('../app/api/sync/route.ts',import.meta.url).pathname;
 const mod=new Module(file);
 mod.require=spec=>{
  if(spec==='@/app/server/env')return {env};
+ if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/lib/trade-manager')return {parseStoredTrades:value=>JSON.parse(value).filter(item=>item.id&&item.entryPrice>0)};
  return require(spec);
@@ -51,6 +55,7 @@ const telegramFile=new URL('../app/api/telegram/route.ts',import.meta.url).pathn
 const telegramMod=new Module(telegramFile);
 telegramMod.require=spec=>{
  if(spec==='@/app/server/env')return {env};
+ if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec.startsWith('@/')) return {};
  return require(spec);
@@ -70,6 +75,7 @@ const pollFile=new URL('../app/api/telegram/poll/route.ts',import.meta.url).path
 const pollMod=new Module(pollFile);const commands=[];
 pollMod.require=spec=>{
  if(spec==='@/app/server/env')return {env};
+ if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/server/telegram-controls')return {handleCommand:async(...args)=>commands.push(args)};
  if(spec==='@/app/server/telegram')return {telegramCall:async()=>({})};

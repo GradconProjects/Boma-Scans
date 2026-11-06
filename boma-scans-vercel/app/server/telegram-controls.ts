@@ -1,4 +1,5 @@
 import { env } from "@/app/server/env";
+import {memory,recordKey} from "@/app/server/memory-store";
 import {telegramCall,telegramChunks} from "@/app/server/telegram";
 import {analyzePair} from "@/app/server/market-analysis";
 import {snapshotSignal,telegramSignalHtml} from "@/app/lib/signal-alerts";
@@ -15,13 +16,19 @@ export function menu(origin:string) {return {inline_keyboard:[
  [{text:"🔎 Scan",callback_data:"scan"},{text:"📒 Trades",callback_data:"trades"}],
  [{text:"🌐 Full dashboard & all controls",web_app:{url:origin}}],
 ]};}
+async function read(userId:string,key:string) {
+ if(env.DB)return env.DB.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key=?").bind(userId,key).first<{payload:string}>();
+ const row=memory().records.get(recordKey(userId,key));return row?{payload:row.payload}:null;
+}
+async function write(userId:string,key:string,payload:string) {
+ if(env.DB){await env.DB.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,?,?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(userId,key,payload,Date.now()).run();return;}
+ const store=memory().records,id=recordKey(userId,key);store.set(id,{payload,revision:(store.get(id)?.revision??0)+1,updatedAt:Date.now()});
+}
 async function workspace(userId:string) {
- const record=await env.DB!.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key='workspace'").bind(userId).first<{payload:string}>();
+ const record=await read(userId,"workspace");
  return {...defaults,...(record?JSON.parse(record.payload):{})} as Workspace;
 }
-async function save(userId:string,value:Workspace) {
- await env.DB!.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,'workspace',?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(userId,JSON.stringify(value),Date.now()).run();
-}
+async function save(userId:string,value:Workspace) {await write(userId,"workspace",JSON.stringify(value));}
 export async function handleCommand(userId:string,chatId:string,text:string,origin:string) {
  const token=env.TELEGRAM_BOT_TOKEN!;
  const send=async(message:string,keyboard=false,html=false)=>{for(const chunk of telegramChunks(message))await telegramCall(token,"sendMessage",{chat_id:chatId,text:chunk,...(html?{parse_mode:"HTML"}:{}),...(keyboard?{reply_markup:menu(origin)}:{})});};
@@ -36,12 +43,11 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
  if(patch) {await save(userId,{...settings,...patch});await send("✅ Setting saved and synced: "+JSON.stringify(patch),true);return;}
  if(command==="/scan") {await save(userId,{...settings,scanRequestedAt:Date.now()});await send("🔎 Scan requested on your open dashboard. Qualified new setups will arrive after fresh analysis completes.",true);return;}
  if(command==="/alerts"&&["on","off"].includes(args[0])) {
-  await env.DB!.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,'telegram',?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(userId,JSON.stringify({chatId,enabled:args[0]==="on"}),Date.now()).run();
+  await write(userId,"telegram",JSON.stringify({chatId,enabled:args[0]==="on"}));
   await send("🔔 Telegram signal alerts "+args[0]+". Commands remain available while the dashboard is open.",true);return;
  }
  if(["/trades","/journal"].includes(command)) {
-  const result=await env.DB!.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key LIKE 'trade/%' ORDER BY updated_at DESC LIMIT 15").bind(userId).all<{payload:string}>();
-  const trades=result.results.map(row=>JSON.parse(row.payload));
+  const trades=env.DB?(await env.DB.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key LIKE 'trade/%' ORDER BY updated_at DESC LIMIT 15").bind(userId).all<{payload:string}>()).results.map(row=>JSON.parse(row.payload)):[];
   await send("📒 SYNCED TRADE JOURNAL\n"+(trades.length?trades.map(trade=>trade.symbol+" · "+trade.side+" · "+trade.status+"\nEntry "+formatPrice(trade.entryPrice)+" · stop "+formatPrice(trade.stop)+" · remaining "+trade.remainingPct+"%").join("\n\n"):"No synced trades yet.")+"\n\nOpen Full dashboard to record actual fills, partial exits, stops or manual trades.",true);return;
  }
  if(command==="/analyse") {

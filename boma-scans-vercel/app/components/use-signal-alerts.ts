@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import type { ScannerRow } from "@/app/lib/market";
 import { getMediumRiskShortlist } from "@/app/lib/recommendations";
-import { emptySignalLedger, parseSignalLedger, playSetupChime, reconcileSignals, SIGNAL_STORAGE_KEY, SOUND_STORAGE_KEY, signalScope, type SignalLedger } from "@/app/lib/signal-alerts";
+import { emptySignalLedger, parseSignalLedger, playSetupChime, playTriggerChime, reconcileSignals, SIGNAL_STORAGE_KEY, SOUND_STORAGE_KEY, signalScope, type SignalLedger } from "@/app/lib/signal-alerts";
 
 export function useSignalAlerts({rows, equity, live, scanAt, scope, now, partial = false, onOpen}: {
   rows: ScannerRow[]; equity: number; live: boolean; scanAt: number | null;
@@ -108,12 +108,19 @@ export function useSignalAlerts({rows, equity, live, scanAt, scope, now, partial
     } else void enableSound();
   }
 
+  /** Second, distinct sound for a monitored pair reaching its trigger or entry range. */
+  function playTrigger() {
+    const context = contextRef.current;
+    if (!soundEnabled || !context) return false;
+    try { return playTriggerChime(context, volume); } catch { return false; }
+  }
+
   function markRead(id?: string) {
     const readAt = Date.now();
     saveLedger({...ledgerRef.current, notifications: ledgerRef.current.notifications.map(item => (!id || item.id === id) && !item.readAt ? {...item, readAt} : item)});
   }
 
   return {telegramStatus, picks, notifications: ledger.notifications, unread: ledger.notifications.filter(item => !item.readAt).length,
-    soundEnabled, soundReady, soundError, volume, setVolume, toggleSound, testSound: enableSound,
+    soundEnabled, soundReady, soundError, volume, setVolume, toggleSound, testSound: enableSound, playTrigger,
     markRead, storageReady, storageError};
 }

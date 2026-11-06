@@ -61,9 +61,11 @@ export const POSTGRES_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS telegram_runtime (id text PRIMARY KEY NOT NULL, \"offset\" bigint NOT NULL, lease_until bigint NOT NULL)",
   "CREATE TABLE IF NOT EXISTS telegram_updates (id bigint PRIMARY KEY NOT NULL, received_at bigint NOT NULL)",
   "CREATE TABLE IF NOT EXISTS login_attempts (key text PRIMARY KEY NOT NULL, attempts integer NOT NULL, expires_at bigint NOT NULL)",
+  // Supabase exposes public tables through its REST API; RLS with no policies keeps these private to the app's own connection.
+  ...["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts"].map(table => "ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY"),
 ];
 
-export const SQLITE_SCHEMA = POSTGRES_SCHEMA.map(statement => statement.replaceAll(" bigint ", " integer "));
+export const SQLITE_SCHEMA = POSTGRES_SCHEMA.filter(statement => statement.startsWith("CREATE")).map(statement => statement.replaceAll(" bigint ", " integer "));
 
 const DATABASE_URL_KEYS = ["POSTGRES_URL", "DATABASE_URL", "TURSO_DATABASE_URL"] as const;
 function databaseUrl() {

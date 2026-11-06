@@ -215,6 +215,28 @@ export function telegramSignalHtml(item: SignalSnapshot, historical = false, now
 }
 
 /** A short, quiet two-note chime. Context activation is handled by a user click. */
+/** Distinct three-note rising chime for "price reached the trigger / entry range". */
+export function playTriggerChime(context: AudioContext, volume: number) {
+  if (context.state !== "running" || volume <= 0) return false;
+  const level = Math.min(1, Math.max(0, volume)) * 0.16;
+  [523, 659, 784, 1047].forEach((frequency, index) => {
+    const start = context.currentTime + index * 0.11;
+    const oscillator = context.createOscillator();
+    const gain = context.createGain();
+    oscillator.type = "triangle";
+    oscillator.frequency.setValueAtTime(frequency, start);
+    gain.gain.setValueAtTime(0.0001, start);
+    gain.gain.exponentialRampToValueAtTime(Math.max(0.0002, level), start + 0.012);
+    gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.2);
+    oscillator.connect(gain);
+    gain.connect(context.destination);
+    oscillator.onended = () => { oscillator.disconnect(); gain.disconnect(); };
+    oscillator.start(start);
+    oscillator.stop(start + 0.22);
+  });
+  return true;
+}
+
 export function playSetupChime(context: AudioContext, volume: number) {
   if (context.state !== "running" || volume <= 0) return false;
   const level = Math.min(1, Math.max(0, volume)) * 0.14;

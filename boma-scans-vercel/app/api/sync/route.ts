@@ -8,7 +8,7 @@ const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{"
 export async function GET(request:NextRequest) {
   const user=await getOwnerUser();
   if (!user) return reply({error:"Sign in at /login with your owner password to sync across devices."},401);
-  if (!env.DB) return reply({error:"Account sync is unavailable. Your device copy is retained."},503);
+  if (!env.DB) return reply({error:"Cloud sync is off: no database connected (Vercel Storage → Connect Supabase). Your device copy is in use."},503);
   const scope=request.nextUrl.searchParams.get("scope");
   if (scope!=="workspace" && scope!=="trade") return reply({error:"Invalid scope."},400);
   const result=await env.DB.prepare("SELECT record_key AS key,payload,revision FROM account_records WHERE user_id=? AND (record_key=? OR record_key LIKE ?)").bind(user.userId,scope,scope+"/%").all<{key:string;payload:string;revision:number}>();
@@ -17,7 +17,7 @@ export async function GET(request:NextRequest) {
 export async function PUT(request:NextRequest) {
   const user=await getOwnerUser();
   if (!user) return reply({error:"Sign in at /login to sync."},401);
-  if (!env.DB) return reply({error:"Account sync unavailable."},503);
+  if (!env.DB) return reply({error:"Cloud sync is off: no database connected. Device copy retained."},503);
   if (request.headers.get("origin") && request.headers.get("origin")!==request.nextUrl.origin) return reply({error:"Origin rejected."},403);
   const text=await request.text();
   if (text.length>150000) return reply({error:"Record too large."},413);

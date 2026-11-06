@@ -72,6 +72,7 @@ import { LiveValue } from "@/app/components/live-value";
 import { SignalCenter, type SignalTab } from "@/app/components/signal-center";
 import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
+import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import type { SignalSnapshot } from "@/app/lib/signal-alerts";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -379,6 +380,20 @@ export default function Home() {
   );
   const [cloudScanRequest,setCloudScanRequest] = useState(0);
   const [btcDaily, setBtcDaily] = useState<Candle[]>([]);
+  // Pairs the owner chose to watch for live trigger / entry-range hits.
+  const [monitored, setMonitored] = useState<string[]>([]);
+  const [monitoredReady, setMonitoredReady] = useState(false);
+  useEffect(() => {
+    try { setMonitored(parseMonitoredSymbols(JSON.parse(window.localStorage.getItem("boma-scans:monitored") ?? "[]"))); } catch { /* start empty */ }
+    setMonitoredReady(true);
+  }, []);
+  useEffect(() => {
+    if (!monitoredReady) return;
+    try { window.localStorage.setItem("boma-scans:monitored", JSON.stringify(monitored)); } catch { /* device storage unavailable */ }
+  }, [monitored, monitoredReady]);
+  const toggleMonitor = useCallback((pair: string) => {
+    setMonitored(current => current.includes(pair) ? current.filter(item => item !== pair) : parseMonitoredSymbols([...current, pair]));
+  }, []);
   const handledCloudScan = useRef(0);
   const scanController = useRef<AbortController | null>(null);
   const scanRunId = useRef(0);
@@ -1126,6 +1141,7 @@ export default function Home() {
     setSymbol(value.symbol); setSymbolInput(value.symbol); setIntervalValue(String(value.interval));
     if(typeof value.scanRequestedAt === "number" && Date.now()-value.scanRequestedAt<60000) setCloudScanRequest(value.scanRequestedAt);
     if(["ALL","LOW","MEDIUM","HIGH"].includes(String(value.riskFilter))) setRiskFilter(value.riskFilter as RiskFilter);
+    if(Array.isArray(value.monitored)) setMonitored(parseMonitoredSymbols(value.monitored));
     if(["BOTH","LONG","SHORT"].includes(String(value.directionFilter))) setDirectionFilter(value.directionFilter as DirectionFilter);
     if (["SCALP","DAY","SWING","POSITION"].includes(String(value.style))) setStyle(value.style as TradingStyle);
     if (["STRICT","BALANCED","FLEXIBLE"].includes(String(value.flexibility))) setFlexibility(value.flexibility as FlexibilityMode);
@@ -1135,7 +1151,7 @@ export default function Home() {
     if (typeof value.fee === "number" && value.fee>=0 && value.fee<=0.3) setTakerFeePct(String(value.fee));
     if (typeof value.slippage === "number" && value.slippage>=0 && value.slippage<=1) setSlippagePct(String(value.slippage));
   }, []);
-  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
+  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
   const planKey = [symbol, interval, style, flexibility].join(":");
   const [lockedPlan, setLockedPlan] = useState<LockedPlan | null>(null);
   const activeLock = lockedPlan?.key === planKey ? lockedPlan : null;
@@ -1742,7 +1758,7 @@ export default function Home() {
 
       <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7">
         <TelegramPanel signals={signalAlerts.picks.map(pick=>snapshotSignal(pick))} deliveryStatus={signalAlerts.telegramStatus}/>
-        <SignalCenter alerts={signalAlerts} rows={scannerRows} tab={signalTab} onTabChange={setSignalTab}
+        <SignalCenter alerts={signalAlerts} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
           onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")}/>
         <Collapsible

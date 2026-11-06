@@ -8,25 +8,35 @@ import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextInterval
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
 import { parseSignalLedger, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
+import { memory, recordKey } from "@/app/server/memory-store";
 export const dynamic="force-dynamic";
 
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{"Cache-Control":"no-store"}});
 type Config={chatId:string;enabled:boolean};
+async function readRecord(userId:string,key:string):Promise<{payload:string}|null>{
+  if(env.DB)return env.DB.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key=?").bind(userId,key).first<{payload:string}>();
+  const row=memory().records.get(recordKey(userId,key));return row?{payload:row.payload}:null;
+}
+async function writeRecord(userId:string,key:string,payload:string){
+  if(env.DB){await env.DB.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,?,?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(userId,key,payload,Date.now()).run();return;}
+  const store=memory().records,id=recordKey(userId,key),current=store.get(id);
+  store.set(id,{payload,revision:(current?.revision??0)+1,updatedAt:Date.now()});
+}
 async function configuration(userId:string,email:string):Promise<Config|null>{
-  const row=await env.DB!.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key='telegram'").bind(userId).first<{payload:string}>();
+  const row=await readRecord(userId,"telegram");
   // TELEGRAM_OWNER_EMAIL is optional on single-owner hosting; when set, only that owner gets the default destination.
   if(env.TELEGRAM_OWNER_EMAIL && email.toLowerCase()!==env.TELEGRAM_OWNER_EMAIL.toLowerCase())return null;
   return row ? JSON.parse(row.payload) : env.TELEGRAM_CHAT_ID ? {chatId:env.TELEGRAM_CHAT_ID,enabled:true} : null;
 }
 export async function GET() {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
-  const config=env.DB?await configuration(user.userId,user.email):null;
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false});
+  const config=await configuration(user.userId,user.email);
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
   if(request.headers.get("origin") && request.headers.get("origin")!==request.nextUrl.origin)return reply({error:"Origin rejected."},403);
-  if(!env.DB || !env.TELEGRAM_BOT_TOKEN)return reply({error:"Telegram server configuration is unavailable."},503);
+  if(!env.TELEGRAM_BOT_TOKEN)return reply({error:"Telegram is not configured: add TELEGRAM_BOT_TOKEN in Vercel (Settings → Environment Variables), then Redeploy."},503);
   let body;
   try {const raw=await request.text();if(raw.length>120000)return reply({error:"Request too large."},413);body=JSON.parse(raw);}catch{return reply({error:"Invalid request."},400);}
   if(!body || typeof body!=="object")return reply({error:"Invalid request."},400);
@@ -35,12 +45,12 @@ export async function POST(request:NextRequest) {
       if(typeof body.chatId!=="string" || !/^-?\d{5,20}$/.test(body.chatId))return reply({error:"Enter your numeric Telegram chat ID."},400);
       await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:body.chatId,text:"✅ Boma Scans connected. Qualified scan alerts will include fixed entry, stop, five targets, technical reasoning and cancellation rules. Keep the scanner open for automatic delivery. No Bybit orders are placed."});
       const config={chatId:body.chatId,enabled:true};
-      await env.DB.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,'telegram',?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(user.userId,JSON.stringify(config),Date.now()).run();
-      return reply({message:"Connected. Test message delivered.",enabled:true});
+      await writeRecord(user.userId,"telegram",JSON.stringify(config));
+      return reply({message:env.DB?"Connected. Test message delivered.":"Connected. Test message delivered. No database is connected, so also set TELEGRAM_CHAT_ID="+body.chatId+" in Vercel to keep this after a restart.",enabled:true});
     }
     const config=await configuration(user.userId,user.email);
     if(body.action==="disable") {
-      if(config) await env.DB.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,'telegram',?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(user.userId,JSON.stringify({...config,enabled:false}),Date.now()).run();
+      if(config) await writeRecord(user.userId,"telegram",JSON.stringify({...config,enabled:false}));
       return reply({message:"Telegram alerts disabled."});
     }
     if(body.action==="menu" && config) {await handleCommand(user.userId,config.chatId,"/menu",request.nextUrl.origin);return reply({message:"Telegram controls sent."});}
@@ -68,14 +78,16 @@ export async function POST(request:NextRequest) {
       if(!sameLevels || !analysis.entryReady || analysis.bias!==signal.side || btcContext.divergenceVerdict==="REJECT" || entryExecutionBlocker(plan,ticker.lastPrice,Date.now()) || !stillConfirmed)continue;
       // Send the original fixed levels only while fresh analysis still approves the same plan.
       const key=[signal.symbol,interval,signal.side,plan.confirmationTime,plan.trigger,plan.stop].join(":");
-      const claim=await env.DB.prepare("INSERT INTO telegram_deliveries(user_id,signal_key,status,created_at) VALUES(?,?,'PENDING',?) ON CONFLICT(user_id,signal_key) DO NOTHING RETURNING status").bind(user.userId,key,Date.now()).first();
-      if(!claim)continue;
+      let claimed:boolean;
+      if(env.DB){claimed=!!(await env.DB.prepare("INSERT INTO telegram_deliveries(user_id,signal_key,status,created_at) VALUES(?,?,'PENDING',?) ON CONFLICT(user_id,signal_key) DO NOTHING RETURNING status").bind(user.userId,key,Date.now()).first());}
+      else {const seen=memory().deliveries,id=recordKey(user.userId,key);claimed=!seen.has(id);if(claimed)seen.set(id,Date.now());}
+      if(!claimed)continue;
       try {
         const text=telegramSignalHtml({...signal,btcExplanation:btcContext.explanation},false);
         for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
-        await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
+        if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
       }catch {
-        await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();
+        if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();
         return reply({error:"Telegram delivery could not be confirmed. It will not auto-resend this setup, to avoid duplicate or partial alerts."},502);
       }
     }
