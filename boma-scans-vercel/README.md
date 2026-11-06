@@ -75,3 +75,23 @@ On the old site open Trade manager → **Export trade backup**; on the new site 
 ## Privacy
 
 Market data is fetched through your own deployment. The database holds only your workspace settings, trade journal and Telegram delivery log. No exchange API keys are used and no orders are placed.
+
+## Autonomous monitoring (app closed)
+
+Two server endpoints do the work of the open dashboard. Point any scheduler at them (the Telegram panel shows the exact links with your key):
+
+| Call | Path | What it does |
+| --- | --- | --- |
+| every 1 minute | `/api/cron/monitor?key=…` | reads Telegram commands, re-analyses every monitored pair, pushes entry / exit / leave alerts and the hourly digest |
+| every 15 minutes | `/api/cron/scan?key=…` | scans the most liquid pairs, pushes qualified signals and auto-monitors them |
+
+The key is `CRON_SECRET` if you set it in Vercel, otherwise it is derived from the owner password. A free scheduler such as cron-job.org works; the repo also carries a GitHub Actions workflow (`.github/workflows/boma-cron.yml`) that needs the repository secret `BOMA_CRON_KEY`.
+
+### Telling the bot about your trade
+
+- Entry-range alerts carry **Entered** and **Skipped** buttons.
+- `/entered BTCUSDT 68500` records your fill (price optional) and arms exit tracking.
+- `/skip BTCUSDT` stops following that plan; a new plan for the pair still alerts.
+- `/status` lists monitored pairs and open trades.
+
+Once entered you are told at each target, at the stop, when the engine sees a structure change against the trade (leave or protect the stop), when the runner should be closed after target 2 and when the maximum hold time is reached.

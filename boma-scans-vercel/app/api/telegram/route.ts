@@ -9,6 +9,7 @@ import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entr
 import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
+import { cronKey } from "@/app/server/cron-auth";
 export const dynamic="force-dynamic";
 
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{"Cache-Control":"no-store"}});
@@ -28,7 +29,7 @@ async function configuration(userId:string,email:string):Promise<Config|null>{
   if(env.TELEGRAM_OWNER_EMAIL && email.toLowerCase()!==env.TELEGRAM_OWNER_EMAIL.toLowerCase())return null;
   return row ? JSON.parse(row.payload) : env.TELEGRAM_CHAT_ID ? {chatId:env.TELEGRAM_CHAT_ID,enabled:true} : null;
 }
-export async function GET() {
+export async function GET(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
   const config=await configuration(user.userId,user.email);
   let senders:unknown=[];
@@ -36,7 +37,11 @@ export async function GET() {
   // Which bot does the configured token belong to? (so the owner messages the right one)
   let bot:string|null=null;
   if(env.TELEGRAM_BOT_TOKEN){try {const me=await telegramCall(env.TELEGRAM_BOT_TOKEN,"getMe",{}) as {username?:string}|undefined;bot=me?.username??null;} catch { bot=null; }}
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot});
+  let server:{lastRunAt?:number;autoMonitored?:string[];inTrade?:string[];lastError?:string}={};
+  try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {lastRunAt?:number;autoMonitored?:string[];lastError?:string;symbols?:Record<string,{armed?:unknown}>};server={lastRunAt:parsed.lastRunAt,autoMonitored:parsed.autoMonitored??[],inTrade:Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s),lastError:parsed.lastError};}} catch { /* none yet */ }
+  const key=await cronKey();
+  const origin=request?.nextUrl?.origin??"";
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET}:null});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);

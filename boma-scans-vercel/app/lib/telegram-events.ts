@@ -4,7 +4,7 @@ import type { ExitEvent, MonitorEntry } from "@/app/lib/trigger-monitor";
 import type { TrackedTrade, TradeSnapshot } from "@/app/lib/trade-manager";
 
 /** A follow-up message for Telegram. `key` de-duplicates across devices and reloads. */
-export type TelegramEvent = { key: string; lines: string[]; symbol?: string };
+export type TelegramEvent = { key: string; lines: string[]; symbol?: string; buttons?: Array<{ text: string; data: string }> };
 
 function card(entry: MonitorEntry) {
   const plan = entry.plan;
@@ -26,7 +26,8 @@ export function formatMonitorEvent(entry: MonitorEntry): TelegramEvent | null {
     : entry.state === "STOP HIT" ? "⛔ Plan invalidated: price reached the stop side before entry. Cancel any resting order and wait for a fresh plan."
     : entry.state === "PAST ENTRY" ? "⏸ Price ran past the entry level. Keep the limit at the level and wait for a pullback; do not chase."
     : "";
-  return { key: "monitor:" + entry.planKey + ":" + entry.state, symbol: entry.symbol, lines: [head, ...levels, instruction] };
+  const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered", data: "entered:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }] : undefined;
+  return { key: "monitor:" + entry.planKey + ":" + entry.state, symbol: entry.symbol, lines: [head, ...levels, instruction, ...(buttons ? ["Tap Entered so exits are tracked from your fill, or Skipped to stop following this plan."] : [])], buttons };
 }
 
 export type MonitorUpdateKind = "CONFIRMED" | "PLAN UPDATED" | "EXPIRED";
@@ -52,7 +53,7 @@ export function formatMonitorDigest(entries: MonitorEntry[], now = Date.now()): 
     if (!plan || entry.price === null) return "• " + entry.symbol + " · " + entry.state.toLowerCase();
     return "• " + entry.symbol + " " + entry.side + " · " + entry.state + " · price " + formatPrice(entry.price) + " · trigger " + formatPrice(plan.trigger) + (entry.toTriggerPct !== null ? " (" + (entry.toTriggerPct > 0 ? "+" : "") + entry.toTriggerPct.toFixed(2) + "%)" : "") + " · stop " + (entry.stop !== null ? formatPrice(entry.stop) : "—");
   });
-  return { key: "monitor:digest:" + hour, lines: ["🕐 Monitoring update · " + entries.length + " pair" + (entries.length === 1 ? "" : "s"), ...lines, "Sent hourly while the dashboard is open. Alerts for trigger, entry range, confirmation and stop arrive as they happen."] };
+  return { key: "monitor:digest:" + hour, lines: ["🕐 Monitoring update · " + entries.length + " pair" + (entries.length === 1 ? "" : "s"), ...lines, "Sent hourly. Alerts for trigger, entry range, confirmation, targets and stop arrive as they happen."] };
 }
 
 /** Confirmation sent when a pair is added to monitoring (or on "send levels now"). */
@@ -74,6 +75,12 @@ export function formatExitEvent(event: ExitEvent): TelegramEvent {
   const risk = Math.max(Math.abs(plan.entry - plan.stop), plan.entry * 0.0001);
   const r = (price: number) => (sign * (price - plan.entry) / risk).toFixed(1) + "R";
   const pct = (price: number) => (sign * (price - plan.entry) / plan.entry * 100).toFixed(2) + "%";
+  if (event.kind === "CLOSE") return { key: "exit:" + plan.planKey + ":CLOSE", symbol: plan.symbol, lines: [
+    "🚪 " + plan.symbol + " " + plan.side + " · LEAVE THE TRADE",
+    "📍 Price " + formatPrice(event.price) + " · " + r(event.price) + " · " + pct(event.price),
+    "Reason: " + event.reason + ".",
+    "Close the remaining position now; do not wait for the later targets.",
+  ] };
   if (event.kind === "STOP") return { key: "exit:" + plan.planKey + ":STOP", symbol: plan.symbol, lines: [
     "❌ " + plan.symbol + " " + plan.side + " · STOP HIT " + formatPrice(plan.stop),
     "📍 Price " + formatPrice(event.price) + " · " + r(event.price) + " · " + pct(event.price),
@@ -86,6 +93,19 @@ export function formatExitEvent(event: ExitEvent): TelegramEvent {
     "📍 Price " + formatPrice(event.price) + " · " + r(event.price) + " · " + pct(event.price),
     "✅ Close " + event.exitPct + "% now · " + remaining + "% remaining",
     nextTarget !== undefined ? "➡️ Next: Target " + (event.level + 1) + " " + formatPrice(nextTarget) + " · stop stays " + formatPrice(plan.stop) : "🏁 All targets done; close any remainder.",
+  ] };
+}
+
+/** Structure-based advice for a monitored trade from the engine's trade manager (leave, close remainder, protect). */
+export function formatAdviceEvent(plan: { symbol: string; side: "LONG" | "SHORT"; planKey: string; entry: number; stop: number }, action: string, headline: string, detail: string, price: number, rMultiple: number, suggestedStop?: number): TelegramEvent {
+  const leave = action === "REDUCE / EXIT" || action === "EXIT NOW" || action === "CLOSE REMAINDER";
+  const key = "advice:" + plan.planKey + ":" + action + (suggestedStop ? ":" + formatPrice(suggestedStop) : "");
+  return { key, symbol: plan.symbol, lines: [
+    (leave ? "🚪 " : "🛡 ") + plan.symbol + " " + plan.side + " · " + (leave ? "LEAVE THE TRADE" : "PROTECT PROFIT"),
+    "📍 Price " + formatPrice(price) + " · " + (rMultiple >= 0 ? "+" : "") + rMultiple.toFixed(1) + "R",
+    headline,
+    detail,
+    ...(suggestedStop ? ["🛑 Move stop to " + formatPrice(suggestedStop) + " (was " + formatPrice(plan.stop) + ")"] : []),
   ] };
 }
 

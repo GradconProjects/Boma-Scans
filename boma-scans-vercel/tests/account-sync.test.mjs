@@ -69,6 +69,7 @@ telegramMod.require=spec=>{
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/server/telegram')return {telegramCall:async(...args)=>{telegramSent.push(args);return {};},telegramChunks:text=>[text]};
  if(spec==='@/app/lib/signal-alerts')return loadReal('app/lib/signal-alerts.ts');
+ if(spec==='@/app/server/cron-auth')return {cronKey:async()=>"",cronAuthorized:async()=>false};
  if(spec.startsWith('@/')) return {};
  return require(spec);
 };
@@ -104,6 +105,7 @@ pollMod.require=spec=>{
  if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/server/telegram-controls')return {handleCommand:async(...args)=>commands.push(args)};
+ if(spec==='@/app/server/telegram-poll'){const f=new URL('../app/server/telegram-poll.ts',import.meta.url).pathname;const pm=new Module(f);pm.require=pollMod.require;pm._compile(ts.transpileModule(readFileSync(f,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,f);return pm.exports;}
  if(spec==='@/app/server/telegram')return {telegramCall:async()=>({})};
  return require(spec);
 };

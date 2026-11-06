@@ -1,0 +1,18 @@
+# Fallback scheduler for Boma Scans autonomous monitoring (GitHub Actions runs
+# this every 5 minutes; a dedicated scheduler such as cron-job.org can run the
+# monitor every minute). Add the repository secret BOMA_CRON_KEY with the key
+# shown in the app's Telegram panel.
+name: boma-cron
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Monitor pairs
+        run: curl -fsS --max-time 55 "https://boma-scans.vercel.app/api/cron/monitor?key=${{ secrets.BOMA_CRON_KEY }}" || true
+      - name: Scan for signals
+        if: ${{ github.event_name == 'workflow_dispatch' || endsWith(github.run_number, '0') }}
+        run: curl -fsS --max-time 55 "https://boma-scans.vercel.app/api/cron/scan?key=${{ secrets.BOMA_CRON_KEY }}" || true

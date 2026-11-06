@@ -408,6 +408,20 @@ export default function Home() {
     if (!monitoredReady) return;
     try { window.localStorage.setItem("boma-scans:monitored", JSON.stringify(monitored)); } catch { /* device storage unavailable */ }
   }, [monitored, monitoredReady]);
+  useEffect(() => {
+    if (!monitoredReady) return;
+    let stopped = false;
+    const pull = async () => {
+      try {
+        const data = await (await fetch("/api/telegram", {cache: "no-store"})).json() as {server?: {autoMonitored?: string[]}};
+        const auto = parseMonitoredSymbols(data.server?.autoMonitored);
+        if (!stopped && auto.length) setMonitored(current => parseMonitoredSymbols([...current, ...auto]));
+      } catch { /* not signed in or offline */ }
+    };
+    void pull();
+    const timer = window.setInterval(() => void pull(), 60_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, [monitoredReady]);
   const toggleMonitor = useCallback((pair: string) => {
     setMonitored(current => current.includes(pair) ? current.filter(item => item !== pair) : parseMonitoredSymbols([...current, pair]));
   }, []);
@@ -1345,7 +1359,7 @@ export default function Home() {
     void pushTelegramEvents(updates.filter(update => update.kind !== "STOP HIT").map(update => formatMonitorUpdate(update.entry, update.kind as "CONFIRMED" | "PLAN UPDATED" | "EXPIRED")));
   }, onExit: events => {
     signalAlerts.playTrigger();
-    for (const event of events) notify(event.kind === "STOP" ? "❌ " + event.symbol + " stop hit · close the remainder" : "🎯 " + event.symbol + " target " + event.level + " hit · close " + event.exitPct + "%", {duration: 15000});
+    for (const event of events) notify(event.kind === "STOP" ? "❌ " + event.symbol + " stop hit · close the remainder" : event.kind === "CLOSE" ? "🚪 " + event.symbol + " leave the trade · " + event.reason : "🎯 " + event.symbol + " target " + event.level + " hit · close " + event.exitPct + "%", {duration: 15000});
     void pushTelegramEvents(events.map(formatExitEvent));
   }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
