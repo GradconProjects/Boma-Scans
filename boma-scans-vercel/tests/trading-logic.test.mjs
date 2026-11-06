@@ -348,7 +348,7 @@ test("Signal identity distinguishes long/short and mode; copy includes all five 
   assert.match(message,/SELL LIMIT/);
   assert.doesNotMatch(message,/BUY LIMIT/);
   assert.match(message,/⏱ Expires: /);
-  assert.match(message,/🎯 Target 1: 99\.0000 \(\+0\.70%, 0\.5R\)/);
+  assert.match(message,/🎯 Target 1: 99\.0000   \+0\.70%  ·  0\.5R/);
   assert.match(message,/Saved levels/);
 });
 
@@ -546,8 +546,9 @@ test("Telegram HTML highlights levels and safely escapes analysis text",()=>{
  const item=signals.snapshotSignal(qualifiedPick(Date.now()));
  item.setupType="PULLBACK <risk> & liquidity";
  const html=signals.telegramSignalHtml(item);
- assert.match(html,/<b>👉 Entry/);
- assert.match(html,/<b>❌ StopLoss/);
+ assert.match(html,/👉 Entry: <code>[\d.]+<\/code>/);
+ assert.match(html,/❌ StopLoss: <code>[\d.]+<\/code>/);
+ assert.match(html,/^<b>📍 Coin : #ETH\/USDT<\/b>\n<b>🟢 LONG<\/b>\n\n👉 Entry/);
  assert.match(html,/PULLBACK &lt;risk&gt; &amp; liquidity/);
  assert.doesNotMatch(html,/<risk>/);
 });

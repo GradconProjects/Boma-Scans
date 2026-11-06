@@ -5,6 +5,15 @@ import Module,{createRequire} from 'node:module';
 import {readFileSync} from 'node:fs';
 import {DatabaseSync} from 'node:sqlite';
 const require=createRequire(import.meta.url);
+const realModules=new Map();
+function loadReal(relative){
+ const file=new URL('../'+relative,import.meta.url).pathname;
+ if(realModules.has(file))return realModules.get(file).exports;
+ const m=new Module(file);realModules.set(file,m);
+ m.require=spec=>spec.startsWith('@/')?loadReal(spec.slice(2)+'.ts'):require(spec);
+ m._compile(ts.transpileModule(readFileSync(file,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,file);
+ return m.exports;
+}
 const memoryFile=new URL('../app/server/memory-store.ts',import.meta.url).pathname;
 const memoryMod=new Module(memoryFile);memoryMod.require=require;
 memoryMod._compile(ts.transpileModule(readFileSync(memoryFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,memoryFile);
@@ -59,6 +68,7 @@ telegramMod.require=spec=>{
  if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/server/telegram')return {telegramCall:async(...args)=>{telegramSent.push(args);return {};},telegramChunks:text=>[text]};
+ if(spec==='@/app/lib/signal-alerts')return loadReal('app/lib/signal-alerts.ts');
  if(spec.startsWith('@/')) return {};
  return require(spec);
 };
@@ -82,7 +92,7 @@ test('Monitored-pair and trade follow-ups are pushed to Telegram once per key',a
  const first=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
  assert.equal(first.sent,1,JSON.stringify(first));
  assert.equal(telegramSent.length,before+1);
- assert.match(telegramSent.at(-1)[2].text,/^<b>🔔 ABCUSDT LONG · AT TRIGGER<\/b>\n📍 Price 100.5\n&lt;b&gt;not html&lt;\/b&gt;$/);
+ assert.match(telegramSent.at(-1)[2].text,/^<b>🔔 ABCUSDT LONG · AT TRIGGER<\/b>\n\n📍 Price <code>100.5<\/code>\n&lt;b&gt;not html&lt;\/b&gt;$/);
  const second=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
  assert.equal(second.sent,0,'same key is not resent');
 });

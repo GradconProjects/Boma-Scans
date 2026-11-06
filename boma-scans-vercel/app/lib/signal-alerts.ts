@@ -216,7 +216,7 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
   const sign = long ? 1 : -1;
   const risk = Math.max(Math.abs(input.entry - input.stop), input.entry * 0.0001);
   const pct = (price: number) => (sign * (price - input.entry) / input.entry * 100);
-  const figures = (price: number) => " (" + (pct(price) >= 0 ? "+" : "") + pct(price).toFixed(2) + "%, " + (sign * (price - input.entry) / risk).toFixed(1) + "R)";
+  const figures = (price: number) => "   " + (pct(price) >= 0 ? "+" : "") + pct(price).toFixed(2) + "%  ·  " + (sign * (price - input.entry) / risk).toFixed(1) + "R";
   return [
     "📍 Coin : #" + input.symbol.replace(/USDT$/, "") + "/USDT",
     long ? "🟢 LONG" : "🔴 SHORT",
@@ -226,7 +226,7 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
     "",
     ...input.targets.map((target, index) => "🎯 Target " + (index + 1) + ": " + (target.available === false ? "unconfirmed" : formatPrice(target.price) + figures(target.price))),
     "",
-    "❌ StopLoss: " + formatPrice(input.stop) + " (-" + (Math.abs(input.entry - input.stop) / input.entry * 100).toFixed(2) + "%)",
+    "❌ StopLoss: " + formatPrice(input.stop) + "   −" + (Math.abs(input.entry - input.stop) / input.entry * 100).toFixed(2) + "%",
     ...(input.expiresAt ? ["⏱ Expires: " + melbourne(input.expiresAt)] : []),
   ];
 }
@@ -243,15 +243,35 @@ export function telegramSignalText(item: SignalSnapshot, historical = false, now
   return [...lines, status, ...(link ? ["🔗 Open in app: " + link] : []), "📄 Advisory only. No exchange order has been placed."].join("\n");
 }
 
-/** Telegram HTML keeps important levels prominent; copy/export remains plain text. */
-export function telegramSignalHtml(item: SignalSnapshot, historical = false, now = Date.now(), link?: string) {
+/**
+ * Telegram HTML renderer shared by signals and monitor messages: bold title
+ * and side, a blank line between groups, prices in monospace, the link last.
+ */
+export function renderTelegramHtml(lines: string[]) {
   const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  return telegramSignalText(item, historical, now, link).split("\n").map(line => {
+  // Monospace the price part of a line (before the spaced figures), never percentages.
+  const mono = (text: string) => { const [head, ...rest] = text.split("   "); return head.replace(/(?<![\w.])(\d+\.\d+|\d{2,})(?![\w.%])/g, "<code>$1</code>") + (rest.length ? "   " + rest.join("   ") : ""); };
+  const spaced: string[] = [];
+  const isGroupStart = (line: string) => /^(📍 Price|👉 Entry|🎯 Target 1:|❌ StopLoss|⏱ Expires|🔗 |✅ |⏳ |⛔ |⏸ |📄 |🗂️|➡️|🏁)/u.test(line);
+  lines.forEach((line, index) => {
+    const previous = spaced[spaced.length - 1];
+    const sideLine = /^(🟢 LONG|🔴 SHORT)/u.test(line);
+    if (index > 0 && line !== "" && previous !== "" && previous !== undefined && !sideLine && (index === 1 || isGroupStart(line) || /^(🟢 LONG|🔴 SHORT)/u.test(previous))) spaced.push("");
+    if (line === "" && previous === "") return;
+    spaced.push(line);
+  });
+  return spaced.map((line, index) => {
     const safe = escape(line.slice(0, 2600));
-    if (/^(📍 Coin|🟢|🔴|👉 Entry|🎯 Trigger|❌ StopLoss)/u.test(line)) return "<b>" + safe + "</b>";
-    if (["🎯 TAKE-PROFIT LADDER", "🧭 HOW TO ENTER", "🚪 HOW TO EXIT & PROTECT", "🚫 CANCEL / DO NOT ENTER", "🔎 WHY THIS SETUP", "💰 POSITION PLAN"].includes(line)) return "<b>" + safe + "</b>";
+    if (index === 0 || /^(📍 Coin|🟢 LONG|🔴 SHORT)/u.test(line)) return "<b>" + safe + "</b>";
+    if (/^(📍 Price|👉 Entry|🎯 Trigger|🎯 Target \d|❌ StopLoss|🌐 Leverage|⏱ Expires|🛑 Stop)/u.test(line)) return mono(safe);
+    if (/^🔗 /u.test(line)) return "<i>" + safe + "</i>";
     return safe;
   }).join("\n");
+}
+
+/** Telegram HTML keeps important levels prominent; copy/export remains plain text. */
+export function telegramSignalHtml(item: SignalSnapshot, historical = false, now = Date.now(), link?: string) {
+  return renderTelegramHtml(telegramSignalText(item, historical, now, link).split("\n"));
 }
 
 /** A short, quiet two-note chime. Context activation is handled by a user click. */

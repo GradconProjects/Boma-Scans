@@ -6,7 +6,7 @@ import { getOwnerUser } from "@/app/server/owner-auth";
 import { GET as bybit } from "@/app/api/bybit/route";
 import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextIntervals, INTERVAL_MS, type Candle } from "@/app/lib/market";
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
-import { appLink, parseSignalLedger, telegramSignalHtml } from "@/app/lib/signal-alerts";
+import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
 export const dynamic="force-dynamic";
@@ -62,7 +62,6 @@ export async function POST(request:NextRequest) {
     if(body.action==="events") {
       if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});
       const events=Array.isArray(body.events)?body.events.slice(0,10):[];
-      const escape=(text:string)=>text.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
       let sent=0;
       for(const event of events) {
         if(!event || typeof event.key!=="string" || !/^(monitor|trade):[\w:.\- ]{1,200}$/.test(event.key) || !Array.isArray(event.lines))continue;
@@ -73,7 +72,7 @@ export async function POST(request:NextRequest) {
         if(env.DB){claimed=!!(await env.DB.prepare("INSERT INTO telegram_deliveries(user_id,signal_key,status,created_at) VALUES(?,?,'PENDING',?) ON CONFLICT(user_id,signal_key) DO NOTHING RETURNING status").bind(user.userId,key,Date.now()).first());}
         else {const seen=memory().deliveries,id=recordKey(user.userId,key);claimed=!seen.has(id);if(claimed)seen.set(id,Date.now());}
         if(!claimed)continue;
-        const text=lines.map((line:string,index:number)=>index===0?"<b>"+escape(line)+"</b>":escape(line)).filter(Boolean).join("\n");
+        const text=renderTelegramHtml(lines);
         try {
           for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
           if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
