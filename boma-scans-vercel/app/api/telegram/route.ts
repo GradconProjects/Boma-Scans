@@ -54,6 +54,31 @@ export async function POST(request:NextRequest) {
       return reply({message:"Telegram alerts disabled."});
     }
     if(body.action==="menu" && config) {await handleCommand(user.userId,config.chatId,"/menu",request.nextUrl.origin);return reply({message:"Telegram controls sent."});}
+    if(body.action==="events") {
+      if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});
+      const events=Array.isArray(body.events)?body.events.slice(0,10):[];
+      const escape=(text:string)=>text.replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;");
+      let sent=0;
+      for(const event of events) {
+        if(!event || typeof event.key!=="string" || !/^(monitor|trade):[\w:.\- ]{1,200}$/.test(event.key) || !Array.isArray(event.lines))continue;
+        const lines=event.lines.filter((line:unknown):line is string=>typeof line==="string" && line.length<=600).slice(0,12);
+        if(!lines.length)continue;
+        const key="event:"+event.key;
+        let claimed:boolean;
+        if(env.DB){claimed=!!(await env.DB.prepare("INSERT INTO telegram_deliveries(user_id,signal_key,status,created_at) VALUES(?,?,'PENDING',?) ON CONFLICT(user_id,signal_key) DO NOTHING RETURNING status").bind(user.userId,key,Date.now()).first());}
+        else {const seen=memory().deliveries,id=recordKey(user.userId,key);claimed=!seen.has(id);if(claimed)seen.set(id,Date.now());}
+        if(!claimed)continue;
+        const text=lines.map((line:string,index:number)=>index===0?"<b>"+escape(line)+"</b>":escape(line)).filter(Boolean).join("\n");
+        try {
+          for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
+          if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
+        } catch {
+          if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();
+          return reply({sent,error:"Telegram delivery could not be confirmed."},502);
+        }
+      }
+      return reply({sent,message:sent?"Follow-up delivered.":"Nothing new to send."});
+    }
     if(body.action!=="signals")return reply({error:"Unknown Telegram action."},400);
     if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});
     const ledger=parseSignalLedger(JSON.stringify({version:1,notifications:body.signals,scopes:{}}));

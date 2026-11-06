@@ -18,6 +18,7 @@ import type { OrderBookBalance } from "@/app/lib/order-book";
 import { InlineChart } from "@/app/components/inline-chart";
 import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import type { MonitorEntry } from "@/app/lib/trigger-monitor";
+import { formatMonitorEvent, pushTelegramEvents } from "@/app/lib/telegram-events";
 
 export type SignalTab = "signals" | "notifications";
 type Alerts = ReturnType<typeof useSignalAlerts>;
@@ -147,7 +148,11 @@ export function SignalCenter({alerts, rows = [], monitored = [], onToggleMonitor
   const monitoredSet = new Set(monitored);
   const monitor = useTriggerMonitor({rows, monitored, onAlert: entries => {
     alerts.playTrigger();
-    toast("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering.", duration: 12000});
+    toast("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering. Pushed to Telegram if connected.", duration: 12000});
+    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
+  }, onFollowUp: entries => {
+    toast("⛔ " + entries.map(entry => entry.symbol + " plan invalidated").join(" · "), {description: "Price reached the stop side before entry. Cancel any resting order.", duration: 12000});
+    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
   }});
   return <section id="signals-center" className="mb-5 scroll-mt-52 rounded-3xl border border-cyan-300/20 bg-[#09131e]/95 shadow-[0_18px_80px_-45px_rgba(103,232,249,0.35)]">
     <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6 sm:pt-5"><div><div className="flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-200"/><h2 className="text-lg font-semibold text-white">Trade signals</h2>{alerts.picks.length > 0 && <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-sm font-semibold text-emerald-200">{alerts.picks.length} ready to review</span>}</div><p className="mt-1 text-sm text-slate-400">Telegram-style plans · long and short · live checks before entry</p></div>

@@ -57,9 +57,11 @@ telegramMod.require=spec=>{
  if(spec==='@/app/server/env')return {env};
  if(spec==='@/app/server/memory-store')return memoryMod.exports;
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
+ if(spec==='@/app/server/telegram')return {telegramCall:async(...args)=>{telegramSent.push(args);return {};},telegramChunks:text=>[text]};
  if(spec.startsWith('@/')) return {};
  return require(spec);
 };
+const telegramSent=[];
 telegramMod._compile(ts.transpileModule(readFileSync(telegramFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,telegramFile);
 test('Default Telegram destination is owner-only and can be disabled persistently',async()=>{
  env.TELEGRAM_BOT_TOKEN='TEST_ONLY';env.TELEGRAM_CHAT_ID='123456';env.TELEGRAM_OWNER_EMAIL='alice@example.test';
@@ -69,6 +71,19 @@ test('Default Telegram destination is owner-only and can be disabled persistentl
  assert.equal((await (await telegramMod.exports.GET()).json()).enabled,false);
  user={userId:'other',email:'other@example.test'};
  assert.equal((await (await telegramMod.exports.GET()).json()).chatId,'');
+});
+test('Monitored-pair and trade follow-ups are pushed to Telegram once per key',async()=>{
+ env.TELEGRAM_BOT_TOKEN='TEST_ONLY';env.TELEGRAM_CHAT_ID='123456';env.TELEGRAM_OWNER_EMAIL='alice@example.test';
+ user={userId:'alice',email:'alice@example.test'};
+ await telegramMod.exports.POST(request('POST',{action:'connect',chatId:'123456'}));
+ const before=telegramSent.length;
+ const events=[{key:'monitor:ABCUSDT:LONG:100:95:0:AT TRIGGER',lines:['🔔 ABCUSDT LONG · AT TRIGGER','📍 Price 100.5','<b>not html</b>']},{key:'bad key',lines:['x']}];
+ const first=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
+ assert.equal(first.sent,1);
+ assert.equal(telegramSent.length,before+1);
+ assert.match(telegramSent.at(-1)[2].text,/^<b>🔔 ABCUSDT LONG · AT TRIGGER<\/b>\n📍 Price 100.5\n&lt;b&gt;not html&lt;\/b&gt;$/);
+ const second=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
+ assert.equal(second.sent,0,'same key is not resent');
 });
 sqlite.exec(readFileSync(new URL('../drizzle/0002_sour_bloodscream.sql',import.meta.url),'utf8'));
 const pollFile=new URL('../app/api/telegram/poll/route.ts',import.meta.url).pathname;

@@ -13,14 +13,17 @@ const RANK: Record<TriggerState, number> = { "NO PLAN": 0, WAITING: 0, "STOP HIT
  * `onAlert` fires when a pair first reaches AT TRIGGER or ENTRY RANGE for a
  * plan (and again at most every 15 minutes if it keeps oscillating there).
  */
-export function useTriggerMonitor({rows, monitored, onAlert}: {
-  rows: ScannerRow[]; monitored: string[]; onAlert: (entries: MonitorEntry[]) => void;
+export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp}: {
+  rows: ScannerRow[]; monitored: string[]; onAlert: (entries: MonitorEntry[]) => void; onFollowUp?: (entries: MonitorEntry[]) => void;
 }) {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [updatedAt, setUpdatedAt] = useState(0);
   const alerted = useRef(new Map<string, { state: TriggerState; at: number }>());
   const onAlertRef = useRef(onAlert);
   onAlertRef.current = onAlert;
+  const onFollowUpRef = useRef(onFollowUp);
+  onFollowUpRef.current = onFollowUp;
+  const stopReported = useRef(new Set<string>());
   const key = monitored.join(",");
 
   useEffect(() => {
@@ -63,6 +66,10 @@ export function useTriggerMonitor({rows, monitored, onAlert}: {
       }
     }
     if (fresh.length) onAlertRef.current(fresh);
+    // A plan that was alerted and then hit its stop gets one follow-up.
+    const ended = entries.filter(entry => entry.state === "STOP HIT" && alerted.current.has(entry.planKey) && !stopReported.current.has(entry.planKey));
+    for (const entry of ended) stopReported.current.add(entry.planKey);
+    if (ended.length) onFollowUpRef.current?.(ended);
   }, [entries]);
 
   const hits = entries.filter(entry => ALERT_STATES.includes(entry.state));

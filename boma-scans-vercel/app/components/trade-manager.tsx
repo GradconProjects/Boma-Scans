@@ -1,6 +1,7 @@
 "use client";
 
 import { useAccountSync } from "@/app/components/use-account-sync";
+import { formatTradeEvent, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { acceptQuote, quoteIsFresh } from "@/app/lib/quote-safety";
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -867,7 +868,25 @@ export function TradeManager({
               trade.side === "LONG"
                 ? snapshot.suggestedStop > trade.stop
                 : snapshot.suggestedStop < trade.stop;
-            return (
+            // Follow-up messages for tracked trades: each (trade, action, level) is pushed once; the server de-duplicates too.
+  const followUpSent = useRef(new Set<string>());
+  useEffect(() => {
+    if (!storageReady) return;
+    const events = [];
+    for (const trade of openTrades) {
+      const quote = tradePrice(trade);
+      const snapshot = evaluateTrade(trade, quote.price, quote.updatedAt, null, now, quote.markPrice);
+      if (snapshot.stale) continue;
+      const event = formatTradeEvent(trade, snapshot);
+      if (!event || followUpSent.current.has(event.key)) continue;
+      followUpSent.current.add(event.key);
+      events.push(event);
+    }
+    if (events.length) void pushTelegramEvents(events);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openTrades, now, storageReady]);
+
+  return (
               <article key={trade.id} className="overflow-hidden rounded-lg border border-border bg-[#0b111a]">
                 <div className="flex items-start justify-between gap-3 border-b border-border/70 p-3">
                   <div>
