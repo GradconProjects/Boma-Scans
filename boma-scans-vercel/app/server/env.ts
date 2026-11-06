@@ -30,21 +30,30 @@ function normalize(row: Row): Row {
   return out;
 }
 
+const STATEMENT_TIMEOUT_MS = 12_000;
+function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error("Database " + label + " timed out after " + STATEMENT_TIMEOUT_MS / 1000 + "s.")), STATEMENT_TIMEOUT_MS);
+    promise.then(value => { clearTimeout(timer); resolve(value); }, error => { clearTimeout(timer); reject(error); });
+  });
+}
+
 export class Statement {
   constructor(private readonly execute: () => Promise<Execute>, private readonly sql: string, private readonly args: unknown[] = []) {}
+  private run_() { return withTimeout(this.execute().then(execute => execute(this.sql, this.args)), "statement"); }
   bind(...args: unknown[]) {
     return new Statement(this.execute, this.sql, args.map(value => (value === undefined ? null : value)));
   }
   async first<T = Row>(): Promise<T | null> {
-    const result = await (await this.execute())(this.sql, this.args);
+    const result = await this.run_();
     return result.rows[0] ? (normalize(result.rows[0]) as T) : null;
   }
   async all<T = Row>(): Promise<{ results: T[] }> {
-    const result = await (await this.execute())(this.sql, this.args);
+    const result = await this.run_();
     return { results: result.rows.map(normalize) as T[] };
   }
   async run() {
-    const result = await (await this.execute())(this.sql, this.args);
+    const result = await this.run_();
     return { success: true, meta: { changes: result.rowsAffected } };
   }
 }
@@ -83,7 +92,16 @@ async function postgresExecute(url: string): Promise<Execute> {
     connect_timeout: 15,
     types: { bigint: { to: 20, from: [20], serialize: (value: number | bigint) => String(value), parse: (value: string) => Number(value) } },
   });
-  for (const statement of POSTGRES_SCHEMA) await sql.unsafe(statement);
+  const tables = ["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts"];
+  const existing = await withTimeout(sql.unsafe("SELECT c.relname AS name, c.relrowsecurity AS rls FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($1)", [tables]), "schema check");
+  const known = new Map(Array.from(existing as unknown as Array<{ name: string; rls: boolean }>).map(row => [row.name, row.rls]));
+  for (const statement of POSTGRES_SCHEMA) {
+    const create = /^CREATE TABLE IF NOT EXISTS (\w+)/.exec(statement);
+    const alter = /^ALTER TABLE (\w+) ENABLE ROW LEVEL SECURITY$/.exec(statement);
+    if (create && known.has(create[1])) continue;
+    if (alter && known.get(alter[1]) === true) continue;
+    await withTimeout(sql.unsafe(statement), "schema setup");
+  }
   return async (query, args) => {
     const result = await sql.unsafe(toPositional(query), args as never);
     return { rows: Array.from(result) as Row[], rowsAffected: result.count };

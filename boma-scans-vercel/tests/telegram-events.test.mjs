@@ -36,3 +36,24 @@ test("Trade follow-ups fire only for actionable advice and key by trade, action 
   assert.match(event.lines[0], /TAKE PARTIAL TP1/);
   assert.equal(formatTradeEvent(trade, { ...snapshot, action: "HOLD TO PLAN" }), null);
 });
+test("Monitoring-start message lists the levels and keys per plan and minute", () => {
+  const { formatMonitorStart } = load("app/lib/telegram-events.ts");
+  const entry = { symbol: "ABCUSDT", side: "SHORT", state: "WAITING", price: 101, toTriggerPct: 0.99, plan: { ...plan, side: "SHORT", entryLow: 99, entryHigh: 100, entry: 99.8 }, stop: 105, ready: false, planKey: "ABCUSDT:SHORT:100:105:0" };
+  const event = formatMonitorStart(entry, 120_000);
+  assert.equal(event.key, "monitor:ABCUSDT:SHORT:100:105:0:start:2");
+  assert.match(event.lines.join("\n"), /SELL LIMIT 99\.8/);
+  assert.match(event.lines.join("\n"), /\+0\.99% to trigger/);
+  assert.match(formatMonitorStart({ ...entry, plan: null }).lines.join("\n"), /No scanned plan yet/);
+});
+test("Monitor updates and the hourly digest have stable keys and clear text", () => {
+  const { formatMonitorUpdate, formatMonitorDigest } = load("app/lib/telegram-events.ts");
+  const entry = { symbol: "DGAIUSDT", side: "SHORT", state: "AT TRIGGER", price: 0.7594, toTriggerPct: -0.65, plan: { ...plan, side: "SHORT", trigger: 0.76432, entryLow: 0.75822, entryHigh: 0.76432, entry: 0.76, zoneSource: "ORDER BLOCK" }, stop: 0.78872, ready: true, planKey: "DGAIUSDT:SHORT:0.76432:0.78872:1" };
+  assert.equal(formatMonitorUpdate(entry, "CONFIRMED").key, "monitor:DGAIUSDT:SHORT:0.76432:0.78872:1:CONFIRMED");
+  assert.match(formatMonitorUpdate(entry, "PLAN UPDATED").lines.join("\n"), /Cancel any resting order/);
+  assert.match(formatMonitorUpdate(entry, "EXPIRED").lines[0], /EXPIRED/);
+  const digest = formatMonitorDigest([entry, { ...entry, symbol: "ABCUSDT", plan: null, state: "NO PLAN" }], 7_200_000);
+  assert.equal(digest.key, "monitor:digest:2");
+  assert.match(digest.lines[1], /DGAIUSDT SHORT · AT TRIGGER · price 0\.7594\d* · trigger 0\.76432\d* \(-0\.65%\)/);
+  assert.match(digest.lines[2], /ABCUSDT · no plan/);
+  assert.equal(formatMonitorDigest([]), null);
+});

@@ -72,9 +72,9 @@ export async function POST(request:NextRequest) {
         try {
           for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
           if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
-        } catch {
+        } catch(error) {
           if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();
-          return reply({sent,error:"Telegram delivery could not be confirmed."},502);
+          return reply({sent,error:error instanceof Error?error.message:"Telegram delivery could not be confirmed."},502);
         }
       }
       return reply({sent,message:sent?"Follow-up delivered.":"Nothing new to send."});
@@ -117,5 +117,5 @@ export async function POST(request:NextRequest) {
       }
     }
     return reply({sent,message:sent?"Telegram alert delivered.":"No new still-valid signal to send."});
-  } catch {return reply({error:"Telegram or fresh market analysis is unavailable. No delivery was confirmed."},502);}
+  } catch(error) {return reply({error:(error instanceof Error && error.message?error.message:"Telegram or fresh market analysis is unavailable.")+" No delivery was confirmed."},502);}
 }

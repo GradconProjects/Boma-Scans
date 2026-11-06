@@ -2299,7 +2299,8 @@ export default function Home() {
                   <p className="mt-1 text-slate-300">{activeLock ? "New candles cannot move these levels. A stop touch, failed zone or expiry cancels this plan." : "Wait for closed-candle confirmation. The draft can change as structure develops; an approved signal locks automatically."}</p>
                   {activeLock && <Button className="mt-2" variant="outline" onClick={() => {setLockedPlan(null); setHistoryReload(value => value + 1); setLoading(true);}}>Discard plan and request fresh analysis</Button>}
                 </div>
-                <div className="mt-4"><EntryInstructions plan={analysis.executionPlan}
+                <div className="mt-4"><EntryInstructions plan={analysis.executionPlan} targets={analysis.takeProfits}
+                  quantity={activeLeveragePlan.quantity} riskAmount={activeLeveragePlan.actualRiskAmount} leverage={activeLeveragePlan.recommendedLeverage}
                   ready={entryMode === "MARKET" ? immediateSizingReady : sizingReady}
                   reason={entryMode === "MARKET" ? currentEntryStatusReason : !setupReady && analysis.executionPlan.status === "READY" ? "Entry timing passed. Verify live data, exchange limits, BTC context and account sizing before entry." : undefined}/></div>
                 {entryMode === "MARKET" ? (

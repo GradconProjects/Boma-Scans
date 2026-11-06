@@ -13,8 +13,11 @@ const RANK: Record<TriggerState, number> = { "NO PLAN": 0, WAITING: 0, "STOP HIT
  * `onAlert` fires when a pair first reaches AT TRIGGER or ENTRY RANGE for a
  * plan (and again at most every 15 minutes if it keeps oscillating there).
  */
-export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp}: {
+export type MonitorUpdate = { kind: "CONFIRMED" | "PLAN UPDATED" | "EXPIRED" | "STOP HIT"; entry: MonitorEntry };
+
+export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp, onUpdate}: {
   rows: ScannerRow[]; monitored: string[]; onAlert: (entries: MonitorEntry[]) => void; onFollowUp?: (entries: MonitorEntry[]) => void;
+  onUpdate?: (updates: MonitorUpdate[]) => void;
 }) {
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [updatedAt, setUpdatedAt] = useState(0);
@@ -24,6 +27,9 @@ export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp}: {
   const onFollowUpRef = useRef(onFollowUp);
   onFollowUpRef.current = onFollowUp;
   const stopReported = useRef(new Set<string>());
+  const onUpdateRef = useRef(onUpdate);
+  onUpdateRef.current = onUpdate;
+  const seen = useRef(new Map<string, { planKey: string; ready: boolean; status: string }>());
   const key = monitored.join(",");
 
   useEffect(() => {
@@ -66,10 +72,24 @@ export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp}: {
       }
     }
     if (fresh.length) onAlertRef.current(fresh);
-    // A plan that was alerted and then hit its stop gets one follow-up.
-    const ended = entries.filter(entry => entry.state === "STOP HIT" && alerted.current.has(entry.planKey) && !stopReported.current.has(entry.planKey));
+    // A monitored plan that hits its stop side gets one follow-up.
+    const ended = entries.filter(entry => entry.state === "STOP HIT" && entry.plan && !stopReported.current.has(entry.planKey));
     for (const entry of ended) stopReported.current.add(entry.planKey);
     if (ended.length) onFollowUpRef.current?.(ended);
+    // Ongoing updates: candle-close confirmation, plan replaced after a rescan, plan expired.
+    const updates: MonitorUpdate[] = [];
+    for (const entry of entries) {
+      const previous = seen.current.get(entry.symbol);
+      const status = entry.plan?.status ?? "NONE";
+      if (previous && entry.plan) {
+        if (previous.planKey !== entry.planKey && previous.planKey !== entry.symbol + ":none") updates.push({ kind: "PLAN UPDATED", entry });
+        else if (!previous.ready && entry.ready) updates.push({ kind: "CONFIRMED", entry });
+        if (status === "EXPIRED" && previous.status !== "EXPIRED") updates.push({ kind: "EXPIRED", entry });
+      }
+      seen.current.set(entry.symbol, { planKey: entry.planKey, ready: entry.ready, status });
+    }
+    for (const symbol of Array.from(seen.current.keys())) if (!entries.some(entry => entry.symbol === symbol)) seen.current.delete(symbol);
+    if (updates.length) onUpdateRef.current?.(updates);
   }, [entries]);
 
   const hits = entries.filter(entry => ALERT_STATES.includes(entry.state));

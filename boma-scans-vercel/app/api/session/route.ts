@@ -58,8 +58,8 @@ export async function POST(request: NextRequest) {
     if (typeof body.password !== "string" || !(await checkPassword(body.password))) { await sleep(800); return reply({ error: "Incorrect owner password." }, 401); }
     const token = await createOwnerSession(await signingMaterial());
     return reply({ ok: true }, 200, { "Set-Cookie": cookie(token, 7_776_000) });
-  } catch {
-    return reply({ error: "Sign-in is temporarily unavailable." }, 503);
+  } catch (error) {
+    return reply({ error: "Sign-in is temporarily unavailable: " + (error instanceof Error ? error.message : "unknown error") }, 503);
   }
 }
 

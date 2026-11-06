@@ -24,7 +24,9 @@ test("Session cookies are bound to the signing material, not the PIN", async () 
   assert.equal(await validOwnerSession(token, material), true);
   assert.equal(await validOwnerSession(token, "2580:"), false);
   assert.equal(await validOwnerSession(token, material, Date.now() + 91 * 86_400_000), false, "expired");
-  assert.equal(await validOwnerSession(token.replace(/.$/, c => c === "A" ? "B" : "A"), material), false, "tampered");
+  const [expires, signature] = token.split(".");
+  const flipped = (signature[0] === "A" ? "B" : "A") + signature.slice(1);
+  assert.equal(await validOwnerSession(expires + "." + flipped, material), false, "tampered");
   assert.equal(await equalSecret("abc", "abc"), true);
   assert.equal(await equalSecret("abc", "abd"), false);
 });
