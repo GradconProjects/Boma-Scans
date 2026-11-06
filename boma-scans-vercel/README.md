@@ -1,6 +1,6 @@
 # Boma Scans — Vercel edition
 
-Independent Bybit USDT-perpetual scanner, chart, trade planner and Telegram signal bot, packaged to run on [Vercel](https://vercel.com) with a [Turso](https://turso.tech) database. No ChatGPT or Cloudflare account is needed.
+Independent Bybit USDT-perpetual scanner, chart, trade planner and Telegram signal bot, packaged to run on [Vercel](https://vercel.com) with your [Supabase](https://supabase.com) Postgres database (Turso/libSQL also supported). No ChatGPT or Cloudflare account is needed.
 
 This edition contains the backtest-calibrated signal policy described in [docs/BACKTEST-AND-SIGNAL-POLICY.md](docs/BACKTEST-AND-SIGNAL-POLICY.md): 1H execution timeframe, 1R-5R scale-out exits, fee gate, trending regime and full multi-timeframe alignment.
 
@@ -8,53 +8,46 @@ This edition contains the backtest-calibrated signal policy described in [docs/B
 
 - A GitHub account with this repository (or a copy of this folder) pushed to it.
 - A free Vercel account.
-- A free Turso account (the journal/settings database; SQLite-compatible, about 1 minute to set up).
+- Your Supabase project (the database for settings, trade journal and Telegram state). The tables are created automatically on first connection and are protected by row-level security, so Supabase's public REST API cannot read them.
 - Optional: a Telegram bot token from `@BotFather` for alerts and commands.
 
-## Deploy in 6 steps
+## Deploy in 5 steps
 
-### 1. Create the database (Turso)
-
-Install the Turso CLI (`curl -sSfL https://get.tur.so/install.sh | bash`) or use the Turso web dashboard, then:
-
-```bash
-turso auth signup
-turso db create boma-scans --location syd
-turso db show boma-scans --url
-turso db tokens create boma-scans
-```
-
-Keep the URL (`libsql://boma-scans-....turso.io`) and the token. Tables are created automatically the first time the app connects.
-
-### 2. Choose an owner password
+### 1. Choose an owner password
 
 Generate a password of at least 32 characters with a password manager. You will type it once per device at `/login`. It never goes into the source code.
 
-### 3. Import the project into Vercel
+### 2. Import the project into Vercel
 
 1. In Vercel click **Add New → Project** and import your GitHub repository.
 2. If this folder is not at the repository root, open **Root Directory** and select `boma-scans-vercel`.
 3. Framework preset: **Next.js** (detected automatically). Leave the build settings as they are.
 
-### 4. Add the environment variables
+### 3. Connect the database
 
-In the import screen (or later under **Settings → Environment Variables**) add:
+Easiest: in the Vercel project open **Storage → Connect Store → Supabase**, pick your existing Supabase project and accept. Vercel adds `POSTGRES_URL` (and related variables) to the project for you.
+
+Manual alternative: in Supabase click **Connect** at the top of the dashboard, choose **Transaction pooler** (port 6543), copy the URI, replace `[YOUR-PASSWORD]` with your database password, and add it in Vercel as `POSTGRES_URL`.
+
+### 4. Add the remaining environment variables
+
+Under **Settings → Environment Variables** add:
 
 | Name | Value |
 | --- | --- |
-| `TURSO_DATABASE_URL` | the `libsql://...` URL from step 1 |
-| `TURSO_AUTH_TOKEN` | the token from step 1 |
 | `BOMA_SYNC_SECRET` | your 32+ character owner password |
 | `TELEGRAM_BOT_TOKEN` | optional, from `@BotFather` |
 | `TELEGRAM_CHAT_ID` | optional; you can also enter it inside the app |
 
 ### 5. Deploy
 
-Click **Deploy**. The first build takes 2 to 4 minutes. Open the URL Vercel gives you, go to `/login`, enter the owner password, and the top bar shows **Signed in**.
+Click **Deploy** (or **Redeploy** if the variables were added after the first build). Open the URL Vercel gives you, go to `/login`, enter the owner password, and the top bar shows **Signed in**.
 
-### 6. Connect Telegram (optional)
+To connect Telegram, open the Telegram panel in the app, enter your numeric chat ID (send `/start` to `@userinfobot` to see it) and click **Connect & send test**. Send `/menu` to your bot for the command keyboard. Keep the dashboard open on one device: the scanner runs in the browser and the app polls Telegram for commands while a signed-in dashboard is open.
 
-Open the Telegram panel in the app, enter your numeric chat ID (send `/start` to `@userinfobot` to see it), and click **Connect & send test**. Send `/menu` to your bot for the command keyboard. Keep the dashboard open on one device: the scanner runs in the browser and the app polls Telegram for commands while a signed-in dashboard is open.
+### Using Turso instead of Supabase
+
+Set `TURSO_DATABASE_URL` (and `TURSO_AUTH_TOKEN`) instead of `POSTGRES_URL`. The same code runs on either; locally `TURSO_DATABASE_URL=file:local.db` needs no account at all.
 
 ## Region: why `vercel.json` pins Sydney
 
@@ -70,7 +63,7 @@ The scanner calls the `/api/bybit` proxy once per timeframe per pair, so a full 
 cp .env.example .env.local      # TURSO_DATABASE_URL=file:local.db works locally
 npm install
 npm run dev                     # http://localhost:3000
-npm test && npm run typecheck   # 59 engine tests + type check
+npm test && npm run typecheck   # engine tests, Postgres SQL tests (in-process Postgres) and type check
 ```
 
 Bybit's API is also geo-blocked from some countries and from many cloud providers; if local scans show "blocked access from your country", the deployed Sydney region will still work.

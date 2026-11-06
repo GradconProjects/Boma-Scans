@@ -14,7 +14,7 @@ export async function POST(request:NextRequest) {
  const saved=await env.DB.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key='telegram'").bind(user.userId).first<{payload:string}>();
  const chatId=saved?JSON.parse(saved.payload).chatId:env.TELEGRAM_CHAT_ID;if(!chatId)return reply({processed:0});
  const now=Date.now();
- const lease=await env.DB.prepare("INSERT INTO telegram_runtime(id,offset,lease_until) VALUES('bot',0,?) ON CONFLICT(id) DO UPDATE SET lease_until=excluded.lease_until WHERE telegram_runtime.lease_until<? RETURNING offset").bind(now+45000,now).first<{offset:number}>();
+ const lease=await env.DB.prepare("INSERT INTO telegram_runtime(id,\"offset\",lease_until) VALUES('bot',0,?) ON CONFLICT(id) DO UPDATE SET lease_until=excluded.lease_until WHERE telegram_runtime.lease_until<? RETURNING \"offset\"").bind(now+45000,now).first<{offset:number}>();
  if(!lease)return reply({processed:0});
  let processed=0;
  try {
@@ -22,7 +22,7 @@ export async function POST(request:NextRequest) {
   const data=await response.json() as {ok:boolean;result:Array<{update_id:number;message?:{text?:string;date:number;chat:{id:number};from?:{id:number}};callback_query?:{id:string;data?:string;from:{id:number};message?:{chat:{id:number};date:number}}}>};
   if(!response.ok||!data.ok)return reply({error:"Telegram command polling unavailable; an existing webhook or connection error may be blocking it."},502);
   for(const update of data.result) {
-   await env.DB.prepare("UPDATE telegram_runtime SET offset=MAX(offset,?),lease_until=? WHERE id='bot'").bind(update.update_id+1,Date.now()+45000).run();
+   await env.DB.prepare("UPDATE telegram_runtime SET \"offset\"=CASE WHEN \"offset\">? THEN \"offset\" ELSE ? END,lease_until=? WHERE id='bot'").bind(update.update_id+1,update.update_id+1,Date.now()+45000).run();
    const claim=await env.DB.prepare("INSERT INTO telegram_updates(id,received_at) VALUES(?,?) ON CONFLICT(id) DO NOTHING RETURNING id").bind(update.update_id,Date.now()).first();if(!claim)continue;
    const message=update.message;const callback=update.callback_query;
    const target=message?.chat.id??callback?.message?.chat.id;const sender=message?.from?.id??callback?.from.id;
