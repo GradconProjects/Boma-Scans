@@ -15,7 +15,7 @@ export async function OwnerBar() {
         </span>
       ) : (
         <Link href="/login" className="rounded-lg border border-cyan-300/40 px-3 py-1.5 font-semibold text-cyan-100 hover:bg-cyan-300/10">
-          Sign in to sync &amp; Telegram
+          Sign in
         </Link>
       )}
     </nav>

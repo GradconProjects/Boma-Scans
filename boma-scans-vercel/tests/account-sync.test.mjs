@@ -10,6 +10,7 @@ const memoryMod=new Module(memoryFile);memoryMod.require=require;
 memoryMod._compile(ts.transpileModule(readFileSync(memoryFile,'utf8'),{compilerOptions:{module:ts.ModuleKind.CommonJS,target:ts.ScriptTarget.ES2022}}).outputText,memoryFile);
 const sqlite=new DatabaseSync(':memory:');
 sqlite.exec(readFileSync(new URL('../drizzle/0000_stiff_leader.sql',import.meta.url),'utf8'));
+sqlite.exec(readFileSync(new URL('../drizzle/0001_abnormal_zemo.sql',import.meta.url),'utf8'));
 let user={userId:'alice'};
 const env={DB:{prepare(sql){return {async run(){return sqlite.prepare(sql).run();},bind(...args){return {async run(){return sqlite.prepare(sql).run(...args);},async first(){return sqlite.prepare(sql).get(...args)??null;},async all(){return {results:sqlite.prepare(sql).all(...args)};}};}};}}};
 const file=new URL('../app/api/sync/route.ts',import.meta.url).pathname;
@@ -79,7 +80,7 @@ test('Monitored-pair and trade follow-ups are pushed to Telegram once per key',a
  const before=telegramSent.length;
  const events=[{key:'monitor:ABCUSDT:LONG:100:95:0:AT TRIGGER',lines:['🔔 ABCUSDT LONG · AT TRIGGER','📍 Price 100.5','<b>not html</b>']},{key:'bad key',lines:['x']}];
  const first=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
- assert.equal(first.sent,1);
+ assert.equal(first.sent,1,JSON.stringify(first));
  assert.equal(telegramSent.length,before+1);
  assert.match(telegramSent.at(-1)[2].text,/^<b>🔔 ABCUSDT LONG · AT TRIGGER<\/b>\n📍 Price 100.5\n&lt;b&gt;not html&lt;\/b&gt;$/);
  const second=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
