@@ -231,20 +231,22 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
   ];
 }
 
-export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now()) {
+export function appLink(origin: string, symbol: string) { return origin.replace(/\/$/, "") + "/?pair=" + symbol; }
+
+export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now(), link?: string) {
   const plan = item.executionPlan;
   const lines = compactSignalLines({
     symbol: item.symbol, side: item.side, entryLow: plan?.entryLow ?? item.entry, entryHigh: plan?.entryHigh ?? item.entry, entry: item.entry,
     trigger: plan?.trigger, timeframe: plan?.timeframe, leverage: item.leverage, stop: item.stop, targets: item.targets, expiresAt: item.expiresAt,
   });
   const status = historical ? "🗂️ Saved levels · " + notificationStatus(item, now) : "✅ " + item.grade + " " + item.rating + "/100 · " + item.setupType + " · " + item.style + " " + item.flexibility;
-  return [...lines, status, "📄 Advisory only. No exchange order has been placed."].join("\n");
+  return [...lines, status, ...(link ? ["🔗 Open in app: " + link] : []), "📄 Advisory only. No exchange order has been placed."].join("\n");
 }
 
 /** Telegram HTML keeps important levels prominent; copy/export remains plain text. */
-export function telegramSignalHtml(item: SignalSnapshot, historical = false, now = Date.now()) {
+export function telegramSignalHtml(item: SignalSnapshot, historical = false, now = Date.now(), link?: string) {
   const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-  return telegramSignalText(item, historical, now).split("\n").map(line => {
+  return telegramSignalText(item, historical, now, link).split("\n").map(line => {
     const safe = escape(line.slice(0, 2600));
     if (/^(📍 Coin|🟢|🔴|👉 Entry|🎯 Trigger|❌ StopLoss)/u.test(line)) return "<b>" + safe + "</b>";
     if (["🎯 TAKE-PROFIT LADDER", "🧭 HOW TO ENTER", "🚪 HOW TO EXIT & PROTECT", "🚫 CANCEL / DO NOT ENTER", "🔎 WHY THIS SETUP", "💰 POSITION PLAN"].includes(line)) return "<b>" + safe + "</b>";

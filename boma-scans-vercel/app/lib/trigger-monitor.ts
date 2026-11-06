@@ -12,6 +12,7 @@ export type MonitorEntry = {
   toTriggerPct: number | null;
   plan: EntryExecutionPlan | null;
   stop: number | null;
+  targets: Array<{ price: number; available: boolean }>;
   ready: boolean;
   /** Changes whenever the plan's trigger/stop change, so a new plan can alert again. */
   planKey: string;
@@ -26,16 +27,17 @@ export type MonitorEntry = {
  * live price sits inside the permitted limit range.
  */
 export function evaluateMonitor(symbol: string, row: ScannerRow | undefined, price: number | undefined): MonitorEntry {
-  if (!row) return { symbol, side: null, state: "NO PLAN", price: price ?? null, toTriggerPct: null, plan: null, stop: null, ready: false, planKey: symbol + ":none" };
+  if (!row) return { symbol, side: null, state: "NO PLAN", price: price ?? null, toTriggerPct: null, plan: null, stop: null, targets: [], ready: false, planKey: symbol + ":none" };
+  const targets = (row.takeProfits ?? []).map(target => ({ price: target.price, available: target.available }));
   const plan = row.executionPlan;
   const planKey = [symbol, plan.side, plan.trigger, plan.stop, plan.confirmationTime ?? 0].join(":");
-  if (price === undefined || !Number.isFinite(price) || price <= 0) return { symbol, side: row.bias, state: "WAITING", price: null, toTriggerPct: null, plan, stop: row.stop, ready: row.entryReady, planKey };
+  if (price === undefined || !Number.isFinite(price) || price <= 0) return { symbol, side: row.bias, state: "WAITING", price: null, toTriggerPct: null, plan, stop: row.stop, targets, ready: row.entryReady, planKey };
   const sign = plan.side === "LONG" ? 1 : -1;
   const invalidated = sign * (price - row.stop) <= 0 || ["INVALIDATED", "EXPIRED"].includes(plan.status);
   const inRange = price >= plan.entryLow && price <= plan.entryHigh;
   const crossed = sign * (price - plan.trigger) >= 0;
   const state: TriggerState = invalidated ? "STOP HIT" : row.entryReady && inRange ? "ENTRY RANGE" : crossed ? "AT TRIGGER" : "WAITING";
-  return { symbol, side: row.bias, state, price, toTriggerPct: sign * (plan.trigger - price) / price * 100, plan, stop: row.stop, ready: row.entryReady, planKey };
+  return { symbol, side: row.bias, state, price, toTriggerPct: sign * (plan.trigger - price) / price * 100, plan, stop: row.stop, targets, ready: row.entryReady, planKey };
 }
 
 export const ALERT_STATES: TriggerState[] = ["AT TRIGGER", "ENTRY RANGE"];

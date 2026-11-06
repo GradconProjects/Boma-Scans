@@ -19,7 +19,7 @@ function load(relative) {
 const { formatMonitorEvent, formatTradeEvent } = load("app/lib/telegram-events.ts");
 const plan = { side: "LONG", status: "READY", trigger: 100, entryLow: 100, entryHigh: 101, entry: 100.2, zoneSource: "FVG", timeframe: "1h", confirmationTime: 1 };
 test("Monitor events carry exact levels and the right instruction per state", () => {
-  const base = { symbol: "ABCUSDT", side: "LONG", price: 100.5, toTriggerPct: -0.5, plan, stop: 95, ready: true, planKey: "ABCUSDT:LONG:100:95:1" };
+  const base = { symbol: "ABCUSDT", side: "LONG", price: 100.5, toTriggerPct: -0.5, plan, stop: 95, targets: [101, 102, 103, 104, 105].map(price => ({ price, available: true })), ready: true, planKey: "ABCUSDT:LONG:100:95:1" };
   const range = formatMonitorEvent({ ...base, state: "ENTRY RANGE" });
   assert.equal(range.key, "monitor:ABCUSDT:LONG:100:95:1:ENTRY RANGE");
   assert.match(range.lines.join("\n"), /BUY LIMIT 100\.2/);
@@ -38,7 +38,7 @@ test("Trade follow-ups fire only for actionable advice and key by trade, action 
 });
 test("Monitoring-start message lists the levels and keys per plan and minute", () => {
   const { formatMonitorStart } = load("app/lib/telegram-events.ts");
-  const entry = { symbol: "ABCUSDT", side: "SHORT", state: "WAITING", price: 101, toTriggerPct: 0.99, plan: { ...plan, side: "SHORT", entryLow: 99, entryHigh: 100, entry: 99.8 }, stop: 105, ready: false, planKey: "ABCUSDT:SHORT:100:105:0" };
+  const entry = { symbol: "ABCUSDT", side: "SHORT", state: "WAITING", price: 101, toTriggerPct: 0.99, plan: { ...plan, side: "SHORT", entryLow: 99, entryHigh: 100, entry: 99.8 }, stop: 105, targets: [98, 97, 96, 95, 94].map(price => ({ price, available: true })), ready: false, planKey: "ABCUSDT:SHORT:100:105:0" };
   const event = formatMonitorStart(entry, 120_000);
   assert.equal(event.key, "monitor:ABCUSDT:SHORT:100:105:0:start:2");
   assert.match(event.lines.join("\n"), /SELL LIMIT 99\.8/);
@@ -47,7 +47,7 @@ test("Monitoring-start message lists the levels and keys per plan and minute", (
 });
 test("Monitor updates and the hourly digest have stable keys and clear text", () => {
   const { formatMonitorUpdate, formatMonitorDigest } = load("app/lib/telegram-events.ts");
-  const entry = { symbol: "DGAIUSDT", side: "SHORT", state: "AT TRIGGER", price: 0.7594, toTriggerPct: -0.65, plan: { ...plan, side: "SHORT", trigger: 0.76432, entryLow: 0.75822, entryHigh: 0.76432, entry: 0.76, zoneSource: "ORDER BLOCK" }, stop: 0.78872, ready: true, planKey: "DGAIUSDT:SHORT:0.76432:0.78872:1" };
+  const entry = { symbol: "DGAIUSDT", side: "SHORT", state: "AT TRIGGER", price: 0.7594, toTriggerPct: -0.65, plan: { ...plan, side: "SHORT", trigger: 0.76432, entryLow: 0.75822, entryHigh: 0.76432, entry: 0.76, zoneSource: "ORDER BLOCK" }, stop: 0.78872, targets: [0.75, 0.74, 0.73, 0.72, 0.71].map(price => ({ price, available: true })), ready: true, planKey: "DGAIUSDT:SHORT:0.76432:0.78872:1" };
   assert.equal(formatMonitorUpdate(entry, "CONFIRMED").key, "monitor:DGAIUSDT:SHORT:0.76432:0.78872:1:CONFIRMED");
   assert.match(formatMonitorUpdate(entry, "PLAN UPDATED").lines.join("\n"), /Cancel any resting order/);
   assert.match(formatMonitorUpdate(entry, "EXPIRED").lines[0], /EXPIRED/);

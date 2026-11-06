@@ -6,7 +6,7 @@ import { getOwnerUser } from "@/app/server/owner-auth";
 import { GET as bybit } from "@/app/api/bybit/route";
 import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextIntervals, INTERVAL_MS, type Candle } from "@/app/lib/market";
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
-import { parseSignalLedger, telegramSignalHtml } from "@/app/lib/signal-alerts";
+import { appLink, parseSignalLedger, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
 export const dynamic="force-dynamic";
@@ -113,7 +113,7 @@ export async function POST(request:NextRequest) {
       else {const seen=memory().deliveries,id=recordKey(user.userId,key);claimed=!seen.has(id);if(claimed)seen.set(id,Date.now());}
       if(!claimed)continue;
       try {
-        const text=telegramSignalHtml({...signal,btcExplanation:btcContext.explanation},false);
+        const text=telegramSignalHtml({...signal,btcExplanation:btcContext.explanation},false,Date.now(),appLink(request.nextUrl.origin,signal.symbol));
         for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
         if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
       }catch {

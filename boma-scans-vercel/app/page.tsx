@@ -391,6 +391,14 @@ export default function Home() {
   // Pairs the owner chose to watch for live trigger / entry-range hits.
   const [monitored, setMonitored] = useState<string[]>([]);
   const [monitoredReady, setMonitoredReady] = useState(false);
+  // Deep link from Telegram: /?pair=XRPUSDT selects the pair and expands its row in the side panel.
+  const [focusPair, setFocusPair] = useState("");
+  useEffect(() => {
+    const pair = (new URLSearchParams(window.location.search).get("pair") ?? "").toUpperCase();
+    if (!/^[A-Z0-9]{2,24}USDT$/.test(pair)) return;
+    setFocusPair(pair); setSymbol(pair); setSymbolInput(pair);
+    window.setTimeout(() => (document.getElementById("rail-" + pair) ?? document.getElementById("chart-section"))?.scrollIntoView({behavior: "smooth", block: "start"}), 800);
+  }, []);
   useEffect(() => {
     try { setMonitored(parseMonitoredSymbols(JSON.parse(window.localStorage.getItem("boma-scans:monitored") ?? "[]"))); } catch { /* start empty */ }
     setMonitoredReady(true);
@@ -1809,7 +1817,7 @@ export default function Home() {
       ) : null}
 
       <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-5">
-        <MonitorRail items={railItems} updatedAt={monitor.updatedAt} now={scannerNow}
+        <MonitorRail items={railItems} updatedAt={monitor.updatedAt} now={scannerNow} focus={focusPair}
           onOpen={() => { setSignalTab("signals"); document.getElementById("signals-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}
           onToggleMonitor={toggleMonitor} onSelect={pair => { const row = scannerRows.find(item => item.symbol === pair); if (row) selectScannerRecommendation(row); else { setSymbol(pair); setSymbolInput(pair); } document.getElementById("chart-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}/>
         <div className="min-w-0 xl:order-first">

@@ -2,7 +2,7 @@ import { env } from "@/app/server/env";
 import {memory,recordKey} from "@/app/server/memory-store";
 import {telegramCall,telegramChunks} from "@/app/server/telegram";
 import {analyzePair} from "@/app/server/market-analysis";
-import {snapshotSignal,telegramSignalHtml} from "@/app/lib/signal-alerts";
+import {appLink,snapshotSignal,telegramSignalHtml} from "@/app/lib/signal-alerts";
 import {getMediumRiskShortlist} from "@/app/lib/recommendations";
 import {BOT_FRAMES,parseBotCommand,botSetting} from "@/app/lib/telegram-commands";
 import {formatPrice,type TradingStyle} from "@/app/lib/market";
@@ -58,7 +58,7 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   await send("🔎 Checking fresh Bybit candles for "+pair+"…");
   const {analysis,row,relationship}=await analyzePair(pair,interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
   const pick=getMediumRiskShortlist([row],settings.equity,true,1)[0];
-  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick)),true,true);}
+  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),true,true);}
   else {
    await send("⏸ WAIT / NO APPROVED ENTRY\n"+pair+" · "+analysis.bias+" bias · "+analysis.executionPlan.timeframe+"\n📍 Conditional entry: "+formatPrice(analysis.entry)+"\n🛑 Invalidation: "+formatPrice(analysis.stop)+"\n"+analysis.takeProfits.map(target=>"🎯 TP"+target.level+": "+(target.available?formatPrice(target.price)+" · "+target.exitPct+"%":"No confirmed objective")).join("\n")+"\n\n🧭 "+analysis.executionPlan.reason+"\n"+analysis.executionPlan.steps.join("\n")+"\n🚫 "+analysis.executionPlan.cancelText+"\n\n🔎 "+analysis.reasons.slice(0,4).join("\n")+"\n₿ "+relationship.explanation+"\n\nConditional levels are a watch plan, not an instruction to enter.",true);
   }

@@ -23,13 +23,13 @@ function tone(item: RailItem) {
   return "border-white/[0.07] bg-slate-950/40";
 }
 
-function Row({item, onToggleMonitor, onSelect}: {item: RailItem; onToggleMonitor: () => void; onSelect: () => void}) {
-  const [open, setOpen] = useState(false);
+function Row({item, onToggleMonitor, onSelect, focused = false}: {item: RailItem; onToggleMonitor: () => void; onSelect: () => void; focused?: boolean}) {
+  const [open, setOpen] = useState(focused);
   const long = item.side === "LONG";
   async function copy() {
     try { await navigator.clipboard.writeText(item.lines.join("\n")); toast.success("Signal copied"); } catch { toast.error("Copy blocked by the browser; select the text instead."); }
   }
-  return <Collapsible open={open} onOpenChange={setOpen} className={"rounded-xl border " + tone(item)}>
+  return <Collapsible id={"rail-" + item.symbol} open={open} onOpenChange={setOpen} className={"rounded-xl border " + tone(item) + (focused ? " ring-2 ring-cyan-300/60" : "")}>
     <CollapsibleTrigger className="flex w-full items-center gap-2 p-2.5 text-left">
       <span aria-hidden="true">{item.side ? (long ? "🟢" : "🔴") : "⚪"}</span>
       <span className="min-w-0 flex-1">
@@ -50,8 +50,8 @@ function Row({item, onToggleMonitor, onSelect}: {item: RailItem; onToggleMonitor
 }
 
 /** Right-hand panel: every signal, monitored and watched pair as a collapsed row; expand to see the signal. */
-export function MonitorRail({items, updatedAt, now, onOpen, onToggleMonitor, onSelect}: {
-  items: RailItem[]; updatedAt: number; now: number;
+export function MonitorRail({items, updatedAt, now, onOpen, onToggleMonitor, onSelect, focus}: {
+  items: RailItem[]; updatedAt: number; now: number; focus?: string;
   onOpen: () => void; onToggleMonitor: (symbol: string) => void; onSelect: (symbol: string) => void;
 }) {
   const hits = items.filter(item => item.hit).length;
@@ -62,6 +62,6 @@ export function MonitorRail({items, updatedAt, now, onOpen, onToggleMonitor, onS
     </div>
     {items.length === 0
       ? <p className="mt-2 text-xs leading-5 text-slate-400">Signals, monitored pairs and the closest-to-ready setups appear here. Tap a row to see the signal.</p>
-      : <ul className="mt-2 space-y-1.5">{items.map(item => <li key={item.kind + ":" + item.symbol}><Row item={item} onToggleMonitor={() => onToggleMonitor(item.symbol)} onSelect={() => onSelect(item.symbol)}/></li>)}</ul>}
+      : <ul className="mt-2 space-y-1.5">{items.map(item => <li key={item.kind + ":" + item.symbol}><Row item={item} focused={focus === item.symbol} onToggleMonitor={() => onToggleMonitor(item.symbol)} onSelect={() => onSelect(item.symbol)}/></li>)}</ul>}
   </aside>;
 }
