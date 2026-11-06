@@ -153,7 +153,7 @@ export function parseSignalLedger(raw: string | null): SignalLedger {
   } catch { return empty; }
 }
 
-export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now()) {
+export function telegramSignalTextDetailed(item: SignalSnapshot, historical = false, now = Date.now()) {
   const localTime = (time: number) => new Intl.DateTimeFormat("en-AU", {timeZone:"Australia/Melbourne", dateStyle:"medium", timeStyle:"short"}).format(time) + " Melbourne";
   const frame = item.executionPlan?.timeframe ?? STYLE_CONFIG[item.style].interval + "m";
   const status = historical ? notificationStatus(item, now) : "QUALIFIED · RECHECK LIVE BEFORE ENTRY";
@@ -203,12 +203,46 @@ export function telegramSignalText(item: SignalSnapshot, historical = false, now
   ].filter((line,index,array) => line || (index > 0 && array[index-1])).join("\n");
 }
 
+export type CompactSignalInput = {
+  symbol: string; side: "LONG" | "SHORT"; entryLow: number; entryHigh: number; entry: number;
+  trigger?: number; timeframe?: string; leverage?: number; stop: number;
+  targets: Array<{ price: number; available?: boolean }>; expiresAt?: number;
+};
+
+/** The short signal card: coin, side, entry zone, trigger rule, leverage, targets, stop, validity. */
+export function compactSignalLines(input: CompactSignalInput): string[] {
+  const long = input.side === "LONG";
+  const melbourne = (time: number) => new Intl.DateTimeFormat("en-AU", {timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"}).format(time);
+  return [
+    "📍 Coin : #" + input.symbol.replace(/USDT$/, "") + "/USDT",
+    long ? "🟢 LONG" : "🔴 SHORT",
+    "👉 Entry: " + formatPrice(long ? input.entryHigh : input.entryLow) + " - " + formatPrice(long ? input.entryLow : input.entryHigh) + " · " + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(input.entry),
+    ...(input.trigger ? ["🎯 Trigger: " + formatPrice(input.trigger) + " (" + (long ? "close above" : "close below") + (input.timeframe ? ", " + input.timeframe : "") + ")"] : []),
+    ...(input.leverage ? ["🌐 Leverage: " + input.leverage + "x"] : []),
+    "",
+    ...input.targets.map((target, index) => "🎯 Target " + (index + 1) + ": " + (target.available === false ? "unconfirmed" : formatPrice(target.price))),
+    "",
+    "❌ StopLoss: " + formatPrice(input.stop),
+    ...(input.expiresAt ? ["⏳ Valid until " + melbourne(input.expiresAt) + " Melbourne · enter only after the candle close and READY"] : []),
+  ];
+}
+
+export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now()) {
+  const plan = item.executionPlan;
+  const lines = compactSignalLines({
+    symbol: item.symbol, side: item.side, entryLow: plan?.entryLow ?? item.entry, entryHigh: plan?.entryHigh ?? item.entry, entry: item.entry,
+    trigger: plan?.trigger, timeframe: plan?.timeframe, leverage: item.leverage, stop: item.stop, targets: item.targets, expiresAt: item.expiresAt,
+  });
+  const status = historical ? "🗂️ Saved levels · " + notificationStatus(item, now) : "✅ " + item.grade + " " + item.rating + "/100 · " + item.setupType + " · " + item.style + " " + item.flexibility;
+  return [...lines, status, "📄 Advisory only. No exchange order has been placed."].join("\n");
+}
+
 /** Telegram HTML keeps important levels prominent; copy/export remains plain text. */
 export function telegramSignalHtml(item: SignalSnapshot, historical = false, now = Date.now()) {
   const escape = (text: string) => text.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
   return telegramSignalText(item, historical, now).split("\n").map(line => {
     const safe = escape(line.slice(0, 2600));
-    if (/^(📡|🟢|🔴|📍|🛑 STOP LOSS|🎯 TP\d)/u.test(line)) return "<b>" + safe + "</b>";
+    if (/^(📍 Coin|🟢|🔴|👉 Entry|🎯 Trigger|❌ StopLoss)/u.test(line)) return "<b>" + safe + "</b>";
     if (["🎯 TAKE-PROFIT LADDER", "🧭 HOW TO ENTER", "🚪 HOW TO EXIT & PROTECT", "🚫 CANCEL / DO NOT ENTER", "🔎 WHY THIS SETUP", "💰 POSITION PLAN"].includes(line)) return "<b>" + safe + "</b>";
     return safe;
   }).join("\n");

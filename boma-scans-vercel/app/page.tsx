@@ -75,7 +75,8 @@ import { snapshotSignal } from "@/app/lib/signal-alerts";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
 import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
-import { MonitorRail } from "@/app/components/monitor-rail";
+import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
+import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
 import { formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
@@ -1333,6 +1334,29 @@ export default function Home() {
   }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
+  // Right-hand rail: signals, monitored pairs and the closest-to-ready setups, each with its compact signal.
+  const railItems: RailItem[] = (() => {
+    const monitoredSet = new Set(monitored);
+    const hitSet = new Set(monitor.hits.map(entry => entry.symbol));
+    const stateBy = new Map(monitor.entries.map(entry => [entry.symbol, entry.state]));
+    const fromRow = (row: ScannerRow) => compactSignalLines({symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt});
+    const items: RailItem[] = [];
+    const seen = new Set<string>();
+    for (const pick of signalAlerts.picks) {
+      const snapshot = snapshotSignal(pick);
+      items.push({symbol: pick.row.symbol, side: pick.row.bias, kind: "SIGNAL", status: stateBy.get(pick.row.symbol) ?? "READY", lines: compactSignalLines({symbol: snapshot.symbol, side: snapshot.side, entryLow: snapshot.executionPlan?.entryLow ?? snapshot.entry, entryHigh: snapshot.executionPlan?.entryHigh ?? snapshot.entry, entry: snapshot.entry, trigger: snapshot.executionPlan?.trigger, timeframe: snapshot.executionPlan?.timeframe, leverage: snapshot.leverage, stop: snapshot.stop, targets: snapshot.targets, expiresAt: snapshot.expiresAt}), monitored: monitoredSet.has(pick.row.symbol), hit: hitSet.has(pick.row.symbol)});
+      seen.add(pick.row.symbol);
+    }
+    for (const entry of monitor.entries) {
+      if (seen.has(entry.symbol)) continue;
+      const row = scannerRows.find(item => item.symbol === entry.symbol);
+      items.push({symbol: entry.symbol, side: entry.side, kind: "MONITOR", status: entry.state, lines: row ? fromRow(row) : ["📍 Coin : #" + entry.symbol.replace(/USDT$/, "") + "/USDT", "No scanned plan yet; levels follow after the next scan."], monitored: true, hit: hitSet.has(entry.symbol)});
+      seen.add(entry.symbol);
+    }
+    const watch = scannerRows.filter(row => !seen.has(row.symbol) && row.decision !== "NO TRADE" && !["INVALIDATED", "EXPIRED"].includes(row.executionPlan.status)).sort((a, b) => b.ratingScore - a.ratingScore || b.entryQuality - a.entryQuality).slice(0, 6);
+    for (const row of watch) items.push({symbol: row.symbol, side: row.bias, kind: "WATCH", status: row.executionPlan.status.replaceAll("_", " "), lines: fromRow(row), monitored: false, hit: false});
+    return [...items.filter(item => item.hit), ...items.filter(item => !item.hit)];
+  })();
   const analyzedSymbols = new Set(scannerRows.map(row => row.symbol));
   const pendingMarkets = scanUniverse.filter(item => !analyzedSymbols.has(item.symbol));
   const selectedRatedRow = ticker ? scannerRowFromAnalysis(ticker, analysis, dataMode !== "LIVE", instrument ?? undefined, style, btcRelationship) : null;
@@ -1780,9 +1804,9 @@ export default function Home() {
       ) : null}
 
       <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-5">
-        <MonitorRail entries={monitor.entries} hits={monitor.hits} updatedAt={monitor.updatedAt} now={scannerNow}
+        <MonitorRail items={railItems} updatedAt={monitor.updatedAt} now={scannerNow}
           onOpen={() => { setSignalTab("signals"); document.getElementById("signals-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}
-          onRemove={toggleMonitor} onSelect={pair => { const row = scannerRows.find(item => item.symbol === pair); if (row) selectScannerRecommendation(row); else { setSymbol(pair); setSymbolInput(pair); } document.getElementById("chart-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}/>
+          onToggleMonitor={toggleMonitor} onSelect={pair => { const row = scannerRows.find(item => item.symbol === pair); if (row) selectScannerRecommendation(row); else { setSymbol(pair); setSymbolInput(pair); } document.getElementById("chart-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}/>
         <div className="min-w-0 xl:order-first">
         <TelegramPanel signals={signalAlerts.picks.map(pick=>snapshotSignal(pick))} deliveryStatus={signalAlerts.telegramStatus}/>
         <Section id="signals-section" storageKey="signals" title="Signals & monitoring" subtitle="Qualified plans, closest-to-ready setups and your monitored pairs" icon={<Radar className="h-5 w-5"/>} badge={signalAlerts.picks.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">{signalAlerts.picks.length} ready</span> : monitor.hits.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">🔔 {monitor.hits.length} at level</span> : undefined}>

@@ -338,18 +338,17 @@ test("Signal identity distinguishes long/short and mode; copy includes all five 
   const message=signals.telegramSignalText(snapshot,true,now+16*60_000);
   assert.match(message,/🔴 SHORT/);
   assert.match(message,/EXPIRED SNAPSHOT/);
-  assert.equal((message.match(/🎯 TP/g)??[]).length,5);
-  assert.match(message,/5×/);
+  assert.equal((message.match(/🎯 Target \d/g)??[]).length,5);
+  assert.match(message,/Leverage: 5x/);
   assert.match(message,/No exchange order/);
-  assert.match(message,/HOW TO ENTER/);
-  assert.ok(message.indexOf("📍 ENTRY") < message.indexOf("🧭 HOW TO ENTER"));
-  assert.ok(message.indexOf("🛑 STOP LOSS") < message.indexOf("🧭 HOW TO ENTER"));
-  assert.ok(message.indexOf("🎯 TP5") < message.indexOf("🧭 HOW TO ENTER"));
+  assert.match(message,/📍 Coin : #/);
+  assert.ok(message.indexOf("👉 Entry") < message.indexOf("🎯 Target 1"));
+  assert.ok(message.indexOf("🎯 Target 5") < message.indexOf("❌ StopLoss"));
+  assert.match(message,/🎯 Trigger: .* \(close below/);
   assert.match(message,/SELL LIMIT/);
   assert.doesNotMatch(message,/BUY LIMIT/);
-  assert.match(message,/Never chase/);
-  assert.match(message,/3️⃣/);
-  assert.match(message,/not a fresh entry approval/);
+  assert.match(message,/Valid until/);
+  assert.match(message,/Saved levels/);
 });
 
 test("Notification storage is bounded and corrupt records cannot crash the tab", () => {
@@ -544,10 +543,11 @@ test("Telegram failures never expose the bot token in error text",async()=>{
 
 test("Telegram HTML highlights levels and safely escapes analysis text",()=>{
  const item=signals.snapshotSignal(qualifiedPick(Date.now()));
- item.btcExplanation="Momentum <risk> & liquidity";
+ item.setupType="PULLBACK <risk> & liquidity";
  const html=signals.telegramSignalHtml(item);
- assert.match(html,/<b>📍 ENTRY/);
- assert.match(html,/Momentum &lt;risk&gt; &amp; liquidity/);
+ assert.match(html,/<b>👉 Entry/);
+ assert.match(html,/<b>❌ StopLoss/);
+ assert.match(html,/PULLBACK &lt;risk&gt; &amp; liquidity/);
  assert.doesNotMatch(html,/<risk>/);
 });
 const targetPolicy=load("app/lib/target-policy.ts");
