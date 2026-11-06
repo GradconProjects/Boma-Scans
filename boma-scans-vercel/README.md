@@ -85,7 +85,7 @@ Two server endpoints do the work of the open dashboard. Point any scheduler at t
 | every 1 minute | `/api/cron/monitor?key=…` | reads Telegram commands, re-analyses every monitored pair, pushes entry / exit / leave alerts and the hourly digest |
 | every 15 minutes | `/api/cron/scan?key=…` | scans the most liquid pairs, pushes qualified signals and auto-monitors them |
 
-The key is `CRON_SECRET` if you set it in Vercel, otherwise it is derived from the owner password. A free scheduler such as cron-job.org works; the repo also carries a GitHub Actions workflow (`.github/workflows/boma-cron.yml`) that needs the repository secret `BOMA_CRON_KEY`.
+Nothing has to be set up by hand: when the Telegram panel is opened the app registers two pg_cron jobs in the Supabase database (monitor every minute, scan every 15 minutes, using pg_net to call the endpoints) and the panel shows a green confirmation. The key is `CRON_SECRET` if you set it in Vercel, otherwise it is derived from the owner password. Fallbacks: a free scheduler such as cron-job.org pointed at the two links, or the GitHub Actions workflow (`.github/workflows/boma-cron.yml`) with the repository secret `BOMA_CRON_KEY`.
 
 ### Telling the bot about your trade
 

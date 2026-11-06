@@ -10,6 +10,7 @@ import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } fr
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
 import { cronKey } from "@/app/server/cron-auth";
+import { ensureSchedule } from "@/app/server/cron-schedule";
 export const dynamic="force-dynamic";
 
 const reply=(body:unknown,status=200)=>NextResponse.json(body,{status,headers:{"Cache-Control":"no-store"}});
@@ -41,7 +42,8 @@ export async function GET(request:NextRequest) {
   try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {lastRunAt?:number;autoMonitored?:string[];lastError?:string;symbols?:Record<string,{armed?:unknown}>};server={lastRunAt:parsed.lastRunAt,autoMonitored:parsed.autoMonitored??[],inTrade:Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s),lastError:parsed.lastError};}} catch { /* none yet */ }
   const key=await cronKey();
   const origin=request?.nextUrl?.origin??"";
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET}:null});
+  const schedule=config?.enabled?await ensureSchedule(origin,request?.nextUrl?.searchParams.get("schedule")==="retry").catch(()=>null):null;
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);

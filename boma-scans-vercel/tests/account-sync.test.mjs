@@ -70,6 +70,7 @@ telegramMod.require=spec=>{
  if(spec==='@/app/server/telegram')return {telegramCall:async(...args)=>{telegramSent.push(args);return {};},telegramChunks:text=>[text]};
  if(spec==='@/app/lib/signal-alerts')return loadReal('app/lib/signal-alerts.ts');
  if(spec==='@/app/server/cron-auth')return {cronKey:async()=>"",cronAuthorized:async()=>false};
+ if(spec==='@/app/server/cron-schedule')return {ensureSchedule:async()=>null};
  if(spec.startsWith('@/')) return {};
  return require(spec);
 };
