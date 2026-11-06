@@ -31,7 +31,9 @@ async function configuration(userId:string,email:string):Promise<Config|null>{
 export async function GET() {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
   const config=await configuration(user.userId,user.email);
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB});
+  let senders:unknown=[];
+  try {const raw=await readRecord(user.userId,"telegram-senders");senders=raw?JSON.parse(raw.payload):[];} catch { /* none yet */ }
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);

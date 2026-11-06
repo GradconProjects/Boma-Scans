@@ -22,7 +22,7 @@ export async function POST(request:NextRequest) {
  let processed=0;
  try {
   const response=await fetch(`https://api.telegram.org/bot${env.TELEGRAM_BOT_TOKEN}/getUpdates`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({offset:lease.offset,limit:5,timeout:0,allowed_updates:["message","callback_query"]}),signal:AbortSignal.timeout(10000)});
-  const data=await response.json() as {ok:boolean;result:Array<{update_id:number;message?:{text?:string;date:number;chat:{id:number};from?:{id:number}};callback_query?:{id:string;data?:string;from:{id:number};message?:{chat:{id:number};date:number}}}>};
+  const data=await response.json() as {ok:boolean;result:Array<{update_id:number;message?:{text?:string;date:number;chat:{id:number};from?:{id:number;first_name?:string;last_name?:string;username?:string}};callback_query?:{id:string;data?:string;from:{id:number};message?:{chat:{id:number};date:number}}}>};
   if(!response.ok||!data.ok)return reply({error:"Telegram command polling unavailable; an existing webhook or connection error may be blocking it."},502);
   for(const update of data.result) {
    let claim:boolean;
@@ -33,6 +33,17 @@ export async function POST(request:NextRequest) {
    if(!claim)continue;
    const message=update.message;const callback=update.callback_query;
    const target=message?.chat.id??callback?.message?.chat.id;const sender=message?.from?.id??callback?.from.id;
+   if(message?.chat.id && message.from) {
+    // Record recent senders so the dashboard can offer "Use this chat" when the configured id is wrong.
+    try {
+     const raw=env.DB?(await env.DB.prepare("SELECT payload FROM account_records WHERE user_id=? AND record_key='telegram-senders'").bind(user.userId).first<{payload:string}>())?.payload:memory().records.get(recordKey(user.userId,"telegram-senders"))?.payload;
+     const senders=(raw?JSON.parse(raw):[]) as Array<{chatId:string;name:string;text:string;at:number}>;
+     const next=[{chatId:String(message.chat.id),name:[message.from.first_name,message.from.last_name].filter(Boolean).join(" ")||message.from.username||"Telegram user",text:(message.text??"").slice(0,40),at:Date.now()},...senders.filter(item=>item.chatId!==String(message.chat.id))].slice(0,5);
+     const payload=JSON.stringify(next);
+     if(env.DB)await env.DB.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,'telegram-senders',?,1,?) ON CONFLICT(user_id,record_key) DO UPDATE SET payload=excluded.payload,revision=account_records.revision+1,updated_at=excluded.updated_at").bind(user.userId,payload,Date.now()).run();
+     else {const store=memory().records,id=recordKey(user.userId,"telegram-senders");store.set(id,{payload,revision:(store.get(id)?.revision??0)+1,updatedAt:Date.now()});}
+    } catch { /* diagnostics only */ }
+   }
    if(String(target)!==String(chatId)||String(sender)!==String(chatId))continue;
    const date=message?.date??0;if(message && Date.now()-date*1000>30*60000)continue;
    let text=message?.text??"";
