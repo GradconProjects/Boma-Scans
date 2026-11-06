@@ -35,7 +35,7 @@ export async function POST(request: NextRequest) {
     const body = JSON.parse(raw);
     if (typeof body.password !== "string" || !(await equalSecret(secret, body.password))) return reply({ error: "Incorrect owner password." }, 401);
     const token = await createOwnerSession(secret);
-    return reply({ ok: true }, 200, { "Set-Cookie": SESSION_COOKIE + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=2592000" });
+    return reply({ ok: true }, 200, { "Set-Cookie": SESSION_COOKIE + "=" + token + "; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=7776000" }); // Lax: the cookie is sent when you arrive from Telegram or a bookmark; writes also verify Origin.
   } catch {
     return reply({ error: "Sign-in is temporarily unavailable." }, 503);
   }
@@ -43,5 +43,5 @@ export async function POST(request: NextRequest) {
 
 export async function DELETE(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Invalid request origin." }, 403);
-  return reply({ ok: true }, 200, { "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Strict; Max-Age=0" });
+  return reply({ ok: true }, 200, { "Set-Cookie": SESSION_COOKIE + "=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0" });
 }

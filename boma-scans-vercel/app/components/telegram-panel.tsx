@@ -11,7 +11,7 @@ export function TelegramPanel({signals,deliveryStatus}:{signals:SignalSnapshot[]
   fetch("/api/telegram",{cache:"no-store",signal:controller.signal}).then(async response=>{
    const data=await response.json() as {configured?:boolean;enabled?:boolean;chatId?:string;error?:string};
    if(!response.ok)throw new Error(data.error||"Telegram unavailable.");
-   setConfigured(!!data.configured);setEnabled(!!data.enabled);setChatId(data.chatId??"");setStatus(data.enabled?"Telegram destination configured. Use Connect & send test to verify delivery.":"Enter your Telegram chat ID to connect.");
+   setConfigured(!!data.configured);setEnabled(!!data.enabled);setChatId(data.chatId??"");setStatus(!data.configured?"Telegram bot token is not set. In Vercel → Settings → Environment Variables add TELEGRAM_BOT_TOKEN (from @BotFather) and TELEGRAM_CHAT_ID (your numeric chat ID, from @userinfobot), then Redeploy. With both set, Telegram is on automatically; no connect step is needed.":data.enabled?"Telegram destination configured"+(data.chatId?" (chat "+data.chatId+")":"")+". Use Connect & send test to verify delivery, or Send Telegram controls for the command menu.":"Enter your Telegram chat ID to connect, or set TELEGRAM_CHAT_ID in Vercel.");
   }).catch(error=>{if(!controller.signal.aborted)setStatus(error instanceof Error?error.message:"Telegram unavailable.");});
   return ()=>controller.abort();
  },[]);
@@ -40,8 +40,8 @@ export function TelegramPanel({signals,deliveryStatus}:{signals:SignalSnapshot[]
   }catch(error){setStatus(error instanceof Error?error.message:"Telegram request failed.");}finally{setBusy(false);}
  }
  return <details className="my-4 rounded-2xl border border-cyan-300/20 bg-slate-950/40 p-4">
-  <summary className="cursor-pointer text-base font-semibold text-cyan-200">📨 Telegram delivery · {enabled?"connected":"connect your chat"}</summary>
-  <p className="mt-3 text-sm leading-6 text-slate-300">Open your bot in Telegram and press Start first. Enter your numeric chat ID below. Connecting sends a test message and enables qualified long/short alerts for this account.</p>
+  <summary className="cursor-pointer text-base font-semibold text-cyan-200">📨 Telegram delivery · {enabled?"connected":configured?"connect your chat":"set TELEGRAM_BOT_TOKEN in Vercel"}</summary>
+  <p className="mt-3 text-sm leading-6 text-slate-300">Easiest setup: put <code className="font-mono text-cyan-100">TELEGRAM_BOT_TOKEN</code> and <code className="font-mono text-cyan-100">TELEGRAM_CHAT_ID</code> in Vercel environment variables and redeploy; alerts are then on for every sign-in. Otherwise open your bot in Telegram, press Start, and enter your numeric chat ID below. Connecting sends a test message.</p>
   <label className="mt-3 block text-sm text-slate-300" htmlFor="telegram-chat-id">Telegram chat ID</label>
   <Input id="telegram-chat-id" value={chatId} onChange={event=>setChatId(event.target.value)} placeholder="Your numeric chat ID" className="mt-1 max-w-sm"/>
   <div className="mt-3 flex flex-wrap gap-2"><Button disabled={busy||!configured||!chatId.trim()} onClick={()=>void act("connect")}>Connect & send test</Button><Button variant="outline" disabled={busy||!configured} onClick={()=>void act("menu")}>Send Telegram controls</Button><Button variant="outline" disabled={busy||!enabled||!signals.length} onClick={()=>void act("signals")}>Send active signals now</Button><Button variant="outline" disabled={busy||!enabled} onClick={()=>void act("disable")}>Disable Telegram</Button></div>

@@ -1,5 +1,5 @@
 const encoder=new TextEncoder();
-const lifetime=30*86_400_000;
+const lifetime=90*86_400_000; // 90-day owner session
 const encode=(value:Uint8Array)=>btoa(String.fromCharCode(...value)).replaceAll("+","-").replaceAll("/","_").replace(/=+$/,"");
 async function key(secret:string) {return crypto.subtle.importKey("raw",encoder.encode(secret),{name:"HMAC",hash:"SHA-256"},false,["sign","verify"]);}
 export async function createOwnerSession(secret:string,now=Date.now()) {
