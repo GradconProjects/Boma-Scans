@@ -40,6 +40,36 @@ export function evaluateMonitor(symbol: string, row: ScannerRow | undefined, pri
 
 export const ALERT_STATES: TriggerState[] = ["AT TRIGGER", "ENTRY RANGE"];
 
+/** Levels locked when a monitored pair reaches its entry range; exits are then tracked against them. */
+export type ArmedPlan = {
+  symbol: string; side: ScannerRow["bias"]; planKey: string; entry: number; stop: number;
+  targets: number[]; weights: number[]; hit: number; armedAt: number;
+};
+export type ExitEvent = { kind: "TARGET"; symbol: string; level: number; price: number; exitPct: number; plan: ArmedPlan } | { kind: "STOP"; symbol: string; price: number; plan: ArmedPlan };
+
+export function armPlan(row: ScannerRow, now = Date.now()): ArmedPlan {
+  const plan = row.executionPlan;
+  return { symbol: row.symbol, side: row.bias, planKey: [row.symbol, plan.side, plan.trigger, plan.stop, plan.confirmationTime ?? 0].join(":"), entry: plan.entry, stop: row.stop,
+    targets: row.takeProfits.map(target => target.price), weights: row.takeProfits.map(target => target.exitPct), hit: 0, armedAt: now };
+}
+
+/** Exit events for a live price; returns the updated plan (null once the stop is hit or every target is done). */
+export function checkExits(plan: ArmedPlan, price: number): { events: ExitEvent[]; next: ArmedPlan | null } {
+  const sign = plan.side === "LONG" ? 1 : -1;
+  const events: ExitEvent[] = [];
+  if (sign * (price - plan.stop) <= 0) return { events: [{ kind: "STOP", symbol: plan.symbol, price, plan }], next: null };
+  let hit = plan.hit;
+  while (hit < plan.targets.length && sign * (price - plan.targets[hit]) >= 0) { events.push({ kind: "TARGET", symbol: plan.symbol, level: hit + 1, price, exitPct: plan.weights[hit] ?? 0, plan }); hit++; }
+  const next = hit >= plan.targets.length ? null : { ...plan, hit };
+  return { events, next };
+}
+
+export function parseArmedPlans(raw: unknown): ArmedPlan[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is ArmedPlan => !!item && typeof item === "object" && typeof item.symbol === "string" && (item.side === "LONG" || item.side === "SHORT") &&
+    Number.isFinite(item.entry) && Number.isFinite(item.stop) && Array.isArray(item.targets) && item.targets.every((n: unknown) => Number.isFinite(n)) && Number.isInteger(item.hit)).slice(0, 40);
+}
+
 export function parseMonitoredSymbols(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return Array.from(new Set(raw.filter((item): item is string => typeof item === "string" && /^[A-Z0-9]{2,24}USDT$/.test(item)))).slice(0, 40);

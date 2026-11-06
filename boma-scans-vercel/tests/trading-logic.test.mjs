@@ -347,7 +347,8 @@ test("Signal identity distinguishes long/short and mode; copy includes all five 
   assert.match(message,/🎯 Trigger: .* \(close below/);
   assert.match(message,/SELL LIMIT/);
   assert.doesNotMatch(message,/BUY LIMIT/);
-  assert.match(message,/Valid until/);
+  assert.match(message,/⏱ Expires: /);
+  assert.match(message,/🎯 Target 1: 99\.0000 \(\+0\.70%, 0\.5R\)/);
   assert.match(message,/Saved levels/);
 });
 

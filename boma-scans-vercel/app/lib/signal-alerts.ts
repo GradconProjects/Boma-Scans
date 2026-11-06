@@ -212,7 +212,11 @@ export type CompactSignalInput = {
 /** The short signal card: coin, side, entry zone, trigger rule, leverage, targets, stop, validity. */
 export function compactSignalLines(input: CompactSignalInput): string[] {
   const long = input.side === "LONG";
-  const melbourne = (time: number) => new Intl.DateTimeFormat("en-AU", {timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit"}).format(time);
+  const melbourne = (time: number) => new Intl.DateTimeFormat("en-AU", {timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", hour12: false}).format(time);
+  const sign = long ? 1 : -1;
+  const risk = Math.max(Math.abs(input.entry - input.stop), input.entry * 0.0001);
+  const pct = (price: number) => (sign * (price - input.entry) / input.entry * 100);
+  const figures = (price: number) => " (" + (pct(price) >= 0 ? "+" : "") + pct(price).toFixed(2) + "%, " + (sign * (price - input.entry) / risk).toFixed(1) + "R)";
   return [
     "📍 Coin : #" + input.symbol.replace(/USDT$/, "") + "/USDT",
     long ? "🟢 LONG" : "🔴 SHORT",
@@ -220,10 +224,10 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
     ...(input.trigger ? ["🎯 Trigger: " + formatPrice(input.trigger) + " (" + (long ? "close above" : "close below") + (input.timeframe ? ", " + input.timeframe : "") + ")"] : []),
     ...(input.leverage ? ["🌐 Leverage: " + input.leverage + "x"] : []),
     "",
-    ...input.targets.map((target, index) => "🎯 Target " + (index + 1) + ": " + (target.available === false ? "unconfirmed" : formatPrice(target.price))),
+    ...input.targets.map((target, index) => "🎯 Target " + (index + 1) + ": " + (target.available === false ? "unconfirmed" : formatPrice(target.price) + figures(target.price))),
     "",
-    "❌ StopLoss: " + formatPrice(input.stop),
-    ...(input.expiresAt ? ["⏳ Valid until " + melbourne(input.expiresAt) + " Melbourne · enter only after the candle close and READY"] : []),
+    "❌ StopLoss: " + formatPrice(input.stop) + " (-" + (Math.abs(input.entry - input.stop) / input.entry * 100).toFixed(2) + "%)",
+    ...(input.expiresAt ? ["⏱ Expires: " + melbourne(input.expiresAt)] : []),
   ];
 }
 

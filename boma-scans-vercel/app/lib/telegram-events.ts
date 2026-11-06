@@ -1,5 +1,5 @@
 import { formatPrice } from "@/app/lib/market";
-import type { MonitorEntry } from "@/app/lib/trigger-monitor";
+import type { ExitEvent, MonitorEntry } from "@/app/lib/trigger-monitor";
 import type { TrackedTrade, TradeSnapshot } from "@/app/lib/trade-manager";
 
 /** A follow-up message for Telegram. `key` de-duplicates across devices and reloads. */
@@ -70,6 +70,27 @@ export function formatMonitorStart(entry: MonitorEntry, now = Date.now()): Teleg
     "📥 Entry range " + formatPrice(plan.entryLow) + " – " + formatPrice(plan.entryHigh) + " · " + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(plan.entry),
     "🛑 Stop " + (entry.stop !== null ? formatPrice(entry.stop) : "—"),
     "You will be messaged when price reaches the trigger or the entry range, and if the stop side is hit first. " + plan.zoneSource + " · " + (entry.ready ? "plan READY" : "waiting for confirmation") + ".",
+  ] };
+}
+
+/** Exit pushes for a monitored pair after it entered: target hit (with the % to close) or stop hit. */
+export function formatExitEvent(event: ExitEvent): TelegramEvent {
+  const plan = event.plan; const sign = plan.side === "LONG" ? 1 : -1;
+  const risk = Math.max(Math.abs(plan.entry - plan.stop), plan.entry * 0.0001);
+  const r = (price: number) => (sign * (price - plan.entry) / risk).toFixed(1) + "R";
+  const pct = (price: number) => (sign * (price - plan.entry) / plan.entry * 100).toFixed(2) + "%";
+  if (event.kind === "STOP") return { key: "exit:" + plan.planKey + ":STOP", lines: [
+    "❌ " + plan.symbol + " " + plan.side + " · STOP HIT " + formatPrice(plan.stop),
+    "📍 Price " + formatPrice(event.price) + " · " + r(event.price) + " · " + pct(event.price),
+    "Close the remaining position now. Do not re-enter on this plan.",
+  ] };
+  const remaining = Math.max(0, 100 - plan.weights.slice(0, event.level).reduce((a, b) => a + b, 0));
+  const nextTarget = plan.targets[event.level];
+  return { key: "exit:" + plan.planKey + ":TP" + event.level, lines: [
+    "🎯 " + plan.symbol + " " + plan.side + " · TARGET " + event.level + " HIT " + formatPrice(plan.targets[event.level - 1]),
+    "📍 Price " + formatPrice(event.price) + " · " + r(event.price) + " · " + pct(event.price),
+    "✅ Close " + event.exitPct + "% now · " + remaining + "% remaining",
+    nextTarget !== undefined ? "➡️ Next: Target " + (event.level + 1) + " " + formatPrice(nextTarget) + " · stop stays " + formatPrice(plan.stop) : "🏁 All targets done; close any remainder.",
   ] };
 }
 

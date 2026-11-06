@@ -1,7 +1,9 @@
 "use client";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { fetchTickers, type ScannerRow } from "@/app/lib/market";
-import { ALERT_STATES, evaluateMonitor, type MonitorEntry, type TriggerState } from "@/app/lib/trigger-monitor";
+import { ALERT_STATES, armPlan, checkExits, evaluateMonitor, parseArmedPlans, type ArmedPlan, type ExitEvent, type MonitorEntry, type TriggerState } from "@/app/lib/trigger-monitor";
+
+const ARMED_KEY = "boma-scans:armed";
 
 const POLL_MS = 10_000;
 const REALERT_MS = 15 * 60_000;
@@ -15,10 +17,18 @@ const RANK: Record<TriggerState, number> = { "NO PLAN": 0, WAITING: 0, "STOP HIT
  */
 export type MonitorUpdate = { kind: "CONFIRMED" | "PLAN UPDATED" | "EXPIRED" | "STOP HIT"; entry: MonitorEntry };
 
-export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp, onUpdate}: {
+export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp, onUpdate, onExit}: {
   rows: ScannerRow[]; monitored: string[]; onAlert: (entries: MonitorEntry[]) => void; onFollowUp?: (entries: MonitorEntry[]) => void;
-  onUpdate?: (updates: MonitorUpdate[]) => void;
+  onUpdate?: (updates: MonitorUpdate[]) => void; onExit?: (events: ExitEvent[]) => void;
 }) {
+  const [armed, setArmed] = useState<ArmedPlan[]>([]);
+  const armedRef = useRef<ArmedPlan[]>([]);
+  const onExitRef = useRef(onExit);
+  onExitRef.current = onExit;
+  useEffect(() => {
+    try { const saved = parseArmedPlans(JSON.parse(window.localStorage.getItem(ARMED_KEY) ?? "[]")); armedRef.current = saved; setArmed(saved); } catch { /* start empty */ }
+  }, []);
+  const saveArmed = (next: ArmedPlan[]) => { armedRef.current = next; setArmed(next); try { window.localStorage.setItem(ARMED_KEY, JSON.stringify(next)); } catch { /* device storage unavailable */ } };
   const [prices, setPrices] = useState<Record<string, number>>({});
   const [updatedAt, setUpdatedAt] = useState(0);
   const alerted = useRef(new Map<string, { state: TriggerState; at: number }>());
@@ -90,8 +100,28 @@ export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp, onUpdat
     }
     for (const symbol of Array.from(seen.current.keys())) if (!entries.some(entry => entry.symbol === symbol)) seen.current.delete(symbol);
     if (updates.length) onUpdateRef.current?.(updates);
+    // Entry → exit tracking: lock the levels when a monitored pair reaches its entry range, then watch targets and stop.
+    let armedNow = armedRef.current;
+    const rowBySymbol = new Map(rows.map(row => [row.symbol, row]));
+    for (const entry of entries) {
+      if (entry.state !== "ENTRY RANGE" || armedNow.some(plan => plan.symbol === entry.symbol)) continue;
+      const row = rowBySymbol.get(entry.symbol);
+      if (row) armedNow = [...armedNow, armPlan(row, now)];
+    }
+    const exits: ExitEvent[] = [];
+    armedNow = armedNow.flatMap(plan => {
+      const price = prices[plan.symbol];
+      if (!Number.isFinite(price)) return [plan];
+      const result = checkExits(plan, price);
+      exits.push(...result.events);
+      return result.next ? [result.next] : [];
+    });
+    if (armedNow !== armedRef.current && (armedNow.length !== armedRef.current.length || armedNow.some((plan, index) => plan !== armedRef.current[index]))) saveArmed(armedNow);
+    if (exits.length) onExitRef.current?.(exits);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [entries]);
+  const disarm = (symbol: string) => saveArmed(armedRef.current.filter(plan => plan.symbol !== symbol));
 
   const hits = entries.filter(entry => ALERT_STATES.includes(entry.state));
-  return { entries, hits, updatedAt };
+  return { entries, hits, updatedAt, armed, disarm };
 }

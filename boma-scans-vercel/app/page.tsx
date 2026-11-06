@@ -78,7 +78,7 @@ import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
-import { formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
+import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import type { SignalSnapshot } from "@/app/lib/signal-alerts";
@@ -1331,6 +1331,10 @@ export default function Home() {
   }, onUpdate: updates => {
     for (const update of updates) notify((update.kind === "CONFIRMED" ? "✅ " : update.kind === "PLAN UPDATED" ? "🔄 " : "⌛ ") + update.entry.symbol + " · " + update.kind.toLowerCase(), {duration: 10000});
     void pushTelegramEvents(updates.filter(update => update.kind !== "STOP HIT").map(update => formatMonitorUpdate(update.entry, update.kind as "CONFIRMED" | "PLAN UPDATED" | "EXPIRED")));
+  }, onExit: events => {
+    signalAlerts.playTrigger();
+    for (const event of events) notify(event.kind === "STOP" ? "❌ " + event.symbol + " stop hit · close the remainder" : "🎯 " + event.symbol + " target " + event.level + " hit · close " + event.exitPct + "%", {duration: 15000});
+    void pushTelegramEvents(events.map(formatExitEvent));
   }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
@@ -1338,7 +1342,8 @@ export default function Home() {
   const railItems: RailItem[] = (() => {
     const monitoredSet = new Set(monitored);
     const hitSet = new Set(monitor.hits.map(entry => entry.symbol));
-    const stateBy = new Map(monitor.entries.map(entry => [entry.symbol, entry.state]));
+    const stateBy = new Map<string, string>(monitor.entries.map(entry => [entry.symbol, entry.state]));
+    for (const plan of monitor.armed) stateBy.set(plan.symbol, "IN TRADE · next TP" + (plan.hit + 1));
     const fromRow = (row: ScannerRow) => compactSignalLines({symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt});
     const items: RailItem[] = [];
     const seen = new Set<string>();
