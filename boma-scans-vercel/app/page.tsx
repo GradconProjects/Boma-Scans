@@ -74,6 +74,11 @@ import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
+import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
+import { MonitorRail } from "@/app/components/monitor-rail";
+import { Section } from "@/app/components/section";
+import { formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
+import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import type { SignalSnapshot } from "@/app/lib/signal-alerts";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -1315,6 +1320,17 @@ export default function Home() {
       scannerNow - lastScan <= scannerStaleAfterMs,
   );
   const mediumRiskPicks = getMediumRiskShortlist(scannerRows, equity, scannerLive);
+  const monitor = useTriggerMonitor({rows: scannerRows, monitored, onAlert: entries => {
+    signalAlerts.playTrigger();
+    notify("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering. Pushed to Telegram if connected.", duration: 12000});
+    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
+  }, onFollowUp: entries => {
+    notify("⛔ " + entries.map(entry => entry.symbol + " plan invalidated").join(" · "), {description: "Price reached the stop side before entry. Cancel any resting order.", duration: 12000});
+    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
+  }, onUpdate: updates => {
+    for (const update of updates) notify((update.kind === "CONFIRMED" ? "✅ " : update.kind === "PLAN UPDATED" ? "🔄 " : "⌛ ") + update.entry.symbol + " · " + update.kind.toLowerCase(), {duration: 10000});
+    void pushTelegramEvents(updates.filter(update => update.kind !== "STOP HIT").map(update => formatMonitorUpdate(update.entry, update.kind as "CONFIRMED" | "PLAN UPDATED" | "EXPIRED")));
+  }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
   const analyzedSymbols = new Set(scannerRows.map(row => row.symbol));
@@ -1763,11 +1779,17 @@ export default function Home() {
         </div>
       ) : null}
 
-      <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7">
+      <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-5">
+        <MonitorRail entries={monitor.entries} hits={monitor.hits} updatedAt={monitor.updatedAt} now={scannerNow}
+          onOpen={() => { setSignalTab("signals"); document.getElementById("signals-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}
+          onRemove={toggleMonitor} onSelect={pair => { const row = scannerRows.find(item => item.symbol === pair); if (row) selectScannerRecommendation(row); else { setSymbol(pair); setSymbolInput(pair); } document.getElementById("chart-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}/>
+        <div className="min-w-0 xl:order-first">
         <TelegramPanel signals={signalAlerts.picks.map(pick=>snapshotSignal(pick))} deliveryStatus={signalAlerts.telegramStatus}/>
-        <SignalCenter alerts={signalAlerts} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
+        <Section id="signals-section" storageKey="signals" title="Signals & monitoring" subtitle="Qualified plans, closest-to-ready setups and your monitored pairs" icon={<Radar className="h-5 w-5"/>} badge={signalAlerts.picks.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">{signalAlerts.picks.length} ready</span> : monitor.hits.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">🔔 {monitor.hits.length} at level</span> : undefined}>
+        <SignalCenter alerts={signalAlerts} monitor={monitor} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
           onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")}/>
+        </Section>
         <Collapsible
           id="opportunities"
           open={opportunitiesOpen}
@@ -2077,6 +2099,7 @@ export default function Home() {
           </div>
         ) : null}
 
+        <Section id="chart-section" storageKey="chart" title={"Chart, entry plan & trade manager · " + symbol} subtitle="Live analysis of the selected pair, entry instructions, sizing and your tracked trades" icon={<Radar className="h-5 w-5"/>}>
         <section id="chart-focus" className="scroll-mt-52 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#08111b]/90 shadow-[0_34px_110px_-72px_rgba(45,212,191,0.8)]">
           <div className="border-b border-white/[0.07] p-4 sm:p-5 lg:p-6">
             <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
@@ -2696,6 +2719,7 @@ export default function Home() {
             </Accordion>
           </section>
         </div>
+        </Section>
 
         <section id="shortlist" className="sticky bottom-20 z-30 mt-5 rounded-2xl border border-cyan-300/15 bg-[#0c141d]/95 p-3 shadow-2xl backdrop-blur-2xl md:bottom-4">
           <div className="flex flex-col gap-3 md:flex-row md:items-center"><div className="min-w-40"><p className="text-sm font-semibold text-cyan-100">Qualified shortlist</p><p className="mt-1 text-xs text-slate-500">{flexibility} · max 2 ideas</p></div><div className="flex min-w-0 flex-1 snap-x gap-3 overflow-x-auto">{mediumRiskPicks.length ? mediumRiskPicks.map(pick => <div key={pick.row.symbol} className="flex min-w-[280px] flex-1 snap-center items-center justify-between gap-3 rounded-xl border border-white/10 bg-white/[0.025] p-3"><button type="button" onClick={() => selectScannerRecommendation(pick.row)} className="text-left"><span className="block font-mono text-sm font-bold text-white">{pick.row.symbol} · {pick.row.ratingGrade}</span><span className="mt-1 block text-xs text-slate-400">{pick.row.bias} · {pick.row.riskBand} · {pick.leverage}× · {pick.row.netRewardR.toFixed(2)}R</span></button><Button type="button" size="sm" onClick={() => requestTrade(pick.row, "PAPER")}>Paper trade</Button></div>) : <p className="py-2 text-sm text-slate-500">No complete entry-ready setup yet. All other possibilities remain in the scanner.</p>}</div></div>
@@ -2724,6 +2748,7 @@ export default function Home() {
             No setup or leverage suggestion guarantees profit.
           </span>
         </footer>
+        </div>
       </div>
       <Sheet open={navOpen} onOpenChange={setNavOpen}><SheetContent side="left" className="w-72 border-white/10 bg-[#0a0b0f]"><SheetHeader><SheetTitle>Boma Scans</SheetTitle><SheetDescription>Your trading workspace</SheetDescription></SheetHeader><nav aria-label="Workspace navigation" className="space-y-2 px-4">{[["signals-center", "Signals", Radio], ["notifications", "Notifications", Bell], ["opportunities", "Scanner", Radar], ["chart-focus", "Chart focus", LineChart], ["trade-manager", "Trade manager", BriefcaseBusiness], ["shortlist", "Shortlist", Target], ["trade-journal", "Journal", BookOpen]].map(([id,label,Icon]) => { const NavIcon = Icon as typeof Radar; return <button key={String(id)} type="button" onClick={() => navigateSection(String(id))} className="flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm text-slate-300 hover:bg-cyan-300/10 hover:text-cyan-200"><NavIcon className="h-4 w-4"/>{String(label)}</button>;})}</nav></SheetContent></Sheet>
       <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-white/10 bg-[#0a0b0f]/95 px-3 py-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur md:hidden">{[["signals-center", "Signals", Radio], ["notifications", "Alerts", Bell], ["chart-focus", "Chart", LineChart], ["trade-manager", "Trades", BriefcaseBusiness]].map(([id,label,Icon]) => {const NavIcon = Icon as typeof Radar; return <button type="button" key={String(id)} onClick={() => navigateSection(String(id))} className="flex min-w-14 flex-col items-center gap-1 text-xs text-slate-400"><NavIcon className="h-5 w-5"/>{String(label)}</button>;})}</nav>

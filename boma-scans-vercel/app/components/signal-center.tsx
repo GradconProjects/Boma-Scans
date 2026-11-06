@@ -16,9 +16,9 @@ import { LevelsPanel } from "@/app/components/levels-panel";
 import { useOrderBooks } from "@/app/components/use-order-books";
 import type { OrderBookBalance } from "@/app/lib/order-book";
 import { InlineChart } from "@/app/components/inline-chart";
-import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
+import type { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import type { MonitorEntry } from "@/app/lib/trigger-monitor";
-import { formatMonitorDigest, formatMonitorEvent, formatMonitorStart, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
+import { formatMonitorDigest, formatMonitorStart, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { useEffect } from "react";
 import { evaluateMonitor } from "@/app/lib/trigger-monitor";
 import { Send } from "lucide-react";
@@ -137,8 +137,8 @@ function MonitorPanel({entries, hits, updatedAt, now, rows, onToggleMonitor, onA
   </section>;
 }
 
-export function SignalCenter({alerts, rows = [], monitored = [], onToggleMonitor = () => {}, tab, onTabChange, now, scanning, live, onReview, onPaper}: {
-  alerts: Alerts; rows?: ScannerRow[]; monitored?: string[]; onToggleMonitor?: (symbol: string) => void; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
+export function SignalCenter({alerts, monitor, rows = [], monitored = [], onToggleMonitor = () => {}, tab, onTabChange, now, scanning, live, onReview, onPaper}: {
+  alerts: Alerts; monitor: ReturnType<typeof useTriggerMonitor>; rows?: ScannerRow[]; monitored?: string[]; onToggleMonitor?: (symbol: string) => void; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
   now: number; scanning: boolean; live: boolean;
   onReview: (signal: Pick<SignalSnapshot, "symbol" | "style" | "flexibility">) => void;
   onPaper: (row: ScannerRow) => void;
@@ -160,17 +160,6 @@ export function SignalCenter({alerts, rows = [], monitored = [], onToggleMonitor
     onToggleMonitor(symbol);
     if (!monitoredSet.has(symbol)) void pushTelegramEvents([formatMonitorStart(evaluateMonitor(symbol, rows.find(row => row.symbol === symbol), undefined), now)]);
   }
-  const monitor = useTriggerMonitor({rows, monitored, onAlert: entries => {
-    alerts.playTrigger();
-    toast("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering. Pushed to Telegram if connected.", duration: 12000});
-    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
-  }, onFollowUp: entries => {
-    toast("⛔ " + entries.map(entry => entry.symbol + " plan invalidated").join(" · "), {description: "Price reached the stop side before entry. Cancel any resting order.", duration: 12000});
-    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
-  }, onUpdate: updates => {
-    for (const update of updates) toast((update.kind === "CONFIRMED" ? "✅ " : update.kind === "PLAN UPDATED" ? "🔄 " : "⌛ ") + update.entry.symbol + " · " + update.kind.toLowerCase(), {duration: 10000});
-    void pushTelegramEvents(updates.filter(update => update.kind !== "STOP HIT").map(update => formatMonitorUpdate(update.entry, update.kind as "CONFIRMED" | "PLAN UPDATED" | "EXPIRED")));
-  }});
   // Hourly digest of every monitored pair while the dashboard is open.
   const digestHour = Math.floor(now / 3_600_000);
   const digestEntries = monitor.entries;
