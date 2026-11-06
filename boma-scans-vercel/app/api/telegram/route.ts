@@ -33,7 +33,10 @@ export async function GET() {
   const config=await configuration(user.userId,user.email);
   let senders:unknown=[];
   try {const raw=await readRecord(user.userId,"telegram-senders");senders=raw?JSON.parse(raw.payload):[];} catch { /* none yet */ }
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders});
+  // Which bot does the configured token belong to? (so the owner messages the right one)
+  let bot:string|null=null;
+  if(env.TELEGRAM_BOT_TOKEN){try {const me=await telegramCall(env.TELEGRAM_BOT_TOKEN,"getMe",{}) as {username?:string}|undefined;bot=me?.username??null;} catch { bot=null; }}
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
