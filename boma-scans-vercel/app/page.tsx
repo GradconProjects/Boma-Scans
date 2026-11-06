@@ -74,6 +74,7 @@ import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
+import { parseArmedPlans } from "@/app/lib/trigger-monitor";
 import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
@@ -1152,6 +1153,8 @@ export default function Home() {
       ),
     [candles, contextCandles, dataMode, macroCandles, ticker, style, flexibility, targetStyle, takerFeePct, slippagePct],
   );
+  // Cross-device state lives in the workspace record; these refs let the cloud apply reach hooks declared later.
+  const cloudApplyRef = useRef<{armed?: (plans: ReturnType<typeof parseArmedPlans>) => void; notifications?: (items: unknown) => void}>({});
   const applyCloudWorkspace = useCallback((items: {key:string;value:unknown}[]) => {
     const value = items.find(item=>item.key==="workspace")?.value as Record<string,unknown> | undefined;
     if (!value || typeof value.symbol !== "string" || !/^[A-Z0-9]{2,24}USDT$/.test(value.symbol) || !TIMEFRAMES.some(frame=>frame.value===value.interval)) return;
@@ -1160,6 +1163,8 @@ export default function Home() {
     if(["ALL","LOW","MEDIUM","HIGH"].includes(String(value.riskFilter))) setRiskFilter(value.riskFilter as RiskFilter);
     if(Array.isArray(value.monitored)) setMonitored(parseMonitoredSymbols(value.monitored));
     if(["TA","LADDER"].includes(String(value.targetStyle))) setTargetStyle(value.targetStyle as TargetStyle);
+    if(Array.isArray(value.armed)) cloudApplyRef.current.armed?.(parseArmedPlans(value.armed));
+    if(Array.isArray(value.notifications)) cloudApplyRef.current.notifications?.(value.notifications);
     if(["BOTH","LONG","SHORT"].includes(String(value.directionFilter))) setDirectionFilter(value.directionFilter as DirectionFilter);
     if (["SCALP","DAY","SWING","POSITION"].includes(String(value.style))) setStyle(value.style as TradingStyle);
     if (["STRICT","BALANCED","FLEXIBLE"].includes(String(value.flexibility))) setFlexibility(value.flexibility as FlexibilityMode);
@@ -1169,7 +1174,6 @@ export default function Home() {
     if (typeof value.fee === "number" && value.fee>=0 && value.fee<=0.3) setTakerFeePct(String(value.fee));
     if (typeof value.slippage === "number" && value.slippage>=0 && value.slippage<=1) setSlippagePct(String(value.slippage));
   }, []);
-  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,targetStyle,fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
   const planKey = [symbol, interval, style, flexibility].join(":");
   const [lockedPlan, setLockedPlan] = useState<LockedPlan | null>(null);
   const activeLock = lockedPlan?.key === planKey ? lockedPlan : null;
@@ -1346,6 +1350,9 @@ export default function Home() {
   }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
+  cloudApplyRef.current.armed = monitor.setArmedPlans;
+  cloudApplyRef.current.notifications = signalAlerts.mergeNotifications;
+  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,targetStyle,armed:monitor.armed,notifications:signalAlerts.notifications.slice(0,25),fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
   // Right-hand rail: signals, monitored pairs and the closest-to-ready setups, each with its compact signal.
   const railItems: RailItem[] = (() => {
     const monitoredSet = new Set(monitored);

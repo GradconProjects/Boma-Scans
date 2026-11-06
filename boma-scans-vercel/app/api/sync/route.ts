@@ -20,7 +20,7 @@ export async function PUT(request:NextRequest) {
   if (!env.DB) return reply({error:"Cloud sync is off: no database connected. Device copy retained."},503);
   if (request.headers.get("origin") && request.headers.get("origin")!==request.nextUrl.origin) return reply({error:"Origin rejected."},403);
   const text=await request.text();
-  if (text.length>150000) return reply({error:"Record too large."},413);
+  if (text.length>400000) return reply({error:"Record too large."},413);
   let body;
   try {body=JSON.parse(text);} catch {return reply({error:"Invalid JSON."},400);}
   if (!body || typeof body!=="object" || Array.isArray(body)) return reply({error:"Invalid record."},400);

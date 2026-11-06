@@ -115,12 +115,28 @@ export function useSignalAlerts({rows, equity, live, scanAt, scope, now, partial
     try { return playTriggerChime(context, volume); } catch { return false; }
   }
 
+  /** Merge notifications synced from another device: union by id, newest first, read state kept if either side read it. */
+  function mergeNotifications(items: unknown) {
+    const incoming = parseSignalLedger(JSON.stringify({version: 1, notifications: items, scopes: {}})).notifications;
+    if (!incoming.length) return;
+    const current = ledgerRef.current;
+    const byId = new Map(current.notifications.map(item => [item.id, item]));
+    let changed = false;
+    for (const item of incoming) {
+      const existing = byId.get(item.id);
+      if (!existing) { byId.set(item.id, item); changed = true; }
+      else if (!existing.readAt && item.readAt) { byId.set(item.id, {...existing, readAt: item.readAt}); changed = true; }
+    }
+    if (!changed) return;
+    saveLedger({...current, notifications: Array.from(byId.values()).sort((a, b) => b.createdAt - a.createdAt).slice(0, 100)});
+  }
+
   function markRead(id?: string) {
     const readAt = Date.now();
     saveLedger({...ledgerRef.current, notifications: ledgerRef.current.notifications.map(item => (!id || item.id === id) && !item.readAt ? {...item, readAt} : item)});
   }
 
-  return {telegramStatus, picks, notifications: ledger.notifications, unread: ledger.notifications.filter(item => !item.readAt).length,
+  return {telegramStatus, picks, notifications: ledger.notifications, unread: ledger.notifications.filter(item => !item.readAt).length, mergeNotifications,
     soundEnabled, soundReady, soundError, volume, setVolume, toggleSound, testSound: enableSound, playTrigger,
     markRead, storageReady, storageError};
 }

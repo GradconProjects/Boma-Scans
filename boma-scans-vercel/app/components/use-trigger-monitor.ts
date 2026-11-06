@@ -123,5 +123,7 @@ export function useTriggerMonitor({rows, monitored, onAlert, onFollowUp, onUpdat
   const disarm = (symbol: string) => saveArmed(armedRef.current.filter(plan => plan.symbol !== symbol));
 
   const hits = entries.filter(entry => ALERT_STATES.includes(entry.state));
-  return { entries, hits, updatedAt, armed, disarm };
+  /** Apply in-trade plans synced from another device (ignored when identical). */
+  const setArmedPlans = (plans: ArmedPlan[]) => { if (JSON.stringify(plans) !== JSON.stringify(armedRef.current)) saveArmed(plans); };
+  return { entries, hits, updatedAt, armed, disarm, setArmedPlans };
 }
