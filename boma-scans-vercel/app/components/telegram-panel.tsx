@@ -37,7 +37,7 @@ export function TelegramPanel({signals,deliveryStatus}:{signals:SignalSnapshot[]
    const data=await response.json() as {error?:string;message?:string};
    if(!response.ok)throw new Error(data.error||"Telegram request failed.");
    setStatus(data.message??"Telegram settings updated.");if(action==="connect")setEnabled(true);if(action==="disable")setEnabled(false);
-  }catch(error){setStatus(error instanceof Error?error.message:"Telegram request failed.");}finally{setBusy(false);}
+  }catch(error){const text=error instanceof Error?error.message:"Telegram request failed.";setStatus(/403/.test(text)?"Telegram refused (403): the bot cannot message chat "+chatId.trim()+" yet. Open your bot in Telegram, press Start (or unblock it), then try Connect & send test again.":text);}finally{setBusy(false);}
  }
  return <details className="my-4 rounded-2xl border border-cyan-300/20 bg-slate-950/40 p-4">
   <summary className="cursor-pointer text-base font-semibold text-cyan-200">📨 Telegram delivery · {enabled?"connected":configured?"connect your chat":"set TELEGRAM_BOT_TOKEN in Vercel"}</summary>

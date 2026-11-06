@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { MarketChart } from "@/app/components/market-chart";
 import { analyzeMarket, contextIntervals, fetchKlines, fetchTicker, STYLE_CONFIG, TIMEFRAMES, type Candle, type MarketAnalysis, type TradingStyle } from "@/app/lib/market";
 import type { FlexibilityMode } from "@/app/lib/entry-policy";
+import type { TargetStyle } from "@/app/lib/target-policy";
 
 type Loaded = { candles: Candle[]; analysis: MarketAnalysis; at: number };
 
@@ -13,8 +14,8 @@ type Loaded = { candles: Candle[]; analysis: MarketAnalysis; at: number };
  * again. It loads its own candles for the pair's execution timeframe and runs
  * the same analysis the scanner used, so the levels drawn match the card.
  */
-export function InlineChart({symbol, style, flexibility, timeframe, open, onToggle, onOpenMain}: {
-  symbol: string; style: TradingStyle; flexibility: FlexibilityMode; timeframe?: string;
+export function InlineChart({symbol, style, flexibility, timeframe, open, onToggle, onOpenMain, targetStyle}: {
+  symbol: string; style: TradingStyle; flexibility: FlexibilityMode; timeframe?: string; targetStyle?: TargetStyle;
   open: boolean; onToggle: () => void; onOpenMain?: () => void;
 }) {
   const minutes = timeframe?.endsWith("h") ? String(Number(timeframe.slice(0, -1)) * 60) : timeframe?.endsWith("m") ? timeframe.slice(0, -1) : "";
@@ -40,14 +41,14 @@ export function InlineChart({symbol, style, flexibility, timeframe, open, onTogg
           fetchTicker(symbol, controller.signal),
         ]);
         if (fast.length < 31) throw new Error("Not enough candle history for " + symbol + ".");
-        const analysis = analyzeMarket(fast, context, macro, ticker, style, { flexibility });
+        const analysis = analyzeMarket(fast, context, macro, ticker, style, { flexibility, targetStyle });
         if (active) setLoaded({ candles: fast, analysis, at: Date.now() });
       } catch (caught) {
         if (active && !controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Chart unavailable.");
       } finally { if (active) setLoading(false); }
     })();
     return () => { active = false; controller.abort(); };
-  }, [open, symbol, interval, style, flexibility, reload]);
+  }, [open, symbol, interval, style, flexibility, targetStyle, reload]);
 
   return <div className="rounded-2xl border border-white/[0.08] bg-slate-950/40">
     <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">

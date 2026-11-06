@@ -73,6 +73,7 @@ import { SignalCenter, type SignalTab } from "@/app/components/signal-center";
 import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
+import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import type { SignalSnapshot } from "@/app/lib/signal-alerts";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -355,6 +356,7 @@ export default function Home() {
   const [inputError, setInputError] = useState<string | null>(null);
   const [accountEquity, setAccountEquity] = useState("10000");
   const [flexibility, setFlexibility] = useState<FlexibilityMode>("STRICT");
+  const [targetStyle, setTargetStyle] = useState<TargetStyle>(DEFAULT_TARGET_STYLE);
   const [takerFeePct, setTakerFeePct] = useState("0.055");
   const [slippagePct, setSlippagePct] = useState("0.02");
   const [preferencesReady, setPreferencesReady] = useState(false);
@@ -414,6 +416,7 @@ export default function Home() {
         if (TIMEFRAMES.some(frame=>frame.value===saved.interval)) setIntervalValue(saved.interval);
         if (["SCALP","DAY","SWING","POSITION"].includes(saved.style)) setStyle(saved.style);
         if (["STRICT", "BALANCED", "FLEXIBLE"].includes(saved.flexibility)) setFlexibility(saved.flexibility);
+        if (["TA", "LADDER"].includes(saved.targetStyle)) setTargetStyle(saved.targetStyle);
         if (Number.isFinite(saved.equity) && saved.equity >= 0) setAccountEquity(String(saved.equity));
         if (typeof saved.autoScan === "boolean") setAutoScan(saved.autoScan);
         if (Number.isFinite(saved.fee) && saved.fee >= 0 && saved.fee <= 0.3) setTakerFeePct(String(saved.fee));
@@ -427,9 +430,9 @@ export default function Home() {
   useEffect(() => {
     if (!preferencesReady) return;
     try {
-      window.localStorage.setItem("boma-scans:preferences:v1.4", JSON.stringify({symbol, interval, style, flexibility, equity: Number(accountEquity), autoScan, fee: Number(takerFeePct), slippage: Number(slippagePct)}));
+      window.localStorage.setItem("boma-scans:preferences:v1.4", JSON.stringify({symbol, interval, style, flexibility, targetStyle, equity: Number(accountEquity), autoScan, fee: Number(takerFeePct), slippage: Number(slippagePct)}));
     } catch { /* Trading gates do not depend on storage availability. */ }
-  }, [preferencesReady, symbol, interval, style, flexibility, accountEquity, autoScan, takerFeePct, slippagePct]);
+  }, [preferencesReady, symbol, interval, style, flexibility, targetStyle, accountEquity, autoScan, takerFeePct, slippagePct]);
 
   useEffect(() => {
     const detectInstalled = () => {
@@ -541,7 +544,7 @@ export default function Home() {
             macroFrame,
             freshTicker,
             style,
-            { flexibility, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct) },
+            { flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct) },
           );
           const btcRelationship = analyzeBtcRelationship(
             item.symbol,
@@ -616,7 +619,7 @@ export default function Home() {
         setScannerRunning(false);
       }
     }
-  }, [scanLiquidityFloor, style, interval, flexibility, takerFeePct, slippagePct]);
+  }, [scanLiquidityFloor, style, interval, flexibility, targetStyle, takerFeePct, slippagePct]);
 
   useEffect(() => {
     if (!cloudScanRequest || cloudScanRequest<=handledCloudScan.current) return;
@@ -1131,9 +1134,9 @@ export default function Home() {
         macroCandles,
         dataMode === "LIVE" ? ticker : null,
         style,
-        {flexibility, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct)},
+        {flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct)},
       ),
-    [candles, contextCandles, dataMode, macroCandles, ticker, style, flexibility, takerFeePct, slippagePct],
+    [candles, contextCandles, dataMode, macroCandles, ticker, style, flexibility, targetStyle, takerFeePct, slippagePct],
   );
   const applyCloudWorkspace = useCallback((items: {key:string;value:unknown}[]) => {
     const value = items.find(item=>item.key==="workspace")?.value as Record<string,unknown> | undefined;
@@ -1142,6 +1145,7 @@ export default function Home() {
     if(typeof value.scanRequestedAt === "number" && Date.now()-value.scanRequestedAt<60000) setCloudScanRequest(value.scanRequestedAt);
     if(["ALL","LOW","MEDIUM","HIGH"].includes(String(value.riskFilter))) setRiskFilter(value.riskFilter as RiskFilter);
     if(Array.isArray(value.monitored)) setMonitored(parseMonitoredSymbols(value.monitored));
+    if(["TA","LADDER"].includes(String(value.targetStyle))) setTargetStyle(value.targetStyle as TargetStyle);
     if(["BOTH","LONG","SHORT"].includes(String(value.directionFilter))) setDirectionFilter(value.directionFilter as DirectionFilter);
     if (["SCALP","DAY","SWING","POSITION"].includes(String(value.style))) setStyle(value.style as TradingStyle);
     if (["STRICT","BALANCED","FLEXIBLE"].includes(String(value.flexibility))) setFlexibility(value.flexibility as FlexibilityMode);
@@ -1151,7 +1155,7 @@ export default function Home() {
     if (typeof value.fee === "number" && value.fee>=0 && value.fee<=0.3) setTakerFeePct(String(value.fee));
     if (typeof value.slippage === "number" && value.slippage>=0 && value.slippage<=1) setSlippagePct(String(value.slippage));
   }, []);
-  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
+  const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,targetStyle,fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
   const planKey = [symbol, interval, style, flexibility].join(":");
   const [lockedPlan, setLockedPlan] = useState<LockedPlan | null>(null);
   const activeLock = lockedPlan?.key === planKey ? lockedPlan : null;
@@ -1717,6 +1721,9 @@ export default function Home() {
         <div className="mx-auto flex max-w-[1680px] flex-wrap items-center gap-3 border-t border-white/[0.05] px-4 py-2.5 lg:px-8">
           <Tabs value={flexibility} onValueChange={value => setFlexibility(value as FlexibilityMode)}>
             <TabsList aria-label="Entry flexibility mode" className="h-10 bg-white/[0.035]">{(["STRICT", "BALANCED", "FLEXIBLE"] as FlexibilityMode[]).map(mode => <TabsTrigger key={mode} value={mode} className="px-3 text-xs data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950">{mode.charAt(0) + mode.slice(1).toLowerCase()}</TabsTrigger>)}</TabsList>
+          </Tabs>
+          <Tabs value={targetStyle} onValueChange={value => setTargetStyle(value as TargetStyle)}>
+            <TabsList aria-label="Take-profit style" className="h-10 bg-white/[0.035]"><TabsTrigger value="TA" className="px-3 text-xs data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950">TA levels</TabsTrigger><TabsTrigger value="LADDER" className="px-3 text-xs data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950">R ladder</TabsTrigger></TabsList>
           </Tabs>
           <Select value={style} onValueChange={value => chooseStyle(value as TradingStyle)}><SelectTrigger aria-label="Trading style" className="h-10 w-32 rounded-xl bg-white/[0.035]"><SelectValue/></SelectTrigger><SelectContent>{(Object.keys(STYLE_CONFIG) as TradingStyle[]).map(item => <SelectItem key={item} value={item}>{STYLE_CONFIG[item].label}</SelectItem>)}</SelectContent></Select>
           <label className="flex items-center gap-2 text-xs text-slate-500">Equity USDT<Input aria-label="Account equity in USDT" type="number" min="0" value={accountEquity} onChange={event => setAccountEquity(event.target.value)} className="h-10 w-28 rounded-xl bg-white/[0.035] font-mono text-sm text-white"/></label>

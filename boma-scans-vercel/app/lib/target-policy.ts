@@ -36,3 +36,19 @@ export const MAX_ROUND_TRIP_COST_R = 0.3;
 export const R_LADDER = [1, 2, 3, 4, 5];
 export const R_LADDER_WEIGHTS = [30, 25, 20, 15, 10];
 export const SIGNAL_INTERVAL_MS = 3_600_000;
+
+/**
+ * Target style.
+ *  - "TA": each of the five targets snaps to real chart structure (swing and
+ *    liquidity levels, volume nodes, anchored VWAP bands, Fibonacci extensions,
+ *    measured moves, candle projections) nearest to a desired distance ladder,
+ *    preferring the nearer level so targets are reachable; an R multiple is
+ *    used only where no structure exists in the window.
+ *  - "LADDER": fixed 1R/2R/3R/4R/5R.
+ * Exit weights are the same for both.
+ */
+export type TargetStyle = "TA" | "LADDER";
+export const DEFAULT_TARGET_STYLE: TargetStyle = "TA";
+/** Desired distances (in R) that TA targets are matched against, and the window around each. */
+export const TA_DESIRED_R = [0.9, 1.6, 2.5, 3.5, 5];
+export const TA_WINDOW = { low: 0.55, high: 1.45 };

@@ -585,7 +585,7 @@ test("Telegram commands validate settings and accept direct pair requests",()=>{
 test("Every setup scales out at 1R-5R with 30/25/20/15/10 weights", () => {
   for (const inverse of [false, true]) for (const style of ["SCALP", "DAY", "SWING", "POSITION"]) {
     const {candles, ticker} = fixture("SOLUSDT", inverse);
-    const result = market.analyzeMarket(candles, candles, candles, ticker, style);
+    const result = market.analyzeMarket(candles, candles, candles, ticker, style, {targetStyle: "LADDER"});
     const risk = Math.abs(result.entry - result.stop);
     assert.deepEqual(result.takeProfits.map(tp => tp.exitPct), [30, 25, 20, 15, 10]);
     result.takeProfits.forEach((tp, index) => {
@@ -631,4 +631,24 @@ test("Trend signals need execution, context and macro frames aligned; CHoCH keep
     }
   }
   assert.ok(checked >= 0);
+});
+
+test("TA-style targets are chart structure (or a labelled R fallback), ascending and reachable", () => {
+  for (const inverse of [false, true]) for (const symbol of ["BTCUSDT", "SOLUSDT", "ADAUSDT"]) {
+    const {candles, ticker} = fixture(symbol, inverse);
+    const result = market.analyzeMarket(candles, candles, candles, ticker, "DAY", {targetStyle: "TA"});
+    const sign = result.bias === "LONG" ? 1 : -1;
+    const risk = Math.abs(result.entry - result.stop);
+    assert.equal(result.targetStyle, "TA");
+    assert.deepEqual(result.takeProfits.map(tp => tp.exitPct), [30, 25, 20, 15, 10]);
+    let previous = result.entry;
+    result.takeProfits.forEach((tp, index) => {
+      assert.ok(sign * (tp.price - previous) > 0, "targets ascend in the trade direction");
+      assert.ok(tp.available, "TA targets are always usable");
+      assert.ok(sign * (tp.price - result.entry) <= risk * 6 + 1e-9, "never beyond 6R");
+      assert.ok(tp.sources.some(source => !/No confirmed objective/.test(source)));
+      if (/R \(no structure in window\)/.test(tp.source)) assert.ok(Math.abs(sign * (tp.price - result.entry) / risk - [0.9, 1.6, 2.5, 3.5, 5][index]) < 0.6);
+      previous = tp.price;
+    });
+  }
 });

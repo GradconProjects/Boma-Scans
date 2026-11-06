@@ -1,8 +1,8 @@
-import { targetBudget, TARGET_EXIT_WEIGHTS, MAX_ROUND_TRIP_COST_R, R_LADDER, R_LADDER_WEIGHTS, SIGNAL_INTERVAL_MS } from "@/app/lib/target-policy";
+import { targetBudget, TARGET_EXIT_WEIGHTS, MAX_ROUND_TRIP_COST_R, R_LADDER, R_LADDER_WEIGHTS, SIGNAL_INTERVAL_MS, DEFAULT_TARGET_STYLE, TA_DESIRED_R, TA_WINDOW, type TargetStyle } from "@/app/lib/target-policy";
 import { relativeRiskBand, type FlexibilityMode, type QualityOverride } from "@/app/lib/entry-policy";
 import { buildEntryExecutionPlan, type EntryExecutionPlan } from "@/app/lib/entry-execution";
 
-export type AnalysisOptions = { flexibility?: FlexibilityMode; takerFeePct?: number; slippagePct?: number; now?: number };
+export type AnalysisOptions = { flexibility?: FlexibilityMode; takerFeePct?: number; slippagePct?: number; now?: number; targetStyle?: TargetStyle };
 
 export type Candle = {
   time: number;
@@ -157,6 +157,7 @@ export type MarketAnalysis = {
   tp4: number;
   tp5: number;
   takeProfits: TakeProfitLevel[];
+  targetStyle: TargetStyle;
   rr: number;
   support: number;
   resistance: number;
@@ -245,6 +246,7 @@ export type ScannerRow = {
   tp4: number;
   tp5: number;
   takeProfits: TakeProfitLevel[];
+  targetStyle: TargetStyle;
   riskMultiplier: number;
   trendFrames: number;
   atrPct: number;
@@ -773,7 +775,10 @@ function buildTechnicalTargets(input: {
   ema21: number;
   structure: MarketAnalysis["structure"];
   style: TradingStyle;
+  /** "TA": chart-structure targets matched to an R-distance ladder; "BUDGET": the volatility-budget map. */
+  mode?: "TA" | "BUDGET";
 }) {
+  const taMode = input.mode === "TA";
   const {
     execution,
     context,
@@ -1082,7 +1087,8 @@ function buildTechnicalTargets(input: {
 
   const budget = targetBudget(execution,bias,atrValue,input.style);
   const minimumDistance = atrValue * 0.12;
-  const maximumDistance = budget.distance;
+  // TA mode reaches as far as the structure goes (up to 6R); budget mode keeps the volatility ceiling.
+  const maximumDistance = taMode ? Math.max(budget.distance, risk * 6) : budget.distance;
   const tolerance = Math.max(atrValue * 0.06, entry * 0.00005);
   const eligible = candidates
     .filter((candidate) => {
@@ -1113,17 +1119,26 @@ function buildTechnicalTargets(input: {
 
   const minimumSpacing = atrValue * 0.08;
   const selected: typeof clusters = [];
-  const targetHorizons = [0.18,0.34,0.55,0.78,1].map((fraction,index)=>Math.max(minimumDistance+minimumSpacing*index,budget.distance*fraction));
+  const targetHorizons = taMode
+    ? TA_DESIRED_R.map((multiple, index) => Math.max(minimumDistance + minimumSpacing * index, risk * multiple))
+    : [0.18,0.34,0.55,0.78,1].map((fraction,index)=>Math.max(minimumDistance+minimumSpacing*index,budget.distance*fraction));
   for (const desiredDistance of targetHorizons) {
     const previousDistance = selected.length
       ? sign * (selected[selected.length - 1].price - entry)
       : 0;
     const viable = clusters.filter(
-      (cluster) =>
-        (selected.length >= 3 || cluster.candidates.some((candidate) => candidate.structural)) &&
-        sign * (cluster.price - entry) <= budget.distance &&
-        sign * (cluster.price - entry) >=
-        Math.max(minimumDistance, previousDistance + (selected.length ? minimumSpacing : 0)),
+      (cluster) => {
+        const distance = sign * (cluster.price - entry);
+        if (taMode) {
+          // Real structure only, inside a window around the desired distance.
+          return cluster.candidates.some((candidate) => candidate.structural) &&
+            distance >= Math.max(minimumDistance, previousDistance + (selected.length ? minimumSpacing : 0), desiredDistance * TA_WINDOW.low) &&
+            distance <= Math.min(maximumDistance, desiredDistance * TA_WINDOW.high);
+        }
+        return (selected.length >= 3 || cluster.candidates.some((candidate) => candidate.structural)) &&
+          distance <= budget.distance &&
+          distance >= Math.max(minimumDistance, previousDistance + (selected.length ? minimumSpacing : 0));
+      },
     );
     const selectedCluster = viable
       .map((cluster) => {
@@ -1135,7 +1150,8 @@ function buildTechnicalTargets(input: {
         const structuralCount = cluster.candidates.filter(
           (candidate) => candidate.structural,
         ).length;
-        const undershootPenalty = 0;
+        // TA mode prefers the nearer structure (reachable first); overshoot is penalised.
+        const undershootPenalty = taMode && distance > desiredDistance ? 0.3 * (distance - desiredDistance) / desiredDistance : 0;
         return {
           cluster,
           rank:
@@ -1156,7 +1172,7 @@ function buildTechnicalTargets(input: {
           {
             price: entry + sign * fallbackDistance,
             weight: 0.8,
-            source: "No confirmed objective",
+            source: taMode ? TA_DESIRED_R[selected.length] + "R (no structure in window)" : "No confirmed objective",
             detail: selected.length < 3 ? "Not enough technical evidence for this inner target; this map cannot approve entry." : "A nonlinear ATR/EMA extension beyond the last confirmed objective.",
             structural: false,
           },
@@ -1189,7 +1205,7 @@ function buildTechnicalTargets(input: {
         ? " Confluence: " + sources.slice(0, 3).join(" + ") + "."
         : "";
     return {
-      available: primary.source !== "No confirmed objective" && Math.abs(price-entry)<=budget.distance,
+      available: primary.source !== "No confirmed objective" && Math.abs(price-entry)<=maximumDistance,
       confluenceCount: sources.filter((source) => source !== "No confirmed objective").length,
       level: (index + 1) as TakeProfitLevel["level"],
       price,
@@ -1612,7 +1628,9 @@ export function analyzeMarket(
   const entry = locationPlan.entry;
   const stop = locationPlan.stop;
   const risk = Math.max(Math.abs(entry - stop), Number.EPSILON);
+  const targetStyle: TargetStyle = options.targetStyle ?? DEFAULT_TARGET_STYLE;
   const targetAnalysis = buildTechnicalTargets({
+    mode: targetStyle === "TA" ? "TA" : "BUDGET",
     execution: usable,
     context: contextUsable,
     macro: macroUsable,
@@ -1626,8 +1644,8 @@ export function analyzeMarket(
   });
   const structuralMap = targetAnalysis.levels;
   const sideSign = bias === "LONG" ? 1 : -1;
-  // Every setup scales out at fixed R multiples, annotated with nearby structure.
-  const takeProfits: TakeProfitLevel[] = R_LADDER.map((multiple, index) => {
+  // TA style: the structure-matched map itself (same exit weights). LADDER: fixed R multiples annotated with nearby structure.
+  const takeProfits: TakeProfitLevel[] = targetStyle === "TA" ? structuralMap.map((level, index) => ({ ...level, exitPct: R_LADDER_WEIGHTS[index] })) : R_LADDER.map((multiple, index) => {
         const price = entry + sideSign * risk * multiple;
         const nearby = structuralMap.filter(level => level.available && !/ATR|volatility map/i.test(level.source) && Math.abs(level.price - price) <= risk * 0.35);
         return {
@@ -2262,6 +2280,7 @@ export function analyzeMarket(
     tp4,
     tp5,
     takeProfits,
+    targetStyle,
     rr: weightedRewardR,
     support,
     resistance,
@@ -2700,6 +2719,7 @@ export function scannerRowFromAnalysis(
     tp4: analysis.tp4,
     tp5: analysis.tp5,
     takeProfits: analysis.takeProfits,
+    targetStyle: analysis.targetStyle,
     riskMultiplier: analysis.riskMultiplier,
     trendFrames: analysis.metrics.trendFrames,
     atrPct: analysis.metrics.atrPct,

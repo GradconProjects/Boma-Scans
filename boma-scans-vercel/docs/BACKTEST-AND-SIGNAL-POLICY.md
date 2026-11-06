@@ -55,7 +55,7 @@ Other evidence used:
 ## Policy now in the engine
 
 1. **1H leads.** Day and Swing both execute on 1H (Swing keeps its wider style limits). Other chart timeframes stay available for analysis, but the "Validated signal timeframe" check holds them at WAIT, so they cannot produce READY signals or Telegram alerts.
-2. **One exit method for every setup:** take profit at 1R/2R/3R/4R/5R, closing 30/25/20/15/10%. Each target notes any structural level near it. The structural map must still confirm TP1.
+2. **Targets: TA levels by default, R ladder optional.** TA levels snap each of the five targets to real chart structure (swing and liquidity levels, volume nodes, anchored VWAP bands, Fibonacci extensions, measured moves, candle projections) nearest to a desired-distance ladder of 0.9R/1.6R/2.5R/3.5R/5R, preferring the nearer level so targets are reachable; an R multiple fills a slot only when no structure exists in its window. The R ladder (1R..5R) remains available from the settings bar. Both close 30/25/20/15/10%. See the comparison below.
 3. **Fee gate:** round-trip fee, slippage and spread must cost no more than 0.30R of the stop. At the default 0.055% fee and 0.02% slippage this needs a stop of at least about 0.5% of price.
 4. **Regime:** only ADX 25+ (TRENDING) markets qualify; weak trend waits.
 5. **All timeframes aligned:** a trend, breakout or pullback signal needs the execution frame (1H close vs EMA21), context frame (4H close vs EMA50) and macro frame (1D close vs EMA200) all on the trade's side. Two of three now shows WAIT. In the backtest, 2/3-aligned trend setups averaged about +0.12R against +0.30R to +0.47R for full alignment. CHoCH reversals trade against the higher frames by design and keep their one-frame requirement. ADX trend strength is measured on the context (4H) frame.
@@ -73,6 +73,15 @@ These figures come from replaying the final engine. They count only plans that r
 
 "R" is the amount risked per trade. At 1% risk per trade, +0.26R per trade is +0.26% of equity per trade on average, before funding. Expect losing months: a drawdown of about 11R is about 11% of equity at 1% risk.
 
+
+## Target styles compared (2 years, Day rules on 1H, READY signals only)
+
+| Style | Signals | Win % | Avg R (limit / market fees) | Profit factor | Profitable months | Max drawdown | Out-of-sample yr | Tuning yr |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| **TA levels** (default) | 203 | **51** | +0.23 / +0.17 | 1.54 | **14 of 20** | **9.2R** | +0.34 | **+0.17** |
+| R ladder | 200 | 43 | +0.26 / +0.20 | 1.55 | 13 of 20 | 10.7R | +0.44 | +0.16 |
+
+TA levels trade a little average reward for a higher hit rate, a smaller drawdown and more profitable months, with the same profit factor; average TP1 sits at 0.82R instead of 1.0R. The ladder earned more in the out-of-sample year, TA levels slightly more in the recent year. Choose by temperament: TA levels if missed targets bother you more than a smaller runner, the ladder if you prefer letting winners run.
 
 ## Additional filters tested (my own candidates)
 

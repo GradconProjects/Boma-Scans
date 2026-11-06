@@ -9,6 +9,7 @@ export function botSetting(command:string,value:string):Record<string,unknown>|n
  if (!value.trim()) return null;
  if(command==="/timeframe"&&BOT_FRAMES[value.toLowerCase()])return {interval:BOT_FRAMES[value.toLowerCase()]};
  if(command==="/style"&&["SCALP","DAY","SWING","POSITION"].includes(value.toUpperCase()))return {style:value.toUpperCase()};
+ if(command==="/targets"&&["TA","LADDER"].includes(value.toUpperCase()))return {targetStyle:value.toUpperCase()};
  if(command==="/risk"&&["STRICT","BALANCED","FLEXIBLE"].includes(value.toUpperCase()))return {flexibility:value.toUpperCase()};
  if(command==="/direction"&&["BOTH","LONG","SHORT"].includes(value.toUpperCase()))return {directionFilter:value.toUpperCase()};
  if(command==="/filter"&&["ALL","LOW","MEDIUM","HIGH"].includes(value.toUpperCase()))return {riskFilter:value.toUpperCase()};
