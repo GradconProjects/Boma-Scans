@@ -1,7 +1,8 @@
 "use client";
 import { useEffect, useState } from "react";
-import { ChevronDown, LineChart, RefreshCw } from "lucide-react";
+import { ChevronDown, LineChart, Maximize2, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogTitle } from "@/components/ui/dialog";
 import { MarketChart } from "@/app/components/market-chart";
 import { analyzeMarket, contextIntervals, fetchKlines, fetchTicker, STYLE_CONFIG, TIMEFRAMES, type Candle, type MarketAnalysis, type TradingStyle } from "@/app/lib/market";
 import type { FlexibilityMode } from "@/app/lib/entry-policy";
@@ -25,6 +26,7 @@ export function InlineChart({symbol, style, flexibility, timeframe, open, onTogg
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [reload, setReload] = useState(0);
+  const [expanded, setExpanded] = useState(false);
 
   useEffect(() => {
     if (!open) return;
@@ -53,12 +55,19 @@ export function InlineChart({symbol, style, flexibility, timeframe, open, onTogg
   return <div className="rounded-2xl border border-white/[0.08] bg-slate-950/40">
     <div className="flex flex-wrap items-center justify-between gap-2 p-2.5">
       <Button type="button" variant={open ? "outline" : "default"} size="sm" onClick={onToggle} aria-expanded={open} className="rounded-xl"><LineChart className="mr-1.5 h-4 w-4"/>{open ? "Fold chart" : "Chart · " + intervalLabel}<ChevronDown className={"ml-1.5 h-4 w-4 transition-transform " + (open ? "rotate-180" : "")}/></Button>
-      {open && <div className="flex items-center gap-2 text-xs text-slate-400">{loaded && <span>Analysed {new Date(loaded.at).toLocaleTimeString("en-AU", {timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit"})}</span>}<Button type="button" variant="ghost" size="sm" onClick={() => setReload(value => value + 1)} disabled={loading} className="rounded-lg"><RefreshCw className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}/></Button>{onOpenMain && <Button type="button" variant="ghost" size="sm" onClick={onOpenMain} className="rounded-lg">Open in main chart</Button>}</div>}
+      {open && <div className="flex items-center gap-2 text-xs text-slate-400">{loaded && <span>Analysed {new Date(loaded.at).toLocaleTimeString("en-AU", {timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit"})}</span>}<Button type="button" variant="ghost" size="sm" onClick={() => setReload(value => value + 1)} disabled={loading} className="rounded-lg"><RefreshCw className={"h-3.5 w-3.5 " + (loading ? "animate-spin" : "")}/></Button>{loaded && <Button type="button" variant="outline" size="sm" onClick={() => setExpanded(true)} className="rounded-lg"><Maximize2 className="mr-1.5 h-3.5 w-3.5"/>Expand</Button>}{onOpenMain && <Button type="button" variant="ghost" size="sm" onClick={onOpenMain} className="rounded-lg">Open in main chart</Button>}</div>}
     </div>
     {open && <div className="border-t border-white/[0.06] p-2">
       {error ? <p className="p-3 text-sm text-amber-200">{error}</p>
-        : loaded ? <div className="h-[380px]"><MarketChart candles={loaded.candles} analysis={loaded.analysis} symbol={symbol} intervalLabel={intervalLabel} loading={loading} style={style}/></div>
+        : loaded ? <div className="h-[420px]"><MarketChart candles={loaded.candles} analysis={loaded.analysis} symbol={symbol} intervalLabel={intervalLabel} loading={loading} style={style}/></div>
         : <p className="p-3 text-sm text-slate-400">Loading {symbol} {intervalLabel} candles…</p>}
     </div>}
+    <Dialog open={expanded} onOpenChange={setExpanded}>
+      <DialogContent className="h-[95dvh] w-[98vw] max-w-none overflow-hidden border-white/10 bg-[#080d15] p-3 sm:max-w-none">
+        <DialogTitle className="text-sm">{symbol} · {intervalLabel} chart</DialogTitle>
+        <DialogDescription className="text-xs text-slate-500">Zoom with the wheel or buttons; drag to pan; double-click to reset. Levels match the signal card.</DialogDescription>
+        {loaded && <div className="h-[calc(95dvh-5.5rem)]"><MarketChart candles={loaded.candles} analysis={loaded.analysis} symbol={symbol} intervalLabel={intervalLabel} loading={loading} style={style} fullscreen/></div>}
+      </DialogContent>
+    </Dialog>
   </div>;
 }
