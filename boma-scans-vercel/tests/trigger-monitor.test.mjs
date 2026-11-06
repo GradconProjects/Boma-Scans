@@ -8,7 +8,7 @@ const file = new URL("../app/lib/trigger-monitor.ts", import.meta.url).pathname;
 const mod = new Module(file); mod.require = require;
 mod._compile(ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
 const { evaluateMonitor, parseMonitoredSymbols } = mod.exports;
-const plan = (side, status = "WAIT_CONFIRMATION") => ({ side, status, trigger: 100, entryLow: side === "LONG" ? 100 : 99, entryHigh: side === "LONG" ? 101 : 100, zoneSource: "FVG", timeframe: "1h", confirmationTime: null });
+const plan = (side, status = "WAIT_CONFIRMATION") => ({ side, status, trigger: 100, entry: side === "LONG" ? 100.2 : 99.8, zoneLow: 98.5, zoneHigh: 101.5, entryLow: side === "LONG" ? 100 : 99, entryHigh: side === "LONG" ? 101 : 100, zoneSource: "FVG", timeframe: "1h", confirmationTime: null });
 const row = (side, ready = false, status) => ({ symbol: "ABCUSDT", bias: side, stop: side === "LONG" ? 95 : 105, entryReady: ready, executionPlan: plan(side, status) });
 
 test("Monitor states: waiting, at trigger, entry range, stop hit, no plan", () => {
@@ -16,11 +16,15 @@ test("Monitor states: waiting, at trigger, entry range, stop hit, no plan", () =
   assert.equal(evaluateMonitor("ABCUSDT", row("LONG"), undefined).state, "WAITING");
   assert.equal(evaluateMonitor("ABCUSDT", row("LONG"), 99).state, "WAITING");
   assert.equal(evaluateMonitor("ABCUSDT", row("LONG"), 100.5).state, "AT TRIGGER", "crossed but plan not READY");
-  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 100.5).state, "ENTRY RANGE");
-  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 102).state, "AT TRIGGER", "beyond the no-chase bound is not an entry");
+  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 100.1).state, "ENTRY RANGE", "at or below the buy limit fills");
+  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 100.5).state, "PAST ENTRY", "above the buy limit: wait for the pullback");
+  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 102).state, "PAST ENTRY");
+  assert.equal(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 98.4).state, "AT TRIGGER" === "x" ? "" : evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 98.4).state, "sanity");
+  assert.notEqual(evaluateMonitor("ABCUSDT", row("LONG", true, "READY"), 98.4).state, "ENTRY RANGE", "below the zone is not fillable entry");
   assert.equal(evaluateMonitor("ABCUSDT", row("LONG"), 94).state, "STOP HIT");
   assert.equal(evaluateMonitor("ABCUSDT", row("SHORT"), 99.5).state, "AT TRIGGER");
-  assert.equal(evaluateMonitor("ABCUSDT", row("SHORT", true, "READY"), 99.5).state, "ENTRY RANGE");
+  assert.equal(evaluateMonitor("ABCUSDT", row("SHORT", true, "READY"), 99.5).state, "PAST ENTRY", "ATOM case: price below the sell limit is not an entry");
+  assert.equal(evaluateMonitor("ABCUSDT", row("SHORT", true, "READY"), 99.9).state, "ENTRY RANGE", "at or above the sell limit fills");
   assert.equal(evaluateMonitor("ABCUSDT", row("SHORT"), 106).state, "STOP HIT");
   const far = evaluateMonitor("ABCUSDT", row("LONG"), 95.5);
   assert.ok(far.toTriggerPct > 4 && far.toTriggerPct < 5);

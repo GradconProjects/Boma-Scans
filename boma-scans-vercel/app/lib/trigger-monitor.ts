@@ -1,7 +1,7 @@
 import type { EntryExecutionPlan } from "@/app/lib/entry-execution";
 import type { ScannerRow } from "@/app/lib/market";
 
-export type TriggerState = "WAITING" | "AT TRIGGER" | "ENTRY RANGE" | "STOP HIT" | "NO PLAN";
+export type TriggerState = "WAITING" | "AT TRIGGER" | "ENTRY RANGE" | "PAST ENTRY" | "STOP HIT" | "NO PLAN";
 
 export type MonitorEntry = {
   symbol: string;
@@ -23,8 +23,11 @@ export type MonitorEntry = {
  *
  * "AT TRIGGER" means the live price has crossed the trigger level in the trade
  * direction; the engine still requires a CLOSED candle past it, so this is the
- * cue to watch the candle close. "ENTRY RANGE" means the plan is READY and the
- * live price sits inside the permitted limit range.
+ * cue to watch the candle close. "ENTRY RANGE" means the plan is READY and a
+ * limit order at the entry level would fill now: price at or below the level
+ * for a long (at or above for a short) while the zone still holds. "PAST
+ * ENTRY" means price already ran beyond the level in the trade direction, so
+ * wait for it to come back rather than chase.
  */
 export function evaluateMonitor(symbol: string, row: ScannerRow | undefined, price: number | undefined): MonitorEntry {
   if (!row) return { symbol, side: null, state: "NO PLAN", price: price ?? null, toTriggerPct: null, plan: null, stop: null, targets: [], ready: false, planKey: symbol + ":none" };
@@ -34,9 +37,11 @@ export function evaluateMonitor(symbol: string, row: ScannerRow | undefined, pri
   if (price === undefined || !Number.isFinite(price) || price <= 0) return { symbol, side: row.bias, state: "WAITING", price: null, toTriggerPct: null, plan, stop: row.stop, targets, ready: row.entryReady, planKey };
   const sign = plan.side === "LONG" ? 1 : -1;
   const invalidated = sign * (price - row.stop) <= 0 || ["INVALIDATED", "EXPIRED"].includes(plan.status);
-  const inRange = price >= plan.entryLow && price <= plan.entryHigh;
+  const tolerance = plan.entry * 0.0005;
+  const fillable = sign > 0 ? price <= plan.entry + tolerance && price >= plan.zoneLow : price >= plan.entry - tolerance && price <= plan.zoneHigh;
+  const pastLevel = sign * (price - plan.entry) > tolerance;
   const crossed = sign * (price - plan.trigger) >= 0;
-  const state: TriggerState = invalidated ? "STOP HIT" : row.entryReady && inRange ? "ENTRY RANGE" : crossed ? "AT TRIGGER" : "WAITING";
+  const state: TriggerState = invalidated ? "STOP HIT" : row.entryReady && fillable ? "ENTRY RANGE" : row.entryReady && pastLevel ? "PAST ENTRY" : crossed ? "AT TRIGGER" : "WAITING";
   return { symbol, side: row.bias, state, price, toTriggerPct: sign * (plan.trigger - price) / price * 100, plan, stop: row.stop, targets, ready: row.entryReady, planKey };
 }
 

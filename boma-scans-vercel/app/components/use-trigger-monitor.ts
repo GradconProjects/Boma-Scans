@@ -7,7 +7,7 @@ const ARMED_KEY = "boma-scans:armed";
 
 const POLL_MS = 10_000;
 const REALERT_MS = 15 * 60_000;
-const RANK: Record<TriggerState, number> = { "NO PLAN": 0, WAITING: 0, "STOP HIT": 0, "AT TRIGGER": 1, "ENTRY RANGE": 2 };
+const RANK: Record<TriggerState, number> = { "NO PLAN": 0, WAITING: 0, "STOP HIT": 0, "PAST ENTRY": 0, "AT TRIGGER": 1, "ENTRY RANGE": 2 };
 
 /**
  * Watches the live price of the pairs you chose against their scanned plans.
