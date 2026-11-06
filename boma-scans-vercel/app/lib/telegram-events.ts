@@ -9,7 +9,7 @@ export type TelegramEvent = { key: string; lines: string[]; symbol?: string };
 function card(entry: MonitorEntry) {
   const plan = entry.plan;
   if (!plan || !entry.side) return [] as string[];
-  return compactSignalLines({ symbol: entry.symbol, side: entry.side, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: entry.stop ?? plan.stop, targets: entry.targets, expiresAt: plan.expiresAt });
+  return compactSignalLines({ symbol: entry.symbol, side: entry.side, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: entry.stop ?? plan.stop, targets: entry.targets, expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh });
 }
 
 const FOLLOW_UP_ACTIONS: TradeSnapshot["action"][] = ["TAKE PARTIAL", "CLOSE REMAINDER", "EXIT NOW", "REDUCE / EXIT", "PROTECT PROFIT"];

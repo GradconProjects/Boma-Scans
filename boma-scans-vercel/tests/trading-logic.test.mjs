@@ -549,6 +549,8 @@ test("Telegram HTML highlights levels and safely escapes analysis text",()=>{
  assert.match(html,/👉 Entry: <code>[\d.]+<\/code>/);
  assert.match(html,/❌ StopLoss: <code>[\d.]+<\/code>/);
  assert.match(html,/^<b>📍 Coin : #ETH\/USDT<\/b>\n<b>🟢 LONG<\/b>\n\n👉 Entry/);
+ assert.match(html,/⏱ Expires: \d\d [A-Z][a-z]{2}, \d\d:\d\d\n\n🧭 Enter: /);
+ assert.match(html,/🛑 Stop order: <code>/);
  assert.match(html,/PULLBACK &lt;risk&gt; &amp; liquidity/);
  assert.doesNotMatch(html,/<risk>/);
 });

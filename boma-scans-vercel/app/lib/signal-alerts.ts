@@ -207,6 +207,8 @@ export type CompactSignalInput = {
   symbol: string; side: "LONG" | "SHORT"; entryLow: number; entryHigh: number; entry: number;
   trigger?: number; timeframe?: string; leverage?: number; stop: number;
   targets: Array<{ price: number; available?: boolean }>; expiresAt?: number;
+  /** Zone edges: the plan is cancelled if a candle closes beyond the far edge. */
+  zoneLow?: number; zoneHigh?: number;
 };
 
 /** The short signal card: coin, side, entry zone, trigger rule, leverage, targets, stop, validity. */
@@ -228,6 +230,11 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
     "",
     "❌ StopLoss: " + formatPrice(input.stop) + "   −" + (Math.abs(input.entry - input.stop) / input.entry * 100).toFixed(2) + "%",
     ...(input.expiresAt ? ["⏱ Expires: " + melbourne(input.expiresAt)] : []),
+    "",
+    // Entry advice: the exact sequence, in one line each.
+    "🧭 Enter: " + (input.trigger ? (input.timeframe ?? "candle") + " close " + (long ? "above " : "below ") + formatPrice(input.trigger) + " → " : "") + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(input.entry) + " or better · never " + (long ? "above " : "below ") + formatPrice(long ? input.entryHigh : input.entryLow),
+    "🛑 Stop order: " + formatPrice(input.stop) + " right after the fill" + (input.zoneLow !== undefined && input.zoneHigh !== undefined ? " · cancel the plan if " + (input.timeframe ?? "a candle") + " closes " + (long ? "below " + formatPrice(input.zoneLow) : "above " + formatPrice(input.zoneHigh)) : ""),
+    "💰 Exit: 30% at T1 · 25% at T2 · 20% at T3 · 15% at T4 · 10% at T5",
   ];
 }
 
@@ -238,6 +245,7 @@ export function telegramSignalText(item: SignalSnapshot, historical = false, now
   const lines = compactSignalLines({
     symbol: item.symbol, side: item.side, entryLow: plan?.entryLow ?? item.entry, entryHigh: plan?.entryHigh ?? item.entry, entry: item.entry,
     trigger: plan?.trigger, timeframe: plan?.timeframe, leverage: item.leverage, stop: item.stop, targets: item.targets, expiresAt: item.expiresAt,
+    zoneLow: plan?.zoneLow, zoneHigh: plan?.zoneHigh,
   });
   const status = historical ? "🗂️ Saved levels · " + notificationStatus(item, now) : "✅ " + item.grade + " " + item.rating + "/100 · " + item.setupType + " · " + item.style + " " + item.flexibility;
   return [...lines, status, ...(link ? ["🔗 Open in app: " + link] : []), "📄 Advisory only. No exchange order has been placed."].join("\n");
@@ -252,7 +260,7 @@ export function renderTelegramHtml(lines: string[]) {
   // Monospace the price part of a line (before the spaced figures), never percentages.
   const mono = (text: string) => { const [head, ...rest] = text.split("   "); return head.replace(/(?<![\w.])(\d+\.\d+|\d{2,})(?![\w.%])/g, "<code>$1</code>") + (rest.length ? "   " + rest.join("   ") : ""); };
   const spaced: string[] = [];
-  const isGroupStart = (line: string) => /^(📍 Price|👉 Entry|🎯 Target 1:|❌ StopLoss|⏱ Expires|🔗 |✅ |⏳ |⛔ |⏸ |📄 |🗂️|➡️|🏁)/u.test(line);
+  const isGroupStart = (line: string) => /^(📍 Price|👉 Entry|🎯 Target 1:|❌ StopLoss|🧭 |🔗 |✅ |⏳ |⛔ |⏸ |📄 |🗂️|➡️|🏁)/u.test(line);
   lines.forEach((line, index) => {
     const previous = spaced[spaced.length - 1];
     const sideLine = /^(🟢 LONG|🔴 SHORT)/u.test(line);
@@ -263,7 +271,7 @@ export function renderTelegramHtml(lines: string[]) {
   return spaced.map((line, index) => {
     const safe = escape(line.slice(0, 2600));
     if (index === 0 || /^(📍 Coin|🟢 LONG|🔴 SHORT)/u.test(line)) return "<b>" + safe + "</b>";
-    if (/^(📍 Price|👉 Entry|🎯 Trigger|🎯 Target \d|❌ StopLoss|🌐 Leverage|⏱ Expires|🛑 Stop)/u.test(line)) return mono(safe);
+    if (/^(📍 Price|👉 Entry|🎯 Trigger|🎯 Target \d|❌ StopLoss|🧭 Enter|🛑 Stop)/u.test(line)) return mono(safe);
     if (/^🔗 /u.test(line)) return "<i>" + safe + "</i>";
     return safe;
   }).join("\n");
