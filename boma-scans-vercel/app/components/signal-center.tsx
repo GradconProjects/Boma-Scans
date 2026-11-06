@@ -11,6 +11,9 @@ import { formatPrice, type ScannerRow } from "@/app/lib/market";
 import { notificationStatus, snapshotSignal, telegramSignalText, type SignalSnapshot } from "@/app/lib/signal-alerts";
 import type { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import { EntryInstructions } from "@/app/components/entry-instructions";
+import { LevelsPanel } from "@/app/components/levels-panel";
+import { useOrderBooks } from "@/app/components/use-order-books";
+import type { OrderBookBalance } from "@/app/lib/order-book";
 
 export type SignalTab = "signals" | "notifications";
 type Alerts = ReturnType<typeof useSignalAlerts>;
@@ -19,9 +22,9 @@ function utc(timestamp: number) {
   return new Date(timestamp).toLocaleString("en-GB", {day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "UTC"}) + " UTC";
 }
 
-function SignalCard({signal, historical = false, now, onReview, onPaper}: {
+function SignalCard({signal, historical = false, now, onReview, onPaper, row, book}: {
   signal: SignalSnapshot; historical?: boolean; now: number;
-  onReview: () => void; onPaper?: () => void;
+  onReview: () => void; onPaper?: () => void; row?: ScannerRow; book?: OrderBookBalance;
 }) {
   const [copyFallback, setCopyFallback] = useState("");
   const bullish = signal.side === "LONG";
@@ -41,12 +44,13 @@ function SignalCard({signal, historical = false, now, onReview, onPaper}: {
     <div className="space-y-4 p-4 sm:p-5">
       {signal.executionPlan && <EntryInstructions plan={signal.executionPlan} ready={false} compact
         reason={historical ? "Saved instructions from this alert. Open the live chart for a current entry decision." : "Confirmed at scan time. Open the chart; enter only if READY and the current quote remains inside this range."}/>}
+      {signal.executionPlan && <LevelsPanel plan={signal.executionPlan} stop={signal.stop} targets={signal.targets} row={row} book={book} now={now}/>}
       <div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-white/[0.035] p-3"><p className="text-sm text-slate-400">📍 Entry</p><p className="mt-1 break-all font-mono text-lg font-semibold text-white">{formatPrice(signal.entry)}</p></div><div className="rounded-xl bg-rose-300/[0.045] p-3"><p className="text-sm text-rose-200/80">🛑 Stop loss</p><p className="mt-1 break-all font-mono text-lg font-semibold text-rose-200">{formatPrice(signal.stop)}</p></div></div>
       <ol className="divide-y divide-white/[0.05]">{signal.targets.map(target => <li key={target.level} className="py-2 first:pt-0 last:pb-0"><div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm"><span className="text-slate-300">🎯 TP{target.level} <strong className="ml-2 font-mono text-emerald-200">{formatPrice(target.price)}</strong></span><span className="font-mono text-xs text-slate-400">{target.rewardR.toFixed(2)}R · close {target.exitPct}%</span></div><p className="mt-0.5 text-xs leading-5 text-slate-500">{target.source}</p></li>)}</ol>
       <div className="grid grid-cols-3 gap-2 rounded-xl border border-white/[0.06] bg-slate-950/30 p-3"><div><p className="text-xs text-slate-400">⚖️ Leverage</p><p className="mt-1 font-mono text-lg font-semibold text-cyan-200">{signal.leverage}×</p></div><div><p className="text-xs text-slate-400">💼 Stop-risk</p><p className="mt-1 font-mono text-lg font-semibold text-white">{signal.riskPct.toFixed(2)}%</p></div><div><p className="text-xs text-slate-400">📐 After spread</p><p className="mt-1 font-mono text-lg font-semibold text-white">{signal.netRewardR.toFixed(2)}R</p></div></div>
       <p className="text-xs leading-5 text-slate-400">Risk {signal.riskAmount.toFixed(2)} USDT · estimated margin {signal.margin.toFixed(2)} USDT. Reward excludes fees and funding.</p>
       <p className="text-sm leading-6 text-violet-200">₿ {signal.btcRelationship} · {signal.btcVerdict}</p>
-      {signal.needsAcknowledgement && <p className="rounded-xl bg-amber-300/10 p-3 text-sm leading-6 text-amber-200">⚠️ Reduced-size acknowledgement required for BTC caution or a quality override.</p>}
+      {signal.needsAcknowledgement && <p className="rounded-xl bg-amber-300/10 p-3 text-sm leading-6 text-amber-200">⚠️ Reduced-size acknowledgement required: {signal.trendAligned === false ? "this trade goes against the BTC daily trend (half size)" : "BTC caution or a quality override"}.</p>}
       <p className="text-xs leading-5 text-slate-400">{historical ? "🗂️ Original alert levels. Open the chart for a fresh plan." : "✅ Required entry checks passed at the scan. Recheck the live chart and portfolio before entry."}</p>
       <div className="flex flex-wrap gap-2"><Button type="button" onClick={onReview} className="rounded-xl"><LineChart className="mr-1.5 h-4 w-4"/>Review chart</Button><Button type="button" variant="outline" onClick={() => void copy()} className="rounded-xl"><Copy className="mr-1.5 h-4 w-4"/>Copy signal</Button>{onPaper && <Button type="button" variant="outline" className="rounded-xl" onClick={onPaper}>📄 Paper plan</Button>}</div>
       {copyFallback && <label className="block text-sm text-amber-200">Copy is blocked by your browser. Select this text:<textarea readOnly value={copyFallback} onFocus={event => event.currentTarget.select()} rows={10} className="mt-2 w-full rounded-xl border border-border bg-slate-950 p-3 font-mono text-xs text-slate-200"/></label>}
@@ -54,8 +58,24 @@ function SignalCard({signal, historical = false, now, onReview, onPaper}: {
   </article>;
 }
 
-export function SignalCenter({alerts, tab, onTabChange, now, scanning, live, onReview, onPaper}: {
-  alerts: Alerts; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
+function WatchRow({row, book, now, onReview}: {row: ScannerRow; book?: OrderBookBalance; now: number; onReview: () => void}) {
+  const bullish = row.bias === "LONG";
+  const pending = row.entryChecks.find(check => check.required && check.status !== "PASS");
+  const status = row.btcRelationship.divergenceVerdict === "REJECT" ? "BLOCKED · BTC divergence rejects" : row.executionPlan.status.replaceAll("_", " ");
+  return <article className={"rounded-2xl border border-l-[3px] bg-[#0d141d]/80 p-4 " + (bullish ? "border-white/[0.07] border-l-emerald-300/60" : "border-white/[0.07] border-l-rose-300/60")}>
+    <div className="flex flex-wrap items-center justify-between gap-2">
+      <h4 className="flex flex-wrap items-center gap-2 text-base font-bold text-white"><span className={bullish ? "text-emerald-300" : "text-rose-300"}>{row.bias}</span><span className="font-mono">{row.symbol}</span><span className="font-mono text-sm text-cyan-100">{row.ratingGrade} {row.ratingScore}</span></h4>
+      <span className="rounded-full border border-amber-300/30 bg-amber-300/10 px-2.5 py-1 text-xs font-semibold text-amber-200">{status}</span>
+    </div>
+    <p className="mt-1 text-xs text-slate-400">{row.setupType} · {row.regime} · TA {row.score} · {row.style}</p>
+    <p className="mt-2 text-sm leading-6 text-slate-300">Waiting for: <strong className="text-amber-200">{pending ? pending.label + " (" + pending.status + ")" : "live confirmation"}</strong>{pending ? " — " + pending.detail : ""}</p>
+    <div className="mt-3"><LevelsPanel plan={row.executionPlan} stop={row.stop} targets={row.takeProfits} row={row} book={book} now={now} compact/></div>
+    <div className="mt-3"><Button type="button" variant="outline" size="sm" onClick={onReview} className="rounded-xl"><LineChart className="mr-1.5 h-4 w-4"/>Review chart</Button></div>
+  </article>;
+}
+
+export function SignalCenter({alerts, rows = [], tab, onTabChange, now, scanning, live, onReview, onPaper}: {
+  alerts: Alerts; rows?: ScannerRow[]; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
   now: number; scanning: boolean; live: boolean;
   onReview: (signal: Pick<SignalSnapshot, "symbol" | "style" | "flexibility">) => void;
   onPaper: (row: ScannerRow) => void;
@@ -64,6 +84,13 @@ export function SignalCenter({alerts, tab, onTabChange, now, scanning, live, onR
   const [historyCount, setHistoryCount] = useState(10);
   const soundActive = alerts.soundEnabled && alerts.soundReady;
   const visiblePicks = showAll ? alerts.picks : alerts.picks.slice(0, 2);
+  const pickSymbols = new Set(alerts.picks.map(pick => pick.row.symbol));
+  // Closest-to-ready setups: every required check except the live trigger/payoff may still be pending.
+  const watch = rows
+    .filter(row => !pickSymbols.has(row.symbol) && row.decision !== "NO TRADE" && !["INVALIDATED", "EXPIRED"].includes(row.executionPlan.status))
+    .sort((a, b) => b.ratingScore - a.ratingScore || b.entryQuality - a.entryQuality)
+    .slice(0, 6);
+  const books = useOrderBooks([...visiblePicks.map(pick => pick.row.symbol), ...watch.map(row => row.symbol)]);
   return <section id="signals-center" className="mb-5 scroll-mt-52 rounded-3xl border border-cyan-300/20 bg-[#09131e]/95 shadow-[0_18px_80px_-45px_rgba(103,232,249,0.35)]">
     <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6 sm:pt-5"><div><div className="flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-200"/><h2 className="text-lg font-semibold text-white">Trade signals</h2>{alerts.picks.length > 0 && <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-sm font-semibold text-emerald-200">{alerts.picks.length} ready to review</span>}</div><p className="mt-1 text-sm text-slate-400">Telegram-style plans · long and short · live checks before entry</p></div>
       <Button type="button" variant="outline" onClick={alerts.toggleSound} aria-pressed={soundActive} className={"rounded-xl " + (soundActive ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200" : "text-slate-300")}>{soundActive ? <Volume2 className="mr-2 h-4 w-4"/> : <VolumeX className="mr-2 h-4 w-4"/>}{soundActive ? alerts.volume === 0 ? "Sound muted · 0%" : "Sound on · tap to mute" : "Enable sound"}</Button>
@@ -72,7 +99,11 @@ export function SignalCenter({alerts, tab, onTabChange, now, scanning, live, onR
     <Tabs value={tab} onValueChange={value => onTabChange(value as SignalTab)} className="gap-0">
       <div className="border-b border-white/[0.07] px-4 pb-3 sm:px-6"><TabsList className="h-11 w-full rounded-xl bg-slate-950/60 sm:w-auto" aria-label="Signals and notifications"><TabsTrigger value="signals" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Radio className="h-4 w-4"/>Signals <span className="font-mono">{alerts.picks.length}</span></TabsTrigger><TabsTrigger value="notifications" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Bell className="h-4 w-4"/>Notifications {alerts.unread > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-xs font-bold text-white">{alerts.unread}</span>}</TabsTrigger></TabsList></div>
       <TabsContent value="signals" className="p-4 sm:p-6">
-        {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
+        {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} row={pick.row} book={books[pick.row.symbol]} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
+        {watch.length > 0 && <div className="mt-6">
+          <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-semibold text-white">👀 Watching · closest to ready</h3><p className="text-xs text-slate-400">Exact levels are set now; each card says what must still happen before it becomes a signal.</p></div>
+          <div className="mt-3 grid items-start gap-4 xl:grid-cols-2">{watch.map(row => <WatchRow key={row.symbol} row={row} book={books[row.symbol]} now={now} onReview={() => onReview(row)}/>)}</div>
+        </div>}
       </TabsContent>
       <TabsContent value="notifications" className="space-y-4 p-4 sm:p-6">
         <div className="flex flex-wrap items-center justify-between gap-3"><p role="status" className="text-sm text-slate-300">{alerts.unread} unread · {alerts.notifications.length} saved alerts</p><Button type="button" variant="outline" size="sm" onClick={() => alerts.markRead()} disabled={!alerts.unread} className="rounded-xl"><CheckCheck className="mr-2 h-4 w-4"/>Mark all read</Button></div>

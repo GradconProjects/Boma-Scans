@@ -1,4 +1,4 @@
-import { INTERVAL_MS, STYLE_CONFIG, formatPrice, type ScannerRow, type TakeProfitLevel } from "@/app/lib/market";
+import { INTERVAL_MS, STYLE_CONFIG, formatPrice, type ScannerRow, type TakeProfitLevel, compactNumber } from "@/app/lib/market";
 import { isMediumRiskTake, type MediumRiskRecommendation } from "@/app/lib/recommendations";
 import { restoreEntryExecutionPlan, type EntryExecutionPlan } from "@/app/lib/entry-execution";
 
@@ -39,6 +39,9 @@ export type SignalSnapshot = {
   margin: number;
   btcVerdict: string;
   btcRelationship: string;
+  turnover?: number;
+  btcDailyTrend?: string;
+  trendAligned?: boolean;
   btcExplanation: string;
   needsAcknowledgement: boolean;
   proof: string[];
@@ -80,7 +83,8 @@ export function snapshotSignal(pick: MediumRiskRecommendation): SignalSnapshot {
     riskPct: pick.riskPct, riskAmount: pick.riskAmount, quantity: pick.quantity,
     margin: pick.recommendedMargin, btcVerdict: row.btcRelationship.divergenceVerdict,
     btcRelationship: row.btcRelationship.relationship, btcExplanation: row.btcRelationship.explanation,
-    needsAcknowledgement: row.btcRelationship.divergenceVerdict === "CAUTION" || row.qualityOverride.eligible,
+    turnover: row.turnover, btcDailyTrend: row.btcRelationship.btcDailyTrend, trendAligned: row.btcRelationship.trendAligned,
+    needsAcknowledgement: row.btcRelationship.divergenceVerdict === "CAUTION" || row.qualityOverride.eligible || !row.btcRelationship.trendAligned,
     proof: row.entryChecks.filter(check => check.required && check.status === "PASS").map(check => check.label),
   };
 }
@@ -190,6 +194,7 @@ export function telegramSignalText(item: SignalSnapshot, historical = false, now
     item.btcExplanation ? "💬 " + item.btcExplanation : "",
     ...item.targets.map(target => "📐 TP" + target.level + " basis: " + target.source),
     "",
+    "📊 24h volume " + (item.turnover ? "$" + compactNumber(item.turnover) : "n/a") + (item.btcDailyTrend && item.btcDailyTrend !== "UNKNOWN" ? "  •  BTC daily trend " + item.btcDailyTrend + (item.trendAligned === false ? " · AGAINST this trade: half size" : " · aligned") : ""),
     "💰 POSITION PLAN",
     "Risk " + item.riskAmount.toFixed(2) + " USDT  •  quantity " + item.quantity + "  •  estimated isolated margin " + item.margin.toFixed(2) + " USDT",
     "Weighted reward " + item.rewardR.toFixed(2) + "R  •  after estimated spread/fees/slippage " + item.netRewardR.toFixed(2) + "R, funding excluded",

@@ -11,8 +11,11 @@ const reply = (body: unknown, status = 200, headers: Record<string, string> = {}
 export async function POST(request: NextRequest) {
   if (request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Invalid request origin." }, 403);
   const secret = env.BOMA_SYNC_SECRET;
-  if (!secret || secret.length < 32 || !env.DB) {
-    return reply({ error: "Sign-in is not configured. Set BOMA_SYNC_SECRET (32+ characters) and the Turso database variables in Vercel." }, 503);
+  if (!secret || secret.length < 32) {
+    return reply({ error: "Sign-in is not configured: BOMA_SYNC_SECRET is " + (secret ? "shorter than 32 characters" : "missing") + " in Vercel. Set it under Settings → Environment Variables, then Redeploy." }, 503);
+  }
+  if (!env.DB) {
+    return reply({ error: "Sign-in is not configured: no database connection. Add POSTGRES_URL (Vercel Storage → Connect Supabase) or TURSO_DATABASE_URL, then Redeploy." }, 503);
   }
   try {
     const ip = request.headers.get("x-forwarded-for")?.split(",")[0].trim() || request.headers.get("x-real-ip") || "unknown";

@@ -52,7 +52,8 @@ export function isMediumRiskTake(row: ScannerRow, live: boolean, now = Date.now(
 function sizeRecommendation(row: ScannerRow, accountEquity: number) {
   const plan = buildAdaptiveLeveragePlan({
     accountEquity,
-    targetRiskPct: row.btcRelationship.divergenceVerdict === "CAUTION"
+    // Half size on BTC caution or when the side opposes the BTC daily trend (backtested).
+    targetRiskPct: row.btcRelationship.divergenceVerdict === "CAUTION" || !row.btcRelationship.trendAligned
       ? Math.min(row.riskMultiplier, 0.5) : row.riskMultiplier,
     entry: row.entry,
     stop: row.stop,

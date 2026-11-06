@@ -73,6 +73,21 @@ These figures come from replaying the final engine. They count only plans that r
 
 "R" is the amount risked per trade. At 1% risk per trade, +0.26R per trade is +0.26% of equity per trade on average, before funding. Expect losing months: a drawdown of about 11R is about 11% of equity at 1% risk.
 
+
+## Additional filters tested (my own candidates)
+
+Tested on the 186 READY 1H signals of the finished engine, checked separately on each year. Only rules that held in both years were adopted.
+
+| Candidate | Result | Decision |
+| --- | --- | --- |
+| Trade with BTC's daily trend (close vs 200-day EMA) | Aligned +0.31R vs against +0.22R per trade; aligned better in both years | **Adopted as half size** against the trend, with a badge. Not a block: against-trend trades were still positive. |
+| Move the stop to breakeven after TP1 | Win rate 44% → 65%, but average fell from +0.28R to +0.23R | Not adopted by default. Choose it if you prefer a smoother equity curve over total return. |
+| Trail the stop to the previous target | Slightly worse than the fixed plan | Not adopted. |
+| Session (UTC hours) | Asia/London strongest in both years; New York 13-21 UTC weakest (negative in the tuning year, positive in the other) | Shown in the levels panel; not gated. |
+| Volatility (ATR % of price), setup type, score bands, weekends | Promising in one year, flipped in the other | Shown for judgement; not gated. |
+
+Order-book balance (bid vs ask depth within 1% of price, from Bybit's 50-level book) cannot be backtested from candle data. It is shown as an execution aid: do not chase into opposing depth, and never treat it as an entry trigger on its own; resting orders can be pulled within seconds.
+
 ## Limits
 
 - This is a historical simulation of 23 liquid pairs, not a guarantee. Past results do not predict future returns.

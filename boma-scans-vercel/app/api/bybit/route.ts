@@ -32,7 +32,9 @@ export async function GET(request: NextRequest) {
       ? "/v5/market/kline"
       : kind === "instrument" || kind === "instruments"
         ? "/v5/market/instruments-info"
-        : "/v5/market/tickers",
+        : kind === "orderbook"
+          ? "/v5/market/orderbook"
+          : "/v5/market/tickers",
     API_ORIGIN,
   );
 
@@ -71,6 +73,13 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ error: "Invalid symbol." }, { status: 400 });
     }
     upstream.searchParams.set("symbol", symbol);
+  } else if (kind === "orderbook") {
+    const symbol = search.get("symbol") ?? "";
+    if (!validSymbol(symbol)) {
+      return NextResponse.json({ error: "Invalid symbol." }, { status: 400 });
+    }
+    upstream.searchParams.set("symbol", symbol);
+    upstream.searchParams.set("limit", "50");
   } else if (kind === "instruments") {
     upstream.searchParams.set("limit", "1000");
     const cursor = search.get("cursor");

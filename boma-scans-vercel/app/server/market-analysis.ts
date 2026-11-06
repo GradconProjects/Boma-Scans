@@ -16,11 +16,11 @@ export async function bars(symbol:string,interval:string,limit=480) {
 }
 export async function analyzePair(symbol:string,interval:string,style:TradingStyle,flexibility:FlexibilityMode,fee=0.055,slippage=0.02) {
  const [context,macro]=contextIntervals(interval);
- const [fast,mid,slow,btc,quote,instrument]=await Promise.all([bars(symbol,interval),bars(symbol,context,400),bars(symbol,macro,360),bars("BTCUSDT",interval),marketRead({kind:"ticker",symbol}),marketRead({kind:"instrument",symbol})]);
+ const [fast,mid,slow,btc,btcDaily,quote,instrument]=await Promise.all([bars(symbol,interval),bars(symbol,context,400),bars(symbol,macro,360),bars("BTCUSDT",interval),bars("BTCUSDT","D",360).catch(()=>[] as Candle[]),marketRead({kind:"ticker",symbol}),marketRead({kind:"instrument",symbol})]);
  if(fast.length<31 || mid.length<31 || slow.length<31 || !quote.time || Date.now()-quote.time>15000)throw new Error("Insufficient fresh history. Wait; no entry approved.");
  const ticker=normalizeTicker(quote.result!.list[0] as Record<string,unknown>);
  const analysis=analyzeMarket(fast,mid,slow,ticker,style,{flexibility,takerFeePct:fee,slippagePct:slippage});
- const relationship=analyzeBtcRelationship(symbol,fast,btc,analysis);
+ const relationship=analyzeBtcRelationship(symbol,fast,btc,analysis,btcDaily);
  const row=scannerRowFromAnalysis(ticker,analysis,false,normalizeInstrument(instrument.result!.list[0] as Record<string,unknown>),style,relationship);
  return {analysis,row,relationship,ticker};
 }

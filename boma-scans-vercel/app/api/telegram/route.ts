@@ -54,11 +54,11 @@ export async function POST(request:NextRequest) {
       const match=/^(\d+)([mh])$/.exec(plan.timeframe);if(!match)continue;
       const interval=String(Number(match[1])*(match[2]==="h"?60:1));if(!INTERVAL_MS[interval])continue;
       const [context,macro]=contextIntervals(interval);
-      const [fast,contextBars,macroBars,btc,quote]=await Promise.all([bars(signal.symbol,interval),bars(signal.symbol,context,400),bars(signal.symbol,macro,360),bars("BTCUSDT",interval),marketRead({kind:"ticker",symbol:signal.symbol})]);
+      const [fast,contextBars,macroBars,btc,btcDaily,quote]=await Promise.all([bars(signal.symbol,interval),bars(signal.symbol,context,400),bars(signal.symbol,macro,360),bars("BTCUSDT",interval),bars("BTCUSDT","D",360).catch(()=>[] as Candle[]),marketRead({kind:"ticker",symbol:signal.symbol})]);
       if(fast.length<31 || contextBars.length<31 || macroBars.length<31 || !quote.time || Date.now()-quote.time>15000)continue;
       const ticker=normalizeTicker(quote.result!.list[0] as Record<string,unknown>);
       const analysis=analyzeMarket(fast,contextBars,macroBars,ticker,signal.style,{flexibility:signal.flexibility});
-      const btcContext=analyzeBtcRelationship(signal.symbol,fast,btc,analysis);
+      const btcContext=analyzeBtcRelationship(signal.symbol,fast,btc,analysis,btcDaily);
       // Same plan = same side and the trigger/stop within 15% of a normal candle
       // range. Exact float equality silently dropped valid alerts whenever the
       // server saw one more candle or a slightly different history window.

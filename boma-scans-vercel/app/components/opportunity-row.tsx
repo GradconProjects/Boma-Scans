@@ -26,7 +26,7 @@ export function OpportunityRow({row, active, live, equity, onSelect, onTrade}: {
     return () => {window.clearTimeout(start); window.clearTimeout(stop);};
   }, [take]);
   const plan = buildAdaptiveLeveragePlan({
-    accountEquity: equity, targetRiskPct: row.btcRelationship.divergenceVerdict === "CAUTION" ? Math.min(0.5, row.riskMultiplier) : row.riskMultiplier,
+    accountEquity: equity, targetRiskPct: row.btcRelationship.divergenceVerdict === "CAUTION" || !row.btcRelationship.trendAligned ? Math.min(0.5, row.riskMultiplier) : row.riskMultiplier,
     entry: row.entry, stop: row.stop, score: row.score, regime: row.regime,
     setupType: row.setupType, trendFrames: row.trendFrames, atrPct: row.atrPct,
     adx: row.adx, style: row.style, actionable: take,

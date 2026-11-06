@@ -378,6 +378,7 @@ export default function Home() {
     "PREFERRED",
   );
   const [cloudScanRequest,setCloudScanRequest] = useState(0);
+  const [btcDaily, setBtcDaily] = useState<Candle[]>([]);
   const handledCloudScan = useRef(0);
   const scanController = useRef<AbortController | null>(null);
   const scanRunId = useRef(0);
@@ -468,13 +469,15 @@ export default function Home() {
 
     try {
       const executionInterval = interval;
-      const [allTickers, instruments, btcHistory] = await Promise.all([
+      const [allTickers, instruments, btcHistory, btcDailyCandles] = await Promise.all([
         fetchTickers(controller.signal),
         fetchInstruments(controller.signal).catch(() => []),
         fetchKlines("BTCUSDT", executionInterval, 480, controller.signal).catch(
           () => [],
         ),
+        fetchKlines("BTCUSDT", "D", 360, controller.signal).catch(() => [] as Candle[]),
       ]);
+      if (btcDailyCandles.length) setBtcDaily(btcDailyCandles);
       const instrumentsBySymbol = new Map(
         instruments.map((item) => [item.symbol, item]),
       );
@@ -530,6 +533,7 @@ export default function Home() {
             fast,
             item.symbol === "BTCUSDT" ? fast : btcHistory,
             analysis,
+            btcDailyCandles,
           );
           const row = scannerRowFromAnalysis(
             freshTicker,
@@ -1159,8 +1163,9 @@ export default function Home() {
         candles,
         symbol === "BTCUSDT" ? candles : btcCandles,
         analysis,
+        btcDaily,
       ),
-    [analysis, btcCandles, candles, symbol],
+    [analysis, btcCandles, candles, symbol, btcDaily],
   );
   const currentPrice =
     (dataMode === "LIVE" ? ticker?.lastPrice : 0) ||
@@ -1737,7 +1742,7 @@ export default function Home() {
 
       <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7">
         <TelegramPanel signals={signalAlerts.picks.map(pick=>snapshotSignal(pick))} deliveryStatus={signalAlerts.telegramStatus}/>
-        <SignalCenter alerts={signalAlerts} tab={signalTab} onTabChange={setSignalTab}
+        <SignalCenter alerts={signalAlerts} rows={scannerRows} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
           onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")}/>
         <Collapsible
