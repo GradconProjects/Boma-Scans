@@ -40,7 +40,15 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
 
 export class Statement {
   constructor(private readonly execute: () => Promise<Execute>, private readonly sql: string, private readonly args: unknown[] = []) {}
-  private run_() { return withTimeout(this.execute().then(execute => execute(this.sql, this.args)), "statement"); }
+  private async run_() {
+    try { return await withTimeout(this.execute().then(execute => execute(this.sql, this.args)), "statement"); }
+    catch (error) {
+      // A wedged pooled connection would otherwise block every later query on this
+      // instance (one connection per instance), so drop it and reconnect next time.
+      if (error instanceof Error && /timed out/.test(error.message)) await resetConnection();
+      throw error;
+    }
+  }
   bind(...args: unknown[]) {
     return new Statement(this.execute, this.sql, args.map(value => (value === undefined ? null : value)));
   }
@@ -87,7 +95,7 @@ async function postgresExecute(url: string): Promise<Execute> {
   const sql = postgres(url, {
     ssl: url.includes("localhost") || url.includes("127.0.0.1") ? false : "require",
     prepare: false, // required by Supabase's transaction pooler
-    max: 1,
+    max: 2,
     idle_timeout: 20,
     connect_timeout: 15,
     types: { bigint: { to: 20, from: [20], serialize: (value: number | bigint) => String(value), parse: (value: string) => Number(value) } },
@@ -102,6 +110,7 @@ async function postgresExecute(url: string): Promise<Execute> {
     if (alter && known.get(alter[1]) === true) continue;
     await withTimeout(sql.unsafe(statement), "schema setup");
   }
+  globalState.__bomaClose = () => sql.end({ timeout: 1 }).catch(() => undefined);
   return async (query, args) => {
     const result = await sql.unsafe(toPositional(query), args as never);
     return { rows: Array.from(result) as Row[], rowsAffected: result.count };
@@ -119,7 +128,14 @@ async function libsqlExecute(url: string): Promise<Execute> {
 }
 
 // Survive hot reloads in development without re-creating connections.
-const globalState = globalThis as unknown as { __bomaExecute?: Promise<Execute> };
+const globalState = globalThis as unknown as { __bomaExecute?: Promise<Execute>; __bomaClose?: () => Promise<void> };
+
+/** Forget the current connection so the next statement opens a fresh one. */
+export async function resetConnection() {
+  const close = globalState.__bomaClose;
+  delete globalState.__bomaExecute; delete globalState.__bomaClose;
+  if (close) await close();
+}
 
 function connect(): Promise<Execute> {
   if (!globalState.__bomaExecute) {
