@@ -4,7 +4,22 @@ import type { ExitEvent, MonitorEntry } from "@/app/lib/trigger-monitor";
 import type { TrackedTrade, TradeSnapshot } from "@/app/lib/trade-manager";
 
 /** A follow-up message for Telegram. `key` de-duplicates across devices and reloads. */
-export type TelegramEvent = { key: string; lines: string[]; symbol?: string; buttons?: Array<{ text: string; data: string }> };
+export type TelegramButton = { text: string; data: string };
+export type TelegramEvent = { key: string; lines: string[]; symbol?: string; buttons?: TelegramButton[] };
+
+/** Buttons under every signal: record the entry (plan price or your own fill), prioritise the pair, re-analyse. */
+export function signalButtons(symbol: string): TelegramButton[] {
+  return [
+    { text: "✅ Entered at plan price", data: "entered:" + symbol }, { text: "✏️ Entered at…", data: "enterat:" + symbol },
+    { text: "👀 Monitor & prioritise", data: "monitor:" + symbol }, { text: "📊 Re-analyse", data: "analyse:" + symbol },
+  ];
+}
+/** Telegram inline keyboard rows of two. */
+export function keyboardRows(buttons: TelegramButton[]) {
+  const rows: Array<Array<{ text: string; callback_data: string }>> = [];
+  for (let i = 0; i < buttons.length; i += 2) rows.push(buttons.slice(i, i + 2).map(button => ({ text: button.text, callback_data: button.data })));
+  return { inline_keyboard: rows };
+}
 
 function card(entry: MonitorEntry) {
   const plan = entry.plan;
@@ -26,7 +41,7 @@ export function formatMonitorEvent(entry: MonitorEntry): TelegramEvent | null {
     : entry.state === "STOP HIT" ? "⛔ Plan invalidated: price reached the stop side before entry. Cancel any resting order and wait for a fresh plan."
     : entry.state === "PAST ENTRY" ? "⏸ Price ran past the entry level. Keep the limit at the level and wait for a pullback; do not chase."
     : "";
-  const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered", data: "entered:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }] : undefined;
+  const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered at plan price", data: "entered:" + entry.symbol }, { text: "✏️ Entered at…", data: "enterat:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }, { text: "📊 Re-analyse", data: "analyse:" + entry.symbol }] : undefined;
   return { key: "monitor:" + entry.planKey + ":" + entry.state, symbol: entry.symbol, lines: [head, ...levels, instruction, ...(buttons ? ["Tap Entered so exits are tracked from your fill, or Skipped to stop following this plan."] : [])], buttons };
 }
 

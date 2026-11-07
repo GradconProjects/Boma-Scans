@@ -3,6 +3,7 @@ import { memory, recordKey } from "@/app/server/memory-store";
 import { OWNER_ID } from "@/app/server/owner-auth";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { renderTelegramHtml } from "@/app/lib/signal-alerts";
+import { keyboardRows } from "@/app/lib/telegram-events";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
 
 export type TelegramConfig = { chatId: string; enabled: boolean };
@@ -51,7 +52,7 @@ export async function deliverEvents(config: TelegramConfig, events: TelegramEven
     if (!(await claim(event.key))) continue;
     try {
       const chunks = telegramChunks(renderTelegramHtml(lines));
-      for (const [index, chunk] of chunks.entries()) await telegramCall(token, "sendMessage", { chat_id: config.chatId, text: chunk, parse_mode: "HTML", ...(event.buttons && index === chunks.length - 1 ? { reply_markup: { inline_keyboard: [event.buttons.map(button => ({ text: button.text, callback_data: button.data }))] } } : {}) });
+      for (const [index, chunk] of chunks.entries()) await telegramCall(token, "sendMessage", { chat_id: config.chatId, text: chunk, parse_mode: "HTML", ...(event.buttons && index === chunks.length - 1 ? { reply_markup: keyboardRows(event.buttons) } : {}) });
       if (env.DB) await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(OWNER_ID, "event:" + event.key).run();
       sent++;
     } catch (error) {

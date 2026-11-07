@@ -42,7 +42,7 @@ export async function GET(request: NextRequest) {
   try { memory = { symbols: {}, ...JSON.parse((await readOwnerRecord("monitor-memory")) ?? "{}") }; } catch { /* fresh */ }
   const monitored = Array.from(new Set([...parseMonitoredSymbols(workspace.monitored), ...parseMonitoredSymbols(memory.autoMonitored)])).slice(0, MAX_PAIRS);
   // Plans armed on a device (synced in the workspace) are adopted when the server has none.
-  for (const plan of parseArmedPlans(workspace.armed)) { memory.symbols[plan.symbol] ??= {}; if (!memory.symbols[plan.symbol].armed) memory.symbols[plan.symbol].armed = plan; }
+  for (const plan of parseArmedPlans(workspace.armed)) { memory.symbols[plan.symbol] ??= {}; if (!memory.symbols[plan.symbol].armed && memory.symbols[plan.symbol].skipped !== plan.planKey) memory.symbols[plan.symbol].armed = plan; }
   const style = (["SCALP", "DAY", "SWING", "POSITION"].includes(String(workspace.style)) ? workspace.style : "DAY") as TradingStyle;
   const flexibility = (["STRICT", "BALANCED", "FLEXIBLE"].includes(String(workspace.flexibility)) ? workspace.flexibility : "STRICT") as FlexibilityMode;
   const targetStyle = workspace.targetStyle === "LADDER" ? "LADDER" : "TA";

@@ -7,6 +7,7 @@ import { GET as bybit } from "@/app/api/bybit/route";
 import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextIntervals, INTERVAL_MS, type Candle } from "@/app/lib/market";
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
 import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } from "@/app/lib/signal-alerts";
+import { keyboardRows, signalButtons, type TelegramButton } from "@/app/lib/telegram-events";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
 import { cronKey } from "@/app/server/cron-auth";
@@ -38,8 +39,8 @@ export async function GET(request:NextRequest) {
   // Which bot does the configured token belong to? (so the owner messages the right one)
   let bot:string|null=null;
   if(env.TELEGRAM_BOT_TOKEN){try {const me=await telegramCall(env.TELEGRAM_BOT_TOKEN,"getMe",{}) as {username?:string}|undefined;bot=me?.username??null;} catch { bot=null; }}
-  let server:{lastRunAt?:number;autoMonitored?:string[];inTrade?:string[];lastError?:string}={};
-  try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {lastRunAt?:number;autoMonitored?:string[];lastError?:string;symbols?:Record<string,{armed?:unknown}>};server={lastRunAt:parsed.lastRunAt,autoMonitored:parsed.autoMonitored??[],inTrade:Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s),lastError:parsed.lastError};}} catch { /* none yet */ }
+  let server:{lastRunAt?:number;autoMonitored?:string[];inTrade?:string[];armed?:unknown[];skipped?:string[];lastError?:string}={};
+  try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {lastRunAt?:number;autoMonitored?:string[];lastError?:string;symbols?:Record<string,{armed?:unknown;skipped?:string}>};server={lastRunAt:parsed.lastRunAt,autoMonitored:parsed.autoMonitored??[],inTrade:Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s),armed:Object.values(parsed.symbols??{}).map(m=>m.armed).filter(Boolean),skipped:Object.entries(parsed.symbols??{}).filter(([,m])=>m.skipped&&!m.armed).map(([,m])=>m.skipped as string),lastError:parsed.lastError};}} catch { /* none yet */ }
   const key=await cronKey();
   const origin=request?.nextUrl?.origin??"";
   const schedule=config?.enabled?await ensureSchedule(origin,request?.nextUrl?.searchParams.get("schedule")==="retry").catch(()=>null):null;
@@ -80,8 +81,10 @@ export async function POST(request:NextRequest) {
         else {const seen=memory().deliveries,id=recordKey(user.userId,key);claimed=!seen.has(id);if(claimed)seen.set(id,Date.now());}
         if(!claimed)continue;
         const text=renderTelegramHtml(lines);
+        const buttons=Array.isArray(event.buttons)?(event.buttons as TelegramButton[]).filter(b=>b&&typeof b.text==="string"&&typeof b.data==="string"&&b.data.length<=64).slice(0,8):[];
         try {
-          for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
+          const chunks=telegramChunks(text);
+          for(const [index,chunk] of chunks.entries())await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML",...(buttons.length&&index===chunks.length-1?{reply_markup:keyboardRows(buttons)}:{})});
           if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
         } catch(error) {
           if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();
@@ -120,7 +123,8 @@ export async function POST(request:NextRequest) {
       if(!claimed)continue;
       try {
         const text=telegramSignalHtml({...signal,btcExplanation:btcContext.explanation},false,Date.now(),appLink(request.nextUrl.origin,signal.symbol));
-        for(const chunk of telegramChunks(text))await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML"});
+        const chunks=telegramChunks(text);
+        for(const [index,chunk] of chunks.entries())await telegramCall(env.TELEGRAM_BOT_TOKEN,"sendMessage",{chat_id:config.chatId,text:chunk,parse_mode:"HTML",...(index===chunks.length-1?{reply_markup:keyboardRows(signalButtons(signal.symbol))}:{})});
         if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='SENT' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();sent++;
       }catch {
         if(env.DB)await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(user.userId,key).run();

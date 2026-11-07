@@ -89,8 +89,9 @@ Nothing has to be set up by hand: when the Telegram panel is opened the app regi
 
 ### Telling the bot about your trade
 
-- Entry-range alerts carry **Entered** and **Skipped** buttons.
-- `/entered BTCUSDT 68500` records your fill (price optional) and arms exit tracking.
+- Every signal and entry-range alert carries buttons: **Entered at plan price**, **Entered at…** (the bot asks for your fill price; reply with the number), **Monitor & prioritise** and **Re-analyse**; entry-range alerts add **Skipped**.
+- `/entered BTCUSDT 68500` records your fill (price optional) and arms exit tracking; the pair is prioritised on the server and shown first in the app's side panel.
+- `/monitor BTCUSDT` and `/unmonitor BTCUSDT` manage server-side monitoring from Telegram.
 - `/skip BTCUSDT` stops following that plan; a new plan for the pair still alerts.
 - `/status` lists monitored pairs and open trades.
 

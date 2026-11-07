@@ -3,7 +3,7 @@ import { memory, recordKey } from "@/app/server/memory-store";
 import { telegramCall } from "@/app/server/telegram";
 import { handleCommand } from "@/app/server/telegram-controls";
 
-type Update = { update_id: number; message?: { text?: string; date: number; chat: { id: number }; from?: { id: number; first_name?: string; last_name?: string; username?: string } }; callback_query?: { id: string; data?: string; from: { id: number }; message?: { chat: { id: number }; date: number } } };
+type Update = { update_id: number; message?: { text?: string; date: number; chat: { id: number }; reply_to_message?: { text?: string }; from?: { id: number; first_name?: string; last_name?: string; username?: string } }; callback_query?: { id: string; data?: string; from: { id: number }; message?: { chat: { id: number }; date: number } } };
 
 /**
  * Fetches pending Telegram updates for the owner's bot and runs the commands.
@@ -47,10 +47,14 @@ export async function pollTelegram(userId: string, chatId: string, origin: strin
       if (String(target) !== String(chatId) || String(sender) !== String(chatId)) continue;
       const date = message?.date ?? 0; if (message && Date.now() - date * 1000 > 30 * 60000) continue;
       let text = message?.text ?? "";
+      // A reply to the "fill price" prompt becomes /entered SYMBOL price.
+      const prompt = message?.reply_to_message?.text?.match(/fill price for ([A-Z0-9]{2,24}USDT)/);
+      if (prompt && text && !text.startsWith("/")) text = "/entered " + prompt[1] + " " + text.trim();
       if (callback) {
         await telegramCall(token, "answerCallbackQuery", { callback_query_id: callback.id });
         const [action, value] = String(callback.data ?? "").split(":");
-        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : "/" + action;
+        if (action === "enterat" && value) { await telegramCall(token, "sendMessage", { chat_id: chatId, text: "✏️ Reply to this message with your fill price for " + value + " (numbers only, e.g. 1.2335).", reply_markup: { force_reply: true, input_field_placeholder: "fill price" } }); continue; }
+        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : action === "monitor" ? "/monitor " + value : "/" + action;
       }
       if (!text) continue;
       try { await handleCommand(userId, String(chatId), text, origin); processed++; }

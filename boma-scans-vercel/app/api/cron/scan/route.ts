@@ -3,6 +3,7 @@ import { cronAuthorized } from "@/app/server/cron-auth";
 import { deliverEvents, readOwnerRecord, telegramConfig, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { judgePositioning } from "@/app/lib/positioning";
+import { signalButtons } from "@/app/lib/telegram-events";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { getMediumRiskShortlist, isMediumRiskTake } from "@/app/lib/recommendations";
@@ -53,7 +54,7 @@ export async function GET(request: NextRequest) {
       qualified.push(symbol);
       let positioning: string[] = [];
       try { const snapshot = await whaleSnapshot(); const verdict = judgePositioning(await positioningFor(symbol, snapshot), row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now).split("\n"), ...positioning] });
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now).split("\n"), ...positioning], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Follow qualified signals automatically.

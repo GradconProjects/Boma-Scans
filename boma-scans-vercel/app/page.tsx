@@ -73,9 +73,8 @@ import { LiveValue } from "@/app/components/live-value";
 import { SignalCenter, type SignalTab } from "@/app/components/signal-center";
 import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
-import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
+import { parseArmedPlans, parseMonitoredSymbols, type ArmedPlan } from "@/app/lib/trigger-monitor";
 import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
-import { parseArmedPlans } from "@/app/lib/trigger-monitor";
 import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
@@ -393,6 +392,8 @@ export default function Home() {
   const [btcDaily, setBtcDaily] = useState<Candle[]>([]);
   // Pairs the owner chose to watch for live trigger / entry-range hits.
   const [monitored, setMonitored] = useState<string[]>([]);
+  /** The trigger monitor is created further down; the server-sync effect reads it through this ref. */
+  const monitorRef = useRef<{ armed: ArmedPlan[]; setArmedPlans: (plans: ArmedPlan[]) => void }>({ armed: [], setArmedPlans: () => {} });
   const [monitoredReady, setMonitoredReady] = useState(false);
   // Deep link from Telegram: /?pair=XRPUSDT selects the pair and expands its row in the side panel.
   const [focusPair, setFocusPair] = useState("");
@@ -415,9 +416,16 @@ export default function Home() {
     let stopped = false;
     const pull = async () => {
       try {
-        const data = await (await fetch("/api/telegram", {cache: "no-store"})).json() as {server?: {autoMonitored?: string[]}};
+        const data = await (await fetch("/api/telegram", {cache: "no-store"})).json() as {server?: {autoMonitored?: string[]; armed?: unknown; skipped?: string[]}};
         const auto = parseMonitoredSymbols(data.server?.autoMonitored);
-        if (!stopped && auto.length) setMonitored(current => parseMonitoredSymbols([...current, ...auto]));
+        if (stopped) return;
+        if (auto.length) setMonitored(current => parseMonitoredSymbols([...auto, ...current.filter(symbol => !auto.includes(symbol))]));
+        // Trades confirmed or skipped from Telegram become the app's in-trade list too.
+        const serverArmed = parseArmedPlans(data.server?.armed);
+        const skipped = new Set(data.server?.skipped ?? []);
+        const current = monitorRef.current.armed;
+        const merged = [...current.filter(plan => !skipped.has(plan.planKey) && !serverArmed.some(plan2 => plan2.symbol === plan.symbol)), ...serverArmed];
+        if (merged.length !== current.length || merged.some((plan, index) => JSON.stringify(plan) !== JSON.stringify(current[index]))) monitorRef.current.setArmedPlans(merged);
       } catch { /* not signed in or offline */ }
     };
     void pull();
@@ -1367,6 +1375,7 @@ export default function Home() {
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
   cloudApplyRef.current.armed = monitor.setArmedPlans;
+  monitorRef.current = { armed: monitor.armed, setArmedPlans: monitor.setArmedPlans };
   cloudApplyRef.current.notifications = signalAlerts.mergeNotifications;
   const workspaceSync = useAccountSync("workspace", [{key:"workspace",value:{symbol,interval,style,flexibility,equity:Number(accountEquity),autoScan,autoScanMinutes,riskFilter,directionFilter,scanRequestedAt:cloudScanRequest,monitored,targetStyle,armed:monitor.armed,notifications:signalAlerts.notifications.slice(0,25),fee:Number(takerFeePct),slippage:Number(slippagePct)}}], applyCloudWorkspace, preferencesReady);
   // Right-hand rail: signals, monitored pairs and the closest-to-ready setups, each with its compact signal.
@@ -1391,7 +1400,8 @@ export default function Home() {
     }
     const watch = scannerRows.filter(row => !seen.has(row.symbol) && row.decision !== "NO TRADE" && !["INVALIDATED", "EXPIRED"].includes(row.executionPlan.status)).sort((a, b) => b.ratingScore - a.ratingScore || b.entryQuality - a.entryQuality).slice(0, 6);
     for (const row of watch) items.push({symbol: row.symbol, side: row.bias, kind: "WATCH", status: row.executionPlan.status.replaceAll("_", " "), lines: fromRow(row), monitored: false, hit: false});
-    return [...items.filter(item => item.hit), ...items.filter(item => !item.hit)];
+    const inTrade = new Set(monitor.armed.map(plan => plan.symbol));
+    return [...items.filter(item => inTrade.has(item.symbol)), ...items.filter(item => !inTrade.has(item.symbol) && item.hit), ...items.filter(item => !inTrade.has(item.symbol) && !item.hit)];
   })();
   const positioningTargets: PositioningTarget[] = (() => {
     const targets: PositioningTarget[] = [];

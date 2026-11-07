@@ -57,3 +57,11 @@ test("Monitor updates and the hourly digest have stable keys and clear text", ()
   assert.match(digest.lines[2], /ABCUSDT · no plan/);
   assert.equal(formatMonitorDigest([]), null);
 });
+
+test("Every signal carries Entered / Entered at… / Monitor / Re-analyse buttons in rows of two", () => {
+  const { signalButtons, keyboardRows } = load("app/lib/telegram-events.ts");
+  const buttons = signalButtons("XRPUSDT");
+  assert.deepEqual(buttons.map(b => b.data), ["entered:XRPUSDT", "enterat:XRPUSDT", "monitor:XRPUSDT", "analyse:XRPUSDT"]);
+  const rows = keyboardRows(buttons).inline_keyboard;
+  assert.equal(rows.length, 2); assert.equal(rows[0][1].callback_data, "enterat:XRPUSDT");
+});
