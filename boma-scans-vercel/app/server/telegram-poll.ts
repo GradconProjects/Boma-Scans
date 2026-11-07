@@ -54,7 +54,7 @@ export async function pollTelegram(userId: string, chatId: string, origin: strin
         await telegramCall(token, "answerCallbackQuery", { callback_query_id: callback.id });
         const [action, value] = String(callback.data ?? "").split(":");
         if (action === "enterat" && value) { await telegramCall(token, "sendMessage", { chat_id: chatId, text: "✏️ Reply to this message with your fill price for " + value + " (numbers only, e.g. 1.2335).", reply_markup: { force_reply: true, input_field_placeholder: "fill price" } }); continue; }
-        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : action === "monitor" ? "/monitor " + value : "/" + action;
+        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : action === "monitor" ? "/monitor " + value : action === "unmonitor" ? "/unmonitor " + value : "/" + action;
       }
       if (!text) continue;
       try { await handleCommand(userId, String(chatId), text, origin); processed++; }

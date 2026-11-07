@@ -25,7 +25,7 @@ test("Monitor events carry exact levels and the right instruction per state", ()
   assert.match(range.lines.join("\n"), /BUY LIMIT 100\.2/);
   assert.match(range.lines.join("\n"), /READY and price is inside/);
   assert.match(formatMonitorEvent({ ...base, state: "AT TRIGGER" }).lines.join("\n"), /candle to CLOSE above/);
-  assert.match(formatMonitorEvent({ ...base, state: "STOP HIT" }).lines.join("\n"), /invalidated/);
+  const stopHit = formatMonitorEvent({ ...base, state: "STOP HIT" }); assert.match(stopHit.lines[0], /STOP LOSS LEVEL HIT 95/); assert.equal(stopHit.lines.length, 2, "no signal card on a stop hit");
   assert.equal(formatMonitorEvent({ ...base, plan: null }), null);
 });
 test("Trade follow-ups fire only for actionable advice and key by trade, action and level", () => {

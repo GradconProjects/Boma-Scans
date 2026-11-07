@@ -45,9 +45,11 @@ export async function GET(request: NextRequest) {
     .filter(item => item.symbol?.endsWith("USDT") && !BLACKLIST.has(item.symbol) && Number(item.turnover24h) >= STYLE_LIQUIDITY_FLOOR[style])
     .sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, limit).map(item => item.symbol as string);
   const events: TelegramEvent[] = []; const qualified: string[] = []; const problems: string[] = [];
+  const debug = request.nextUrl.searchParams.get("debug") === "1"; const diagnostics: Record<string, unknown>[] = [];
   await mapLimit(universe, 4, async symbol => {
     try {
       const { row } = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle);
+      if (debug) diagnostics.push({ symbol, decision: row.decision, bias: row.bias, setup: row.setupType, regime: row.regime, trendFrames: row.trendFrames, entryReady: row.entryReady, plan: row.executionPlan.status, direction: row.direction, score: row.score, entryQuality: row.entryQuality, rating: row.ratingScore, riskBand: row.riskBand, btc: row.btcRelationship.divergenceVerdict, costR: Number(row.executionCostR.toFixed(2)), costLimit: Number(row.spreadCostLimitR.toFixed(2)), failedChecks: row.entryChecks.filter(c => c.required && c.status !== "PASS").map(c => c.label), analyzedAgeS: Math.round((now - row.analyzedAt) / 1000), lev: row.exchangeMaxLeverage, step: row.quantityStep });
       if (!isMediumRiskTake(row, true, now)) return;
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
       if (!pick) return;
@@ -65,5 +67,5 @@ export async function GET(request: NextRequest) {
     try { await writeOwnerRecord("monitor-memory", JSON.stringify({ ...memory, autoMonitored: next })); } catch { /* best effort */ }
   }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
-  return NextResponse.json({ ok: true, scanned: universe.length, qualified, sent: delivery.sent, problems: [...problems, ...delivery.errors].slice(0, 10) });
+  return NextResponse.json({ ok: true, scanned: universe.length, qualified, ...(debug ? { diagnostics } : {}), sent: delivery.sent, problems: [...problems, ...delivery.errors].slice(0, 10) });
 }

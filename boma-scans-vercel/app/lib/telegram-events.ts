@@ -34,11 +34,15 @@ export function formatMonitorEvent(entry: MonitorEntry): TelegramEvent | null {
   if (!plan || !entry.side || entry.price === null) return null;
   const long = entry.side === "LONG";
   const head = "🔔 " + entry.symbol + " " + entry.side + " · " + entry.state;
+  // A stop-side hit before entry is a one-line notice, not another copy of the signal.
+  if (entry.state === "STOP HIT") return { key: "monitor:" + entry.planKey + ":STOP HIT", symbol: entry.symbol, lines: [
+    "⛔ " + entry.symbol + " " + entry.side + " · STOP LOSS LEVEL HIT " + formatPrice(entry.stop ?? plan.stop),
+    "📍 Price " + formatPrice(entry.price) + " · plan cancelled before entry. Remove any resting order; a fresh plan will be sent if one forms.",
+  ], buttons: [{ text: "📊 Re-analyse", data: "analyse:" + entry.symbol }, { text: "🙈 Stop monitoring", data: "unmonitor:" + entry.symbol }] };
   const levels = ["📍 Price " + formatPrice(entry.price), "", ...card(entry), ""];
   const instruction =
     entry.state === "ENTRY RANGE" ? "✅ Plan is READY and price is inside the entry range. Place the limit at the entry price or better; cancel it if the dashboard drops READY or the plan expires."
     : entry.state === "AT TRIGGER" ? "⏳ Price crossed the trigger. Wait for the " + plan.timeframe + " candle to CLOSE " + (long ? "above" : "below") + " it and for the dashboard to show READY. Do not buy the wick."
-    : entry.state === "STOP HIT" ? "⛔ Plan invalidated: price reached the stop side before entry. Cancel any resting order and wait for a fresh plan."
     : entry.state === "PAST ENTRY" ? "⏸ Price ran past the entry level. Keep the limit at the level and wait for a pullback; do not chase."
     : "";
   const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered at plan price", data: "entered:" + entry.symbol }, { text: "✏️ Entered at…", data: "enterat:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }, { text: "📊 Re-analyse", data: "analyse:" + entry.symbol }] : undefined;
