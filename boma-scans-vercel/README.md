@@ -95,3 +95,13 @@ Nothing has to be set up by hand: when the Telegram panel is opened the app regi
 - `/status` lists monitored pairs and open trades.
 
 Once entered you are told at each target, at the stop, when the engine sees a structure change against the trade (leave or protect the stop), when the runner should be closed after target 2 and when the maximum hold time is reached.
+
+## Whales & crowd positioning
+
+A section under the signals shows, for every signal and monitored pair, how live positioning relates to the plan:
+
+- **Whales**: the open positions (side, size, entry, leverage, liquidation price, PnL) of the top 60 Hyperliquid traders by 30-day profit with at least $1M in the account, read from Hyperliquid's public API and cached for 3 minutes. The verdict says whether most whale notional sits with or against the plan.
+- **Crowd**: Bybit's own long/short account ratio, 24-hour open-interest change and funding rate for the pair.
+- **Liquidation pocket**: whale liquidation prices within 3% of the plan's stop are flagged so the stop is not widened into them.
+
+No public site shows individual Bybit or Binance positions, so Bybit is covered through its aggregate ratios. Server-pushed signals carry the same verdict in a `🐋` line.

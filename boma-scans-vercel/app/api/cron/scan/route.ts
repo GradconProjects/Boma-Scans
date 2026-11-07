@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cronAuthorized } from "@/app/server/cron-auth";
 import { deliverEvents, readOwnerRecord, telegramConfig, writeOwnerRecord } from "@/app/server/telegram-delivery";
+import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
+import { judgePositioning } from "@/app/lib/positioning";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { getMediumRiskShortlist, isMediumRiskTake } from "@/app/lib/recommendations";
@@ -49,7 +51,9 @@ export async function GET(request: NextRequest) {
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
       if (!pick) return;
       qualified.push(symbol);
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now).split("\n") });
+      let positioning: string[] = [];
+      try { const snapshot = await whaleSnapshot(); const verdict = judgePositioning(await positioningFor(symbol, snapshot), row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now).split("\n"), ...positioning] });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Follow qualified signals automatically.

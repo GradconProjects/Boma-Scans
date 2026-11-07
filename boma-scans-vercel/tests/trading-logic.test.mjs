@@ -656,3 +656,19 @@ test("TA-style targets are chart structure (or a labelled R fallback), ascending
     });
   }
 });
+
+test("Positioning verdict: whales with the plan support it, whales against it call for half size", async () => {
+  const mod = load("app/lib/positioning.ts");
+  const base = { symbol: "XRPUSDT", coin: "XRP", at: 0, hyperliquid: null, crowd: { longRatio: 0.5, longRatioPrev: 0.5, oiChange24h: 0, fundingRate: 0 } };
+  const whales = (longUsd, shortUsd) => ({ longUsd, shortUsd, traders: 8, positions: [] });
+  const supports = mod.judgePositioning({ ...base, whales: whales(8_000_000, 2_000_000) }, "LONG", 2, 1.9);
+  assert.equal(supports.level, "SUPPORTS"); assert.match(supports.notes[0], /Whales agree: 80%/);
+  const against = mod.judgePositioning({ ...base, whales: whales(8_000_000, 2_000_000) }, "SHORT", 2, 2.1);
+  assert.equal(against.level, "AGAINST"); assert.match(against.headline, /half size/);
+  const crowded = mod.judgePositioning({ ...base, whales: whales(0, 0), crowd: { longRatio: 0.72, longRatioPrev: 0.6, oiChange24h: 0.08, fundingRate: 0.0005 } }, "LONG", 2, 1.9);
+  assert.equal(crowded.level, "AGAINST", "crowded side plus paid funding"); assert.ok(crowded.notes.some(n => /crowded/.test(n)) && crowded.notes.some(n => /pay to hold/.test(n)));
+  const pocket = mod.judgePositioning({ ...base, whales: { longUsd: 1e6, shortUsd: 0, traders: 3, positions: [{ trader: "a", coin: "XRP", side: "LONG", sizeUsd: 1e6, entry: 2.1, leverage: 10, liquidation: 1.92, pnl: 0, accountValue: 1e7 }] } }, "LONG", 2, 1.9);
+  assert.ok(pocket.notes.some(n => /liquidate within 3%/.test(n)));
+  assert.equal(mod.hyperliquidCoin("1000PEPEUSDT", new Set(["kPEPE", "BTC"])), "kPEPE");
+  assert.equal(mod.hyperliquidCoin("XAUTUSDT", new Set(["kPEPE", "BTC"])), null);
+});

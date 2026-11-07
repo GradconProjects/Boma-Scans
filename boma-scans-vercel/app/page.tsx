@@ -29,6 +29,7 @@ import {
   Loader2,
   Lock,
   Radar,
+  Fish,
   Radio,
   RefreshCw,
   Search,
@@ -79,6 +80,7 @@ import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
+import { PositioningPanel, type PositioningTarget } from "@/app/components/positioning-panel";
 import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
@@ -1391,6 +1393,12 @@ export default function Home() {
     for (const row of watch) items.push({symbol: row.symbol, side: row.bias, kind: "WATCH", status: row.executionPlan.status.replaceAll("_", " "), lines: fromRow(row), monitored: false, hit: false});
     return [...items.filter(item => item.hit), ...items.filter(item => !item.hit)];
   })();
+  const positioningTargets: PositioningTarget[] = (() => {
+    const targets: PositioningTarget[] = [];
+    for (const pick of signalAlerts.picks) if (pick.row.bias) targets.push({ symbol: pick.row.symbol, side: pick.row.bias, price: pick.row.price, stop: pick.row.stop, kind: "SIGNAL" });
+    for (const entry of monitor.entries) { const row = scannerRows.find(item => item.symbol === entry.symbol); const side = entry.side ?? row?.bias; if (side) targets.push({ symbol: entry.symbol, side, price: entry.price ?? row?.price ?? 0, stop: entry.stop ?? row?.stop, kind: "MONITOR" }); }
+    return targets;
+  })();
   const analyzedSymbols = new Set(scannerRows.map(row => row.symbol));
   const pendingMarkets = scanUniverse.filter(item => !analyzedSymbols.has(item.symbol));
   const selectedRatedRow = ticker ? scannerRowFromAnalysis(ticker, analysis, dataMode !== "LIVE", instrument ?? undefined, style, btcRelationship) : null;
@@ -2156,6 +2164,10 @@ export default function Home() {
             <span>{loadError}</span>
           </div>
         ) : null}
+
+        <Section id="positioning-section" storageKey="positioning" title="Whales & crowd positioning" subtitle="Top Hyperliquid traders' live positions and Bybit's long/short ratio, judged against each plan" icon={<Fish className="h-5 w-5"/>}>
+          <PositioningPanel targets={positioningTargets}/>
+        </Section>
 
         <Section id="chart-section" storageKey="chart" title={"Chart, entry plan & trade manager · " + symbol} subtitle="Live analysis of the selected pair, entry instructions, sizing and your tracked trades" icon={<Radar className="h-5 w-5"/>}>
         <section id="chart-focus" className="scroll-mt-52 overflow-hidden rounded-3xl border border-white/[0.08] bg-[#08111b]/90 shadow-[0_34px_110px_-72px_rgba(45,212,191,0.8)]">

@@ -34,7 +34,11 @@ export async function GET(request: NextRequest) {
         ? "/v5/market/instruments-info"
         : kind === "orderbook"
           ? "/v5/market/orderbook"
-          : "/v5/market/tickers",
+          : kind === "ratio"
+            ? "/v5/market/account-ratio"
+            : kind === "oi"
+              ? "/v5/market/open-interest"
+              : "/v5/market/tickers",
     API_ORIGIN,
   );
 
@@ -80,6 +84,13 @@ export async function GET(request: NextRequest) {
     }
     upstream.searchParams.set("symbol", symbol);
     upstream.searchParams.set("limit", "50");
+  } else if (kind === "ratio" || kind === "oi") {
+    // Crowd positioning: long/short account ratio and open-interest history (hourly, last 24 h).
+    const symbol = (search.get("symbol") ?? "").toUpperCase();
+    if (!validSymbol(symbol)) return NextResponse.json({ error: "Invalid symbol." }, { status: 400 });
+    upstream.searchParams.set("symbol", symbol);
+    if (kind === "ratio") { upstream.searchParams.set("period", "1h"); upstream.searchParams.set("limit", "25"); }
+    else { upstream.searchParams.set("intervalTime", "1h"); upstream.searchParams.set("limit", "25"); }
   } else if (kind === "instruments") {
     upstream.searchParams.set("limit", "1000");
     const cursor = search.get("cursor");
