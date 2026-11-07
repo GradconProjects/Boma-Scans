@@ -65,3 +65,13 @@ test("Every signal carries Entered / Entered at… / Monitor / Re-analyse button
   const rows = keyboardRows(buttons).inline_keyboard;
   assert.equal(rows.length, 2); assert.equal(rows[0][1].callback_data, "enterat:XRPUSDT");
 });
+
+test("A forming setup is pushed with its levels, what must still happen, and its own buttons", () => {
+  const { formatFormingSetup } = load("app/lib/telegram-events.ts");
+  const row = { symbol: "BCHUSDT", bias: "SHORT", setupType: "BREAKOUT", price: 500, score: 71, regime: "TRENDING", stop: 520, executionPlan: { side: "SHORT", status: "WAIT_RETEST", trigger: 495, entry: 496, entryLow: 494, entryHigh: 498, zoneLow: 493, zoneHigh: 499, timeframe: "1h", expiresAt: 10 * 3_600_000 }, takeProfits: [480, 470, 460, 450, 440].map(price => ({ price, available: true })) };
+  const event = formatFormingSetup(row, 3_600_000);
+  assert.match(event.lines[0], /SETUP FORMING · BCHUSDT SHORT/);
+  assert.ok(event.lines.some(line => /pull back into the zone/.test(line) && /close below 495/.test(line)));
+  assert.deepEqual(event.buttons.map(b => b.data), ["monitor:BCHUSDT", "analyse:BCHUSDT", "unmonitor:BCHUSDT"]);
+  assert.equal(formatFormingSetup(row, 3_600_000 * 2).key, event.key, "same plan within six hours is not repeated");
+});

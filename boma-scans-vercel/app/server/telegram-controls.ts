@@ -63,9 +63,11 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   if(command==="/monitor"||command==="/unmonitor") {
    const list=(mem.autoMonitored??[]).filter(s=>s!==pair);
    mem.autoMonitored=command==="/monitor"?[pair,...list].slice(0,12):list;
+   const memIgnored=(mem as {ignored?:string[]}).ignored??[];
+   (mem as {ignored?:string[]}).ignored=command==="/monitor"?memIgnored.filter(s=>s!==pair):[pair,...memIgnored.filter(s=>s!==pair)].slice(0,30);
    mem.symbols[pair]??={};
    await persist(mem);
-   await send(command==="/monitor"?"👀 "+pair+" is now monitored first in line. You will hear when it reaches the trigger and the entry range, and the app shows it at the top of the side panel.":"🙈 "+pair+" removed from server monitoring.",true);return;
+   await send(command==="/monitor"?"👀 "+pair+" is now monitored first in line. You will hear when it reaches the trigger and the entry range, and the app shows it at the top of the side panel.":"🙈 "+pair+" removed from monitoring; the scanner will not re-add it until you tap Monitor or send /monitor "+pair+".",true);return;
   }
   if(command==="/skip") {
    const planKey=mem.symbols[pair].seen?.planKey??mem.symbols[pair].armed?.planKey??pair+":skipped";

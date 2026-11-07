@@ -87,6 +87,10 @@ Two server endpoints do the work of the open dashboard. Point any scheduler at t
 
 Nothing has to be set up by hand: when the Telegram panel is opened the app registers two pg_cron jobs in the Supabase database (monitor every minute, scan every 15 minutes, using pg_net to call the endpoints) and the panel shows a green confirmation. The key is `CRON_SECRET` if you set it in Vercel, otherwise it is derived from the owner password. Fallbacks: a free scheduler such as cron-job.org pointed at the two links, or the GitHub Actions workflow (`.github/workflows/boma-cron.yml`) with the repository secret `BOMA_CRON_KEY`.
 
+### Setups forming
+
+Qualified signals need a pullback into the zone and a closed 1H candle through the trigger, which the backtest showed happens about twelve times a month across 30 pairs. So the scan also pushes the best **setups forming** (trend, regime and quality already in place, retest or close still missing) once per plan, with their levels, what must still happen, and Monitor / Re-analyse / Ignore buttons. The top six are followed automatically so the trigger and entry-range alerts arrive the moment they become actionable. The server scan covers the 50 most liquid pairs by default (`SERVER_SCAN_PAIRS`).
+
 ### Telling the bot about your trade
 
 - Every signal and entry-range alert carries buttons: **Entered at plan price**, **Entered at…** (the bot asks for your fill price; reply with the number), **Monitor & prioritise** and **Re-analyse**; entry-range alerts add **Skipped**.

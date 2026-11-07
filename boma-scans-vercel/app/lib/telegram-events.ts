@@ -1,4 +1,4 @@
-import { formatPrice } from "@/app/lib/market";
+import { type ScannerRow, formatPrice } from "@/app/lib/market";
 import { appLink, compactSignalLines } from "@/app/lib/signal-alerts";
 import type { ExitEvent, MonitorEntry } from "@/app/lib/trigger-monitor";
 import type { TrackedTrade, TradeSnapshot } from "@/app/lib/trade-manager";
@@ -14,6 +14,26 @@ export function signalButtons(symbol: string): TelegramButton[] {
     { text: "👀 Monitor & prioritise", data: "monitor:" + symbol }, { text: "📊 Re-analyse", data: "analyse:" + symbol },
   ];
 }
+/**
+ * A setup that passed the trend, regime and quality gates but is still
+ * waiting for price to return to its zone and close through the trigger.
+ * Sent once per plan so the owner can watch it before it becomes a signal.
+ */
+export function formatFormingSetup(row: ScannerRow, now = Date.now()): TelegramEvent {
+  const plan = row.executionPlan;
+  const long = row.bias === "LONG";
+  const lines = compactSignalLines({ symbol: row.symbol, side: row.bias, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: row.stop, targets: row.takeProfits.map(t => ({ price: t.price, available: t.available })), expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh });
+  const toTrigger = (plan.trigger - row.price) / row.price * 100;
+  return { key: "forming:" + row.symbol + ":" + [plan.side, plan.trigger, row.stop].join(":") + ":" + Math.floor(now / (6 * 3_600_000)), symbol: row.symbol, lines: [
+    "📋 SETUP FORMING · " + row.symbol + " " + row.bias + " · " + row.setupType,
+    "📍 Price " + formatPrice(row.price) + " · " + (toTrigger >= 0 ? "+" : "") + toTrigger.toFixed(2) + "% to trigger · score " + row.score + " · " + row.regime,
+    "",
+    ...lines,
+    "",
+    "⏳ Not a signal yet: price must " + (plan.status === "WAIT_RETEST" ? "pull back into the zone " + formatPrice(plan.zoneLow) + " – " + formatPrice(plan.zoneHigh) : "reach the entry area") + " and a " + plan.timeframe + " candle must close " + (long ? "above" : "below") + " " + formatPrice(plan.trigger) + ". Monitoring sends the alert when that happens.",
+  ], buttons: [{ text: "👀 Monitor & prioritise", data: "monitor:" + row.symbol }, { text: "📊 Re-analyse", data: "analyse:" + row.symbol }, { text: "🙈 Ignore this pair", data: "unmonitor:" + row.symbol }] };
+}
+
 /** Telegram inline keyboard rows of two. */
 export function keyboardRows(buttons: TelegramButton[]) {
   const rows: Array<Array<{ text: string; callback_data: string }>> = [];
