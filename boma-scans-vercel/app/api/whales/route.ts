@@ -8,11 +8,15 @@ const reply = (body: unknown, status = 200) => NextResponse.json(body, { status,
 /** GET: whale signals, rankings, recent events and settings. POST: settings. */
 export async function GET() {
   const user = await getOwnerUser(); if (!user) return reply({ error: "Sign in at /login." }, 401);
+  const steps: Record<string, number> = {}; let step = "start"; let t = Date.now();
+  const mark = (name: string) => { steps[step] = Date.now() - t; step = name; t = Date.now(); };
   try {
-    await trackWhales();
-    const [{ signals, ranks }, events, settings] = await Promise.all([whaleSignals(), recentEvents(48 * 3_600_000, 300), whaleSettings()]);
-    return reply({ at: Date.now(), signals, ranks, events, settings });
-  } catch (error) { return reply({ error: error instanceof Error ? error.message : "Whale data unavailable." }, 502); }
+    await trackWhales(); mark("signals");
+    const { signals, ranks } = await whaleSignals(); mark("events");
+    const events = await recentEvents(48 * 3_600_000, 300); mark("settings");
+    const settings = await whaleSettings(); mark("done");
+    return reply({ at: Date.now(), signals, ranks, events, settings, steps });
+  } catch (error) { return reply({ error: (error instanceof Error ? error.message : "Whale data unavailable.") + " (step: " + step + ")", steps }, 502); }
 }
 
 export async function POST(request: NextRequest) {
