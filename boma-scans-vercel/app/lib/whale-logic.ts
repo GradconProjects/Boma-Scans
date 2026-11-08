@@ -29,14 +29,16 @@ export function diffPositions(previous: WatchState | null, positions: WhalePosit
   const next: WatchState = { at, positions: {} };
   const seen = new Set<string>();
   const first = !previous;
+  // A trader who was not tracked before (new to the whale list) contributes a baseline, not a burst of "opens".
+  const knownTraders = new Set(Object.keys(previous?.positions ?? {}).map(k => k.split("|")[0]));
   for (const p of positions) {
     const k = key(p.trader, p.coin); seen.add(k);
     const before = previous?.positions[k];
     const price = markPrice(p.coin) || p.entry;
     if (!before) {
       next.positions[k] = { side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, pnl: p.pnl, firstSeen: at, lastSeen: at, maxSizeUsd: p.sizeUsd };
-      // On the very first snapshot every position is "existing", not a fresh open.
-      if (!first) events.push({ id: [p.trader, p.coin, "OPEN", at].join(":"), at, trader: p.trader, coin: p.coin, kind: "OPEN", side: p.side, sizeUsd: p.sizeUsd, deltaUsd: p.sizeUsd, entry: p.entry, price, pnl: p.pnl, heldMs: 0 });
+      // On the very first snapshot every position is "existing", not a fresh open; the same for a newly tracked trader.
+      if (!first && knownTraders.has(p.trader)) events.push({ id: [p.trader, p.coin, "OPEN", at].join(":"), at, trader: p.trader, coin: p.coin, kind: "OPEN", side: p.side, sizeUsd: p.sizeUsd, deltaUsd: p.sizeUsd, entry: p.entry, price, pnl: p.pnl, heldMs: 0 });
       continue;
     }
     if (before.side !== p.side) {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOwnerUser } from "@/app/server/owner-auth";
-import { recentEvents, saveWhaleSettings, trackWhales, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
+import { purgeBaselineOpens, recentEvents, saveWhaleSettings, trackWhales, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
 import { whaleEntryAnalysis } from "@/app/server/whale-analysis";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -24,6 +24,7 @@ export async function POST(request: NextRequest) {
   const user = await getOwnerUser(); if (!user) return reply({ error: "Sign in at /login." }, 401);
   if (request.headers.get("origin") && request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Origin rejected." }, 403);
   const body = await request.json().catch(() => ({})) as { alerts?: boolean; minTier?: "ELITE" | "STRONG"; coins?: string[]; action?: string; coin?: string; side?: "LONG" | "SHORT" };
+  if (body.action === "purge-baseline") { const since = Number((body as { since?: number }).since) || Date.now() - 3_600_000; return reply({ removed: await purgeBaselineOpens(since) }); }
   if (body.action === "analyse") {
     const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, "");
     if (!coin) return reply({ error: "Which coin?" }, 400);

@@ -12,14 +12,16 @@ const pos = (trader, coin, side, sizeUsd, entry, pnl = 0) => ({ trader, coin, si
 const price = () => 100;
 
 test("Snapshot diff: first snapshot is the baseline; later ones yield OPEN / ADD / REDUCE / CLOSE / FLIP with held time", () => {
-  const first = diffPositions(null, [pos("A", "BTC", "LONG", 1e6, 100)], 1000, price);
+  const first = diffPositions(null, [pos("A", "BTC", "LONG", 1e6, 100), pos("B", "XRP", "LONG", 1e5, 1), pos("M", "DOGE", "LONG", 1e5, 1)], 1000, price);
   assert.deepEqual(first.events, []); assert.equal(first.next.at, 1000);
-  const second = diffPositions(first.next, [pos("A", "BTC", "LONG", 1.3e6, 100), pos("B", "ETH", "SHORT", 5e5, 100), pos("M", "APE", "LONG", 20_000, 1)], 2000, price);
+  const second = diffPositions(first.next, [pos("A", "BTC", "LONG", 1.3e6, 100), pos("B", "XRP", "LONG", 1e5, 1), pos("B", "ETH", "SHORT", 5e5, 100), pos("M", "DOGE", "LONG", 1e5, 1), pos("M", "APE", "LONG", 20_000, 1)], 2000, price);
   assert.deepEqual(second.events.map(e => [e.trader, e.kind, Math.round(e.deltaUsd)]), [["A", "ADD", 300000], ["B", "OPEN", 500000]], "a $20K open is noise and not recorded");
-  const third = diffPositions(second.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "ETH", "SHORT", 4e5, 100, 2000), pos("M", "APE", "LONG", 20_000, 1)], 3000, price);
+  const third = diffPositions(second.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "XRP", "LONG", 1e5, 1), pos("B", "ETH", "SHORT", 4e5, 100, 2000), pos("M", "DOGE", "LONG", 1e5, 1), pos("M", "APE", "LONG", 20_000, 1)], 3000, price);
   assert.deepEqual(third.events.map(e => [e.trader, e.kind]), [["A", "FLIP"], ["B", "REDUCE"]]);
   assert.equal(third.events[0].heldMs, 2000);
-  const fourth = diffPositions(third.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("M", "APE", "LONG", 20_000, 1)], 4000, price);
+  const newcomer = diffPositions(third.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "XRP", "LONG", 1e5, 1), pos("B", "ETH", "SHORT", 4e5, 100, 2000), pos("M", "DOGE", "LONG", 1e5, 1), pos("M", "APE", "LONG", 20_000, 1), pos("Z", "BTC", "LONG", 9e6, 100)], 3500, price);
+  assert.deepEqual(newcomer.events, [], "a trader seen for the first time contributes a baseline, not an OPEN");
+  const fourth = diffPositions(newcomer.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "XRP", "LONG", 1e5, 1), pos("Z", "BTC", "LONG", 9e6, 100), pos("M", "DOGE", "LONG", 1e5, 1), pos("M", "APE", "LONG", 20_000, 1)], 4000, price);
   assert.deepEqual(fourth.events.map(e => [e.trader, e.kind, e.pnl]), [["B", "CLOSE", 2000]]);
   assert.equal(fourth.events[0].heldMs, 2000);
 });

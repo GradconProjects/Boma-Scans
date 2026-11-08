@@ -35,6 +35,14 @@ async function insertEvents(events: WhaleEvent[]) {
   }
 }
 
+/** Remove OPEN events that were really a baseline (traders with no earlier history) since `since`, and forget issued signals. */
+export async function purgeBaselineOpens(since: number): Promise<number> {
+  if (!env.DB) { const before = memoryEvents.length; const earlier = new Set(memoryEvents.filter(e => e.at < since).map(e => e.trader)); for (let i = memoryEvents.length - 1; i >= 0; i--) if (memoryEvents[i].at >= since && memoryEvents[i].kind === "OPEN" && !earlier.has(memoryEvents[i].trader)) memoryEvents.splice(i, 1); await writeOwnerRecord("whale-issued", "[]"); return before - memoryEvents.length; }
+  const result = await env.DB.prepare("DELETE FROM whale_events WHERE at>=? AND kind='OPEN' AND trader NOT IN (SELECT DISTINCT trader FROM whale_events WHERE at<?)").bind(since, since).run();
+  await writeOwnerRecord("whale-issued", "[]");
+  return result.meta.changes;
+}
+
 export async function recentEvents(sinceMs: number, limit = 400): Promise<WhaleEvent[]> {
   const since = Date.now() - sinceMs;
   if (!env.DB) return memoryEvents.filter(e => e.at >= since).slice(-limit).reverse();
