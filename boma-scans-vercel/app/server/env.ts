@@ -41,7 +41,7 @@ function withTimeout<T>(promise: Promise<T>, label: string): Promise<T> {
 export class Statement {
   constructor(private readonly execute: () => Promise<Execute>, private readonly sql: string, private readonly args: unknown[] = []) {}
   private async run_() {
-    try { return await withTimeout(this.execute().then(execute => execute(this.sql, this.args)), "statement"); }
+    try { return await withTimeout(this.execute().then(execute => execute(this.sql, this.args)), "statement (" + this.sql.replace(/\s+/g, " ").slice(0, 70) + ")"); }
     catch (error) {
       // A wedged pooled connection would otherwise block every later query on this
       // instance (one connection per instance), so drop it and reconnect next time.
