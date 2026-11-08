@@ -22,7 +22,7 @@ export type WhaleRow = { address: string; accountValue: number; windows?: Record
 export async function whaleAddresses(): Promise<WhaleRow[]> {
   try {
     const cached = JSON.parse((await readOwnerRecord("hl-whales")) ?? "null") as { at: number; rows: WhaleRow[] } | null;
-    if (cached && Date.now() - cached.at < WHALES_TTL && cached.rows.length && cached.rows[0].windows) return cached.rows;
+    if (cached && Date.now() - cached.at < WHALES_TTL && cached.rows.length >= WHALE_COUNT && cached.rows[0].windows) return cached.rows;
   } catch { /* refresh */ }
   const response = await fetch(HL_LEADERBOARD, { signal: AbortSignal.timeout(25_000), cache: "no-store" });
   if (!response.ok) throw new Error("Hyperliquid leaderboard responded " + response.status);
