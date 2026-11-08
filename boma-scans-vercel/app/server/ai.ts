@@ -34,7 +34,8 @@ export async function saveAiSettings(patch: Partial<AiSettings>) {
 async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: string, user: string): Promise<{ value: T; provider: string; model: string }> {
   const settings = await aiSettings();
   if (settings.provider === "anthropic") {
-    const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 50_000, maxRetries: 1 });
+    // Always authenticate with the API key header; a stray ANTHROPIC_AUTH_TOKEN would otherwise be sent as a bearer token.
+    const client = new Anthropic({ apiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim(), authToken: null, timeout: 50_000, maxRetries: 1 });
     const format = zodOutputFormat(schema as never);
     const request = { model: settings.anthropicModel, max_tokens: 4000, system, messages: [{ role: "user" as const, content: user }], output_config: { effort: "high" as const, format } };
     let text = "";
@@ -52,7 +53,7 @@ async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: s
     return { value: schema.parse(JSON.parse(text)), provider: "Claude", model: settings.anthropicModel };
   }
   if (settings.provider === "openai") {
-    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 50_000, maxRetries: 1 });
+    const client = new OpenAI({ apiKey: (process.env.OPENAI_API_KEY ?? "").trim(), timeout: 50_000, maxRetries: 1 });
     const jsonSchema = z.toJSONSchema(schema as never) as Record<string, unknown>;
     const completion = await client.chat.completions.create({
       model: settings.openaiModel,
