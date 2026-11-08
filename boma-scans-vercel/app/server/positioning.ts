@@ -18,17 +18,19 @@ async function hlInfo<T>(body: Record<string, unknown>): Promise<T> {
 }
 
 /** Top profitable Hyperliquid traders (≥ $1M account value, ranked by 30-day PnL), refreshed daily. */
-async function whaleAddresses(): Promise<Array<{ address: string; accountValue: number }>> {
+export type WhaleRow = { address: string; accountValue: number; windows?: Record<"day" | "week" | "month" | "allTime", { pnl: number; roi: number }> };
+export async function whaleAddresses(): Promise<WhaleRow[]> {
   try {
-    const cached = JSON.parse((await readOwnerRecord("hl-whales")) ?? "null") as { at: number; rows: Array<{ address: string; accountValue: number }> } | null;
-    if (cached && Date.now() - cached.at < WHALES_TTL && cached.rows.length) return cached.rows;
+    const cached = JSON.parse((await readOwnerRecord("hl-whales")) ?? "null") as { at: number; rows: WhaleRow[] } | null;
+    if (cached && Date.now() - cached.at < WHALES_TTL && cached.rows.length && cached.rows[0].windows) return cached.rows;
   } catch { /* refresh */ }
   const response = await fetch(HL_LEADERBOARD, { signal: AbortSignal.timeout(25_000), cache: "no-store" });
   if (!response.ok) throw new Error("Hyperliquid leaderboard responded " + response.status);
   const data = await response.json() as { leaderboardRows: LeaderRow[] };
   const monthPnl = (row: LeaderRow) => Number(row.windowPerformances.find(([name]) => name === "month")?.[1].pnl ?? 0);
+  const perf = (row: LeaderRow, name: string) => { const w = row.windowPerformances.find(([n]) => n === name)?.[1]; return { pnl: Number(w?.pnl ?? 0), roi: Number(w?.roi ?? 0) }; };
   const rows = data.leaderboardRows.filter(row => Number(row.accountValue) >= 1_000_000).sort((a, b) => monthPnl(b) - monthPnl(a)).slice(0, WHALE_COUNT)
-    .map(row => ({ address: row.ethAddress, accountValue: Number(row.accountValue) }));
+    .map(row => ({ address: row.ethAddress, accountValue: Number(row.accountValue), windows: { day: perf(row, "day"), week: perf(row, "week"), month: perf(row, "month"), allTime: perf(row, "allTime") } }));
   await writeOwnerRecord("hl-whales", JSON.stringify({ at: Date.now(), rows }));
   return rows;
 }

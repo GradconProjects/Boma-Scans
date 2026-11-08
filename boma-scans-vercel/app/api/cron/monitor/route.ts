@@ -17,6 +17,7 @@ import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai-review";
 import { storedReviews } from "@/app/server/ai";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
+import { trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
 import { OWNER_ID } from "@/app/server/owner-auth";
 
 export const dynamic = "force-dynamic";
@@ -104,6 +105,11 @@ export async function GET(request: NextRequest) {
   if (digest) events.push(digest);
   for (const symbol of Object.keys(memory.symbols)) if (!monitored.includes(symbol)) delete memory.symbols[symbol];
   memory.lastRunAt = now; memory.lastError = problems[0];
+  // Whale system: diff the latest snapshot into events, confirm signals, alert.
+  try {
+    const tracked = await trackWhales(now);
+    if (tracked.events.length || now % (10 * 60_000) < 60_000) { const [{ signals, ranks, events: recent }, settings] = await Promise.all([whaleSignals(now), whaleSettings()]); events.push(...whaleAlerts(signals, recent, ranks, settings, now)); }
+  } catch (error) { problems.push("whales: " + (error instanceof Error ? error.message : "failed")); }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
   try { await writeOwnerRecord("monitor-memory", JSON.stringify(memory)); } catch (error) { problems.push("memory: " + (error instanceof Error ? error.message : "save failed")); }
   return NextResponse.json({ ok: true, commands: commands.processed, monitored, states: Object.fromEntries(entries.map(entry => [entry.symbol, entry.state])), inTrade: Object.entries(memory.symbols).filter(([, m]) => m.armed).map(([symbol]) => symbol), sent: delivery.sent, problems: [...problems, ...delivery.errors] });

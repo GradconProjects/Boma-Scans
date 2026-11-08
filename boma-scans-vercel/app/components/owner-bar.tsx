@@ -7,7 +7,7 @@ export async function OwnerBar() {
   const owner = await getOwnerUser();
   return (
     <nav aria-label="Owner session" className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-300/20 bg-[#07131c] px-4 py-2 text-sm">
-      <span className="font-semibold text-cyan-100">Boma Scans</span>
+      <span className="flex items-center gap-3"><span className="font-semibold text-cyan-100">Boma Scans</span>{owner && <><Link href="/" className="rounded-lg px-2 py-1 text-slate-300 hover:bg-white/5 hover:text-white">📡 Scanner</Link><Link href="/whales" className="rounded-lg px-2 py-1 text-slate-300 hover:bg-white/5 hover:text-white">🐋 Whales</Link></>}</span>
       {owner ? (
         <span className="flex items-center gap-3 text-slate-300">
           Signed in · journal and Telegram sync active

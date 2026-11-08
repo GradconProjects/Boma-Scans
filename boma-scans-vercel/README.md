@@ -111,6 +111,17 @@ Every ready-to-enter signal gets a careful second read before it reaches Telegra
 - **Levels are refined before they are final.** The reviewer may move the entry inside the plan's zone, place the stop at a structural level between 0.6× and 1.5× the engine's stop distance, and set five targets between 0.5R and 6R in the trade's direction. Refinements inside those guardrails become the signal's levels (card, fill check, exit tracking); anything outside is discarded and shown as "suggested but kept engine levels". The trigger and the closed-candle rule never change.
 - The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal or refine its levels but never invents one.
 
+## Whale system (second system, /whales)
+
+After sign-in the start page offers two systems. The whale system is independent of the scanner and follows one rule: **follow what consistently successful whales are doing now, not what their existing positions say.**
+
+- **Persistent history.** Positions of the 60 most profitable Hyperliquid accounts (≥ $1M) are snapshotted every 3 minutes and diffed into OPEN, ADD, REDUCE, CLOSE and FLIP events stored in the `whale_events` table with P&L and holding time.
+- **Rankings.** Consistency first: a point per profitable window (day, week, month, all time), 30-day ROI capped, and our own tracked closes once a whale has five or more. Elite = top 10, Strong = next 15, the rest Watch.
+- **Confirmation engine.** A signal needs ranked whales opening or adding the same side of a coin within 12 hours (two whales, or one elite with $1M+ of new money). Adds to positions already more than 5% in profit and older than a day count at 40%. Ranked whales on the other side subtract. Price more than 2% past their average entry is "ran away".
+- **Own logic.** Direction and entry area from the whales, risk from the Bybit 1H chart: stop 1.5 ATR beyond their average entry, targets at 1R / 2R / 3R, and the scanner's trend read says whether the chart agrees. Each signal links to the pair in the scanner.
+- **Event-driven alerts.** Telegram gets confirmed whale signals (55%+ confidence) and $250K+ opens, closes and flips by ranked whales, filterable by tier and coin on the Rules & alerts tab.
+- **No execution.** Copy trading waits until API accuracy, historical profitability and live signal performance are verified from this history.
+
 ## Every Bybit pair is graded
 
 The scanner (in the app and on the server) grades every trading USDT perpetual on Bybit with more than $100K of daily turnover, several hundred pairs, not only the most liquid ones. A pair still needs at least $2M of daily turnover (Day style; $1M Swing, $10M Scalp) and a spread-plus-fees cost inside the engine's limit to qualify as a signal, so thin markets are graded and shown but do not produce pushes.

@@ -78,11 +78,12 @@ export const POSTGRES_SCHEMA = [
   "CREATE TABLE IF NOT EXISTS telegram_runtime (id text PRIMARY KEY NOT NULL, \"offset\" bigint NOT NULL, lease_until bigint NOT NULL)",
   "CREATE TABLE IF NOT EXISTS telegram_updates (id bigint PRIMARY KEY NOT NULL, received_at bigint NOT NULL)",
   "CREATE TABLE IF NOT EXISTS login_attempts (key text PRIMARY KEY NOT NULL, attempts integer NOT NULL, expires_at bigint NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS whale_events (id text PRIMARY KEY NOT NULL, at bigint NOT NULL, trader text NOT NULL, coin text NOT NULL, kind text NOT NULL, side text NOT NULL, size_usd double precision NOT NULL, delta_usd double precision NOT NULL, entry double precision NOT NULL, price double precision NOT NULL, pnl double precision NOT NULL, held_ms bigint NOT NULL)",
   // Supabase exposes public tables through its REST API; RLS with no policies keeps these private to the app's own connection.
-  ...["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts"].map(table => "ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY"),
+  ...["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts", "whale_events"].map(table => "ALTER TABLE " + table + " ENABLE ROW LEVEL SECURITY"),
 ];
 
-export const SQLITE_SCHEMA = POSTGRES_SCHEMA.filter(statement => statement.startsWith("CREATE")).map(statement => statement.replaceAll(" bigint ", " integer "));
+export const SQLITE_SCHEMA = POSTGRES_SCHEMA.filter(statement => statement.startsWith("CREATE")).map(statement => statement.replaceAll(" bigint ", " integer ").replaceAll(" double precision ", " real "));
 
 const DATABASE_URL_KEYS = ["POSTGRES_URL", "DATABASE_URL", "TURSO_DATABASE_URL"] as const;
 function databaseUrl() {
@@ -100,7 +101,7 @@ async function postgresExecute(url: string): Promise<Execute> {
     connect_timeout: 15,
     types: { bigint: { to: 20, from: [20], serialize: (value: number | bigint) => String(value), parse: (value: string) => Number(value) } },
   });
-  const tables = ["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts"];
+  const tables = ["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts", "whale_events"];
   const existing = await withTimeout(sql.unsafe("SELECT c.relname AS name, c.relrowsecurity AS rls FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($1)", [tables]), "schema check");
   const known = new Map(Array.from(existing as unknown as Array<{ name: string; rls: boolean }>).map(row => [row.name, row.rls]));
   for (const statement of POSTGRES_SCHEMA) {

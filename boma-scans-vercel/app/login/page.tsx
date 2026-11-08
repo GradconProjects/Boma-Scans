@@ -26,7 +26,7 @@ export default function Login() {
       const response = await fetch("/api/session", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ password }) });
       const body = await response.json() as { error?: string };
       if (!response.ok) throw new Error(body.error);
-      setPassword(""); await refresh(); router.refresh(); setMessage("Signed in. This device stays signed in for 90 days.");
+      setPassword(""); await refresh(); router.refresh(); setMessage("Signed in. This device stays signed in for 90 days."); router.push("/start");
     } catch (caught) { setError(caught instanceof Error ? caught.message : "Sign-in failed."); } finally { setBusy(false); }
   }
 
@@ -52,7 +52,7 @@ export default function Login() {
       <h1 className="mt-8 text-3xl font-semibold">Owner sign-in</h1>
       {state?.signedIn ? <>
         <p className="mt-3 leading-7 text-slate-400">You are signed in on this device. Your settings, journal and Telegram alerts follow this account.{state.source === "app" ? " The password was set from the app." : " The password is the BOMA_SYNC_SECRET variable from Vercel."}</p>
-        <div className="mt-4 flex flex-wrap gap-3"><Link href="/" className="rounded-xl bg-cyan-200 px-5 py-3 font-semibold text-slate-950">Open the dashboard</Link><button type="button" onClick={signOut} disabled={busy} className="rounded-xl border border-slate-600 px-5 py-3 text-slate-200">Sign out</button></div>
+        <div className="mt-4 flex flex-wrap gap-3"><Link href="/" className="rounded-xl bg-cyan-200 px-5 py-3 font-semibold text-slate-950">📡 Signal scanner</Link><Link href="/whales" className="rounded-xl bg-violet-200 px-5 py-3 font-semibold text-slate-950">🐋 Whale system</Link><button type="button" onClick={signOut} disabled={busy} className="rounded-xl border border-slate-600 px-5 py-3 text-slate-200">Sign out</button></div>
         <h2 className="mt-10 text-xl font-semibold">Change password</h2>
         <p className="mt-2 text-sm leading-6 text-slate-400">Any password of 4 or more characters works. Short PINs are easier to guess, so sign-in attempts are throttled per address and overall; a longer passphrase is still safer.{state.changeable ? "" : " Changing it here needs the database connection; until then change BOMA_SYNC_SECRET in Vercel."}</p>
         <form onSubmit={change} className="mt-4 space-y-4">
