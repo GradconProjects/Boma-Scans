@@ -684,3 +684,21 @@ test("Venue top-trader consensus feeds the verdict and the one-line summary", ()
   assert.match(summary, /^Smart money 65% with your LONG/); assert.match(summary, /OKX top traders 64% long/); assert.match(summary, /Bybit crowd 50% long/);
   assert.equal(mod.judgePositioning(data, "SHORT", 100, 105).level, "AGAINST");
 });
+
+test("Historic levels: zones cluster daily and weekly swings; a long into a major resistance within 1R fails", () => {
+  const kl = load("app/lib/key-levels.ts");
+  const day = 86_400_000;
+  // 400 days: price oscillates between 90 and 110 with a clear ceiling at 110 touched several times.
+  const daily = Array.from({ length: 400 }, (_, i) => { const t = i * day; const c = 100 + 10 * Math.sin(i / 9); return { time: t, open: c, high: c + 1 + (Math.abs(c - 110) < 1 ? 0.3 : 0), low: c - 1, close: c, volume: 1 }; });
+  const weekly = kl.resampleWeekly(daily);
+  assert.ok(weekly.length >= 55 && weekly.length <= 58, "weekly bars from daily: " + weekly.length);
+  const zones = kl.keyLevelZones(daily, weekly, 1.2, 400 * day);
+  assert.ok(zones.length >= 2);
+  const top = zones.find(z => Math.abs(z.price - 111) < 1.5); assert.ok(top, "ceiling zone found: " + zones.map(z => z.price.toFixed(1)).join(","));
+  assert.ok(top.touches >= 3);
+  const intoCeiling = kl.assessKeyLevels(zones, "LONG", 109, 104, 1.5);
+  assert.equal(intoCeiling.status, "FAIL"); assert.ok(intoCeiling.roomR < 1); assert.match(intoCeiling.detail, /expect a reaction/);
+  const fromFloor = kl.assessKeyLevels(zones, "LONG", 90.5, 88.5, 1.5);
+  assert.ok(fromFloor.roomR > 1.5); assert.equal(fromFloor.status, "PASS");
+  assert.match(fromFloor.summary, /room \d+\.\dR|open road/);
+});

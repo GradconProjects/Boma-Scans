@@ -22,7 +22,7 @@ export function signalButtons(symbol: string): TelegramButton[] {
 export function formatFormingSetup(row: ScannerRow, now = Date.now()): TelegramEvent {
   const plan = row.executionPlan;
   const long = row.bias === "LONG";
-  const lines = compactSignalLines({ symbol: row.symbol, side: row.bias, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: row.stop, targets: row.takeProfits.map(t => ({ price: t.price, available: t.available })), expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh });
+  const lines = compactSignalLines({ symbol: row.symbol, side: row.bias, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: row.stop, targets: row.takeProfits.map(t => ({ price: t.price, available: t.available })), expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh, keyLevels: row.keyLevels?.summary });
   const toTrigger = (plan.trigger - row.price) / row.price * 100;
   return { key: "forming:" + row.symbol + ":" + [plan.side, plan.trigger, row.stop].join(":") + ":" + Math.floor(now / (6 * 3_600_000)), symbol: row.symbol, lines: [
     "📋 SETUP FORMING · " + row.symbol + " " + row.bias + " · " + row.setupType,

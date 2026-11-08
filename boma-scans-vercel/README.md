@@ -101,6 +101,10 @@ Qualified signals need a pullback into the zone and a closed 1H candle through t
 
 Once entered you are told at each target, at the stop, when the engine sees a structure change against the trade (leave or protect the stop), when the runner should be closed after target 2 and when the maximum hold time is reached.
 
+## Historic support & resistance
+
+Signals are read against higher-timeframe history, not only the last few hours. Daily and weekly swing highs and lows (plus yearly, multi-year and prior-month extremes) are clustered into zones. The zones become the strongest take-profit candidates, and each signal states the nearest major level in its path and the room to it in R. The two-year backtest showed that blocking trades for lack of room removed the best trades (trend breaks through levels), so the levels inform the exit plan rather than veto the entry; see the policy document for the numbers. The levels panel shows the nearest support and resistance with frame and touch count ("S 1.1900 (W×3) · R 1.2600 (D×2) · room 1.8R"), the chart draws the zones as dashed lines, and Telegram cards carry the same line.
+
 ## Whales & crowd positioning
 
 A section under the signals shows, for every signal and monitored pair, how live positioning relates to the plan:

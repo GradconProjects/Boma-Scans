@@ -42,6 +42,8 @@ export type SignalSnapshot = {
   turnover?: number;
   btcDailyTrend?: string;
   trendAligned?: boolean;
+  /** Historic support / resistance summary: "S 1.19 (W×3) · R 1.26 (D×2) · room 1.8R". */
+  keyLevels?: string;
   btcExplanation: string;
   needsAcknowledgement: boolean;
   proof: string[];
@@ -83,7 +85,7 @@ export function snapshotSignal(pick: MediumRiskRecommendation): SignalSnapshot {
     riskPct: pick.riskPct, riskAmount: pick.riskAmount, quantity: pick.quantity,
     margin: pick.recommendedMargin, btcVerdict: row.btcRelationship.divergenceVerdict,
     btcRelationship: row.btcRelationship.relationship, btcExplanation: row.btcRelationship.explanation,
-    turnover: row.turnover, btcDailyTrend: row.btcRelationship.btcDailyTrend, trendAligned: row.btcRelationship.trendAligned,
+    turnover: row.turnover, btcDailyTrend: row.btcRelationship.btcDailyTrend, trendAligned: row.btcRelationship.trendAligned, keyLevels: row.keyLevels?.summary,
     needsAcknowledgement: row.btcRelationship.divergenceVerdict === "CAUTION" || row.qualityOverride.eligible || !row.btcRelationship.trendAligned,
     proof: row.entryChecks.filter(check => check.required && check.status === "PASS").map(check => check.label),
   };
@@ -209,6 +211,8 @@ export type CompactSignalInput = {
   targets: Array<{ price: number; available?: boolean }>; expiresAt?: number;
   /** Zone edges: the plan is cancelled if a candle closes beyond the far edge. */
   zoneLow?: number; zoneHigh?: number;
+  /** Historic support / resistance summary line. */
+  keyLevels?: string;
 };
 
 /** The short signal card: coin, side, entry zone, trigger rule, leverage, targets, stop, validity. */
@@ -229,6 +233,7 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
     ...input.targets.map((target, index) => "🎯 Target " + (index + 1) + ": " + (target.available === false ? "unconfirmed" : formatPrice(target.price) + figures(target.price))),
     "",
     "❌ StopLoss: " + formatPrice(input.stop) + "   −" + (Math.abs(input.entry - input.stop) / input.entry * 100).toFixed(2) + "%",
+    ...(input.keyLevels ? ["🏛 Historic levels: " + input.keyLevels] : []),
     ...(input.expiresAt ? ["⏱ Expires: " + melbourne(input.expiresAt)] : []),
     "",
     // Entry advice: the exact sequence, in one line each.
@@ -245,7 +250,7 @@ export function telegramSignalText(item: SignalSnapshot, historical = false, now
   const lines = compactSignalLines({
     symbol: item.symbol, side: item.side, entryLow: plan?.entryLow ?? item.entry, entryHigh: plan?.entryHigh ?? item.entry, entry: item.entry,
     trigger: plan?.trigger, timeframe: plan?.timeframe, leverage: item.leverage, stop: item.stop, targets: item.targets, expiresAt: item.expiresAt,
-    zoneLow: plan?.zoneLow, zoneHigh: plan?.zoneHigh,
+    zoneLow: plan?.zoneLow, zoneHigh: plan?.zoneHigh, keyLevels: item.keyLevels,
   });
   const status = historical ? "🗂️ Saved levels · " + notificationStatus(item, now) : "✅ " + item.grade + " " + item.rating + "/100 · " + item.setupType + " · " + item.style + " " + item.flexibility;
   return [...lines, status, ...(link ? ["🔗 Open in app: " + link] : []), "📄 Advisory only. No exchange order has been placed."].join("\n");

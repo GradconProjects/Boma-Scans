@@ -17,7 +17,7 @@ function sessionLabel(now: number) {
  */
 export function LevelsPanel({plan, stop, targets, row, book, now, compact = false}: {
   plan: EntryExecutionPlan; stop: number; targets: TakeProfitLevel[];
-  row?: Pick<ScannerRow, "turnover" | "fundingRate" | "spreadPct" | "atrPct" | "btcRelationship" | "openInterestValue" | "volume24h">;
+  row?: Pick<ScannerRow, "turnover" | "fundingRate" | "spreadPct" | "atrPct" | "btcRelationship" | "openInterestValue" | "volume24h" | "keyLevels">;
   book?: OrderBookBalance; now: number; compact?: boolean;
 }) {
   const long = plan.side === "LONG";
@@ -36,6 +36,12 @@ export function LevelsPanel({plan, stop, targets, row, book, now, compact = fals
       {rows.map(([label, value, hint]) => <div key={label} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1.5"><dt className="text-xs text-slate-400">{label}</dt><dd className={"font-mono text-sm font-semibold " + (label.startsWith("Stop") ? "text-rose-200" : label.includes("LIMIT") ? "text-white" : "text-cyan-100")}>{value}</dd>{!compact && hint && <p className="basis-full text-[11px] leading-4 text-slate-500">{hint}</p>}</div>)}
       {targets.map(target => <div key={target.level} className="flex flex-wrap items-baseline justify-between gap-x-3 py-1.5"><dt className="text-xs text-slate-400">TP{target.level} · close {target.exitPct}%</dt><dd className="font-mono text-sm font-semibold text-emerald-200">{target.available ? formatPrice(target.price) : "unconfirmed"} <span className="text-xs text-slate-500">{target.rewardR.toFixed(1)}R</span></dd></div>)}
     </dl>
+    {row?.keyLevels && <div className="mt-3 border-t border-white/[0.06] pt-3 text-xs">
+      <p className="text-slate-500">🏛 Historic support &amp; resistance <span className={"ml-1 rounded-full px-1.5 py-0.5 font-semibold " + (row.keyLevels.status === "PASS" ? "bg-emerald-300/15 text-emerald-200" : row.keyLevels.status === "WAIT" ? "bg-amber-300/15 text-amber-200" : "bg-rose-300/15 text-rose-200")}>{row.keyLevels.status === "PASS" ? "CLEAR" : row.keyLevels.status === "WAIT" ? "LEVEL NEAR TP1" : "LEVEL BEFORE TP1"}</span></p>
+      <p className="mt-1 font-mono text-slate-200">{row.keyLevels.summary}</p>
+      <p className="mt-1 leading-5 text-slate-400">{row.keyLevels.detail}</p>
+      {row.keyLevels.zones.length > 0 && <p className="mt-1 leading-5 text-slate-500">Major zones: {row.keyLevels.zones.slice(0, 6).sort((a, b) => b.price - a.price).map(zone => formatPrice(zone.price) + " (" + (zone.weeklyTouches ? "W" : "D") + "×" + zone.touches + ")").join(" · ")}</p>}
+    </div>}
     {row && <div className="mt-3 grid grid-cols-2 gap-2 border-t border-white/[0.06] pt-3 text-xs sm:grid-cols-3">
       <div><p className="text-slate-500">24h volume</p><p className="font-mono text-slate-200">${compactNumber(row.turnover)}</p></div>
       <div><p className="text-slate-500">Open interest</p><p className="font-mono text-slate-200">{row.openInterestValue ? "$" + compactNumber(row.openInterestValue) : "—"}</p></div>

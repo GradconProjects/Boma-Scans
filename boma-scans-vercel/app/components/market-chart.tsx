@@ -654,6 +654,8 @@ export function MarketChart({
                   color: "#f5c451",
                 }
               : null,
+            // Historic daily / weekly support and resistance zones.
+            ...(analysis.keyLevels?.zones ?? []).slice(0, 6).map(zone => ({ label: "HISTORIC " + (zone.weeklyTouches ? "W" : "D") + "×" + zone.touches, value: zone.price, color: "#7dd3fc" })),
           ].filter(
             (level): level is { label: string; value: number; color: string } =>
               Boolean(level),

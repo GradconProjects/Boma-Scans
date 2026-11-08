@@ -2,7 +2,8 @@ import { targetBudget, TARGET_EXIT_WEIGHTS, MAX_ROUND_TRIP_COST_R, R_LADDER, R_L
 import { relativeRiskBand, type FlexibilityMode, type QualityOverride } from "@/app/lib/entry-policy";
 import { buildEntryExecutionPlan, type EntryExecutionPlan } from "@/app/lib/entry-execution";
 
-export type AnalysisOptions = { flexibility?: FlexibilityMode; takerFeePct?: number; slippagePct?: number; now?: number; targetStyle?: TargetStyle };
+export type AnalysisOptions = { flexibility?: FlexibilityMode; takerFeePct?: number; slippagePct?: number; now?: number; targetStyle?: TargetStyle; /** Weekly candles for historic levels; resampled from the macro frame when absent. */ weekly?: Candle[]; /** Backtest switch: how historic levels are applied. */ keyLevelMode?: "FULL" | "GATE" | "TARGETS" | "INFO" };
+import { assessKeyLevels, keyLevelZones, resampleWeekly, type KeyLevelAssessment } from "@/app/lib/key-levels";
 
 export type Candle = {
   time: number;
@@ -201,6 +202,7 @@ export type MarketAnalysis = {
     contextCandles: number;
     macroCandles: number;
   };
+  keyLevels: KeyLevelAssessment;
   structure: {
     bos: "BULLISH" | "BEARISH" | "NONE";
     bosLevel: number | null;
@@ -272,6 +274,7 @@ export type ScannerRow = {
   riskBand: "LOW" | "MEDIUM" | "HIGH";
   riskReason: string;
   btcRelationship: BtcRelationship;
+  keyLevels?: KeyLevelAssessment;
   reason: string;
   gateReason: string;
   demo?: boolean;
@@ -777,6 +780,7 @@ function buildTechnicalTargets(input: {
   style: TradingStyle;
   /** "TA": chart-structure targets matched to an R-distance ladder; "BUDGET": the volatility-budget map. */
   mode?: "TA" | "BUDGET";
+  keyZones?: KeyLevelAssessment["zones"];
 }) {
   const taMode = input.mode === "TA";
   const {
@@ -891,6 +895,12 @@ function buildTechnicalTargets(input: {
   addWindowExtreme(macro, 34, "Macro range extreme", 4.2);
   addPreviousPeriodExtreme(execution, 86_400_000, "Prior-day liquidity", 3.25);
   addPreviousPeriodExtreme(context, 604_800_000, "Prior-week liquidity", 3.7);
+  // Historic daily / weekly support and resistance zones: the strongest targets a trade can aim for.
+  for (const zone of input.keyZones ?? []) {
+    const edge = bias === "LONG" ? zone.low : zone.high;
+    if (sign * (edge - entry) <= 0) continue;
+    addCandidate(edge, 3.6 + Math.min(2.4, zone.strength * 0.5), "Historic " + (bias === "LONG" ? "resistance" : "support") + " (" + (zone.weeklyTouches ? "weekly" : "daily") + " ×" + zone.touches + ")", "Clustered higher-timeframe swing level: " + zone.sources.join(", ") + ".");
+  }
 
   const profile = execution.slice(-180);
   if (profile.length >= 20) {
@@ -1629,7 +1639,16 @@ export function analyzeMarket(
   const stop = locationPlan.stop;
   const risk = Math.max(Math.abs(entry - stop), Number.EPSILON);
   const targetStyle: TargetStyle = options.targetStyle ?? DEFAULT_TARGET_STYLE;
+  // Historic support / resistance from the daily and weekly charts.
+  const dailyFrame = macroUsable;
+  const weeklyFrame = options.weekly && options.weekly.length >= 8 ? options.weekly.slice(0, -1) : resampleWeekly(dailyFrame).slice(0, -1);
+  const dailyAtr = Math.max(lastValue(atr(dailyFrame, 14), entry * 0.02), entry * 0.002);
+  const keyZones = keyLevelZones(dailyFrame, weeklyFrame, dailyAtr * 0.6, options.now ?? Date.now());
+  const keyLevels = assessKeyLevels(keyZones, bias, entry, stop, dailyAtr);
+  // Backtested: zones as targets help a little; blocking on room to the next level removed the best trades (see docs).
+  const keyLevelMode = options.keyLevelMode ?? "TARGETS";
   const targetAnalysis = buildTechnicalTargets({
+    keyZones: keyLevelMode === "FULL" || keyLevelMode === "TARGETS" ? keyZones : [],
     mode: targetStyle === "TA" ? "TA" : "BUDGET",
     execution: usable,
     context: contextUsable,
@@ -1868,6 +1887,14 @@ export function analyzeMarket(
       detail: validatedTimeframe
         ? "1H execution: the timeframe that stayed profitable after fees in the 2-year Bybit backtest."
         : "Analysis only. In the 2-year Bybit backtest 5m and 15m signals lost money after fees and 4H showed no edge; entry signals are issued on the 1H chart.",
+    },
+    {
+      id: "key-levels",
+      label: "Historic support & resistance",
+      status: keyLevels.status,
+      required: keyLevelMode === "FULL" || keyLevelMode === "GATE",
+      weight: 0,
+      detail: keyLevels.detail,
     },
     {
       id: "targets",
@@ -2338,6 +2365,7 @@ export function analyzeMarket(
       contextCandles: contextUsable.length,
       macroCandles: macroUsable.length,
     },
+    keyLevels,
     structure,
     reasons,
     warnings,
@@ -2745,6 +2773,7 @@ export function scannerRowFromAnalysis(
     riskBand,
     riskReason,
     btcRelationship: btc,
+    keyLevels: analysis.keyLevels,
     reason: analysis.reasons[0],
     gateReason: analysis.executionPlan.status !== "READY" ? analysis.executionPlan.reason :
       analysis.decision === "SETUP" && analysis.entryReady

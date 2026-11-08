@@ -36,14 +36,15 @@ export function InlineChart({symbol, style, flexibility, timeframe, open, onTogg
     (async () => {
       try {
         const [contextInterval, macroInterval] = contextIntervals(interval);
-        const [fast, context, macro, ticker] = await Promise.all([
+        const [fast, context, macro, ticker, weekly] = await Promise.all([
           fetchKlines(symbol, interval, 480, controller.signal),
           fetchKlines(symbol, contextInterval, 400, controller.signal),
           fetchKlines(symbol, macroInterval, 360, controller.signal),
           fetchTicker(symbol, controller.signal),
+          fetchKlines(symbol, "W", 200, controller.signal).catch(() => [] as Candle[]),
         ]);
         if (fast.length < 31) throw new Error("Not enough candle history for " + symbol + ".");
-        const analysis = analyzeMarket(fast, context, macro, ticker, style, { flexibility, targetStyle });
+        const analysis = analyzeMarket(fast, context, macro, ticker, style, { flexibility, targetStyle, weekly });
         if (active) setLoaded({ candles: fast, analysis, at: Date.now() });
       } catch (caught) {
         if (active && !controller.signal.aborted) setError(caught instanceof Error ? caught.message : "Chart unavailable.");

@@ -339,6 +339,7 @@ export default function Home() {
   const [candles, setCandles] = useState<Candle[]>([]);
   const [contextCandles, setContextCandles] = useState<Candle[]>([]);
   const [macroCandles, setMacroCandles] = useState<Candle[]>([]);
+  const [weeklyCandles, setWeeklyCandles] = useState<Candle[]>([]);
   const [btcCandles, setBtcCandles] = useState<Candle[]>([]);
   const [ticker, setTicker] = useState<MarketTicker | null>(null);
   const [instrument, setInstrument] = useState<MarketInstrument | null>(null);
@@ -562,10 +563,11 @@ export default function Home() {
       const rows = await mapWithConcurrency(candidates, 4, async (item) => {
         if (controller.signal.aborted) return null;
         try {
-          const [fast, contextFrame, macroFrame] = await Promise.all([
+          const [fast, contextFrame, macroFrame, weeklyFrame] = await Promise.all([
             fetchKlines(item.symbol, executionInterval, 480, controller.signal),
             fetchKlines(item.symbol, contextFrameInterval, 400, controller.signal),
             fetchKlines(item.symbol, macroFrameInterval, 360, controller.signal),
+            fetchKlines(item.symbol, "W", 200, controller.signal).catch(() => [] as Candle[]),
           ]);
           if (fast.length < 31 || contextFrame.length < 31 || macroFrame.length < 31) throw new Error("Insufficient real history on one or more analysis frames");
           // Universe quotes can be several minutes old by the end of a scan.
@@ -584,7 +586,7 @@ export default function Home() {
             macroFrame,
             freshTicker,
             style,
-            { flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct) },
+            { flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct), weekly: weeklyFrame },
           );
           const btcRelationship = analyzeBtcRelationship(
             item.symbol,
@@ -905,9 +907,10 @@ export default function Home() {
           : fetchKlines("BTCUSDT", interval, 720, controller.signal).catch(
               () => [],
             ),
+        fetchKlines(symbol, "W", 200, controller.signal).catch(() => [] as Candle[]),
       ])
         .then(
-          ([primary, context, macro, nextTicker, nextInstrument, nextBtc]) => {
+          ([primary, context, macro, nextTicker, nextInstrument, nextBtc, weekly]) => {
           if (controller.signal.aborted) return;
           if (primary.length < 31 || context.length < 31 || macro.length < 31) throw new Error("Insufficient real history; demo is shown with trading disabled.");
           const sameHistory = historyKey.current === symbol + ":" + interval;
@@ -917,6 +920,7 @@ export default function Home() {
           setCandleCheckedAt(Date.now());
           setContextCandles(context);
           setMacroCandles(macro);
+          setWeeklyCandles(weekly);
           setBtcCandles(symbol === "BTCUSDT" ? primary : nextBtc);
           setTicker(nextTicker);
           setInstrument(nextInstrument);
@@ -1174,9 +1178,9 @@ export default function Home() {
         macroCandles,
         dataMode === "LIVE" ? ticker : null,
         style,
-        {flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct)},
+        {flexibility, targetStyle, takerFeePct: Number(takerFeePct), slippagePct: Number(slippagePct), weekly: weeklyCandles},
       ),
-    [candles, contextCandles, dataMode, macroCandles, ticker, style, flexibility, targetStyle, takerFeePct, slippagePct],
+    [candles, contextCandles, dataMode, macroCandles, weeklyCandles, ticker, style, flexibility, targetStyle, takerFeePct, slippagePct],
   );
   // Cross-device state lives in the workspace record; these refs let the cloud apply reach hooks declared later.
   const cloudApplyRef = useRef<{armed?: (plans: ReturnType<typeof parseArmedPlans>) => void; notifications?: (items: unknown) => void}>({});
@@ -1385,7 +1389,7 @@ export default function Home() {
     const hitSet = new Set(monitor.hits.map(entry => entry.symbol));
     const stateBy = new Map<string, string>(monitor.entries.map(entry => [entry.symbol, entry.state]));
     for (const plan of monitor.armed) stateBy.set(plan.symbol, "IN TRADE · next TP" + (plan.hit + 1));
-    const fromRow = (row: ScannerRow) => compactSignalLines({symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt, zoneLow: row.executionPlan.zoneLow, zoneHigh: row.executionPlan.zoneHigh});
+    const fromRow = (row: ScannerRow) => compactSignalLines({symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt, zoneLow: row.executionPlan.zoneLow, zoneHigh: row.executionPlan.zoneHigh, keyLevels: row.keyLevels?.summary});
     const items: RailItem[] = [];
     const seen = new Set<string>();
     for (const pick of signalAlerts.picks) {

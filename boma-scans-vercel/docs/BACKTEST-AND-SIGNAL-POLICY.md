@@ -59,7 +59,8 @@ Other evidence used:
 3. **Fee gate:** round-trip fee, slippage and spread must cost no more than 0.30R of the stop. At the default 0.055% fee and 0.02% slippage this needs a stop of at least about 0.5% of price.
 4. **Regime:** only ADX 25+ (TRENDING) markets qualify; weak trend waits.
 5. **All timeframes aligned:** a trend, breakout or pullback signal needs the execution frame (1H close vs EMA21), context frame (4H close vs EMA50) and macro frame (1D close vs EMA200) all on the trade's side. Two of three now shows WAIT. In the backtest, 2/3-aligned trend setups averaged about +0.12R against +0.30R to +0.47R for full alignment. CHoCH reversals trade against the higher frames by design and keep their one-frame requirement. ADX trend strength is measured on the context (4H) frame.
-6. The old 1.2R weighted-reward minimum and the "all five targets structural" rule are removed. They blocked nearly every signal and did not improve results.
+6. **Historic support and resistance.** Confirmed swing highs and lows on the daily chart (three closed candles either side) and the weekly chart (two either side), the yearly and multi-year extremes and the prior month's range are clustered into zones about 0.6 daily-ATR wide; a zone counts when it has two touches or one weekly / yearly reference. Zone edges enter the target map with the highest structural weight, so targets snap to historic levels, and every signal shows the nearest supporting and opposing level with frame and touch count and the room to it in R. The levels are **not** an entry gate: see the table below.
+7. The old 1.2R weighted-reward minimum and the "all five targets structural" rule are removed. They blocked nearly every signal and did not improve results.
 
 ## End-to-end result of the finished engine
 
@@ -82,6 +83,18 @@ These figures come from replaying the final engine. They count only plans that r
 | R ladder | 200 | 43 | +0.26 / +0.20 | 1.55 | 13 of 20 | 10.7R | +0.44 | +0.16 |
 
 TA levels trade a little average reward for a higher hit rate, a smaller drawdown and more profitable months, with the same profit factor; average TP1 sits at 0.82R instead of 1.0R. The ladder earned more in the out-of-sample year, TA levels slightly more in the recent year. Choose by temperament: TA levels if missed targets bother you more than a smaller runner, the ladder if you prefer letting winners run.
+
+## Historic levels: targets help, a room-to-level gate hurts
+
+Same 2 years, 23 pairs, 1H, Strict, TA targets, limit fees. "Info" computes the zones but changes nothing; "Targets" adds zone edges to the target map; "Gate" also requires 1R of room before the next major zone.
+
+| Mode | Day signals | Day avg R | Day total R | Day max DD | Swing signals | Swing avg R | Swing total R | Swing max DD | Profitable months (Swing) |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| Info (no change) | 168 | +0.18 | 31 | 9.4R | 203 | +0.26 | 53 | 9.4R | 14 of 20 |
+| **Targets (adopted)** | 168 | +0.19 | 32 | 9.1R | 203 | +0.27 | 54 | **8.9R** | **15 of 20** |
+| Gate (room ≥ 1R) | 130 | +0.19 | 25 | 11.9R | 157 | +0.24 | 38 | 11.9R | 14 of 19 |
+
+The gate removed 76 Day trades that averaged **+0.43R** (59% winners) and kept trades averaging +0.12R: in a trending regime the signals that break through a historic level are the better ones. So the engine uses the levels for targets and shows them on every signal, with the honest note that a level inside the first target's path means "expect a reaction, take the partial", not "do not trade".
 
 ## Additional filters tested (my own candidates)
 
