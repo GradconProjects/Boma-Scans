@@ -58,9 +58,10 @@ export async function trackWhales(now = Date.now()): Promise<{ events: WhaleEven
 }
 
 export async function whaleRankings(): Promise<WhaleRank[]> {
-  const rows = await whaleAddresses();
-  const closes = await recentEvents(30 * 86_400_000, 2000);
-  const performances: WhalePerformance[] = rows.map(r => ({ trader: r.address.slice(0, 6) + "…" + r.address.slice(-4), accountValue: r.accountValue, windows: r.windows ?? { day: { pnl: 0, roi: 0 }, week: { pnl: 0, roi: 0 }, month: { pnl: 0, roi: 0 }, allTime: { pnl: 0, roi: 0 } } }));
+  const [rows, closes, snapshot] = await Promise.all([whaleAddresses(), recentEvents(30 * 86_400_000, 2000), whaleSnapshot()]);
+  const openBy = new Map<string, number>();
+  for (const p of snapshot.positions) openBy.set(p.trader, (openBy.get(p.trader) ?? 0) + 1);
+  const performances: WhalePerformance[] = rows.map(r => { const label = r.address.slice(0, 6) + "…" + r.address.slice(-4); return { trader: label, accountValue: r.accountValue, openPositions: openBy.get(label) ?? 0, windows: r.windows ?? { day: { pnl: 0, roi: 0 }, week: { pnl: 0, roi: 0 }, month: { pnl: 0, roi: 0 }, allTime: { pnl: 0, roi: 0 } } }; });
   return rankWhales(performances, closes);
 }
 

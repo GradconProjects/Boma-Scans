@@ -14,23 +14,24 @@ const price = () => 100;
 test("Snapshot diff: first snapshot is the baseline; later ones yield OPEN / ADD / REDUCE / CLOSE / FLIP with held time", () => {
   const first = diffPositions(null, [pos("A", "BTC", "LONG", 1e6, 100)], 1000, price);
   assert.deepEqual(first.events, []); assert.equal(first.next.at, 1000);
-  const second = diffPositions(first.next, [pos("A", "BTC", "LONG", 1.3e6, 100), pos("B", "ETH", "SHORT", 5e5, 100)], 2000, price);
-  assert.deepEqual(second.events.map(e => [e.trader, e.kind, Math.round(e.deltaUsd)]), [["A", "ADD", 300000], ["B", "OPEN", 500000]]);
-  const third = diffPositions(second.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "ETH", "SHORT", 4e5, 100, 2000)], 3000, price);
+  const second = diffPositions(first.next, [pos("A", "BTC", "LONG", 1.3e6, 100), pos("B", "ETH", "SHORT", 5e5, 100), pos("M", "APE", "LONG", 20_000, 1)], 2000, price);
+  assert.deepEqual(second.events.map(e => [e.trader, e.kind, Math.round(e.deltaUsd)]), [["A", "ADD", 300000], ["B", "OPEN", 500000]], "a $20K open is noise and not recorded");
+  const third = diffPositions(second.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("B", "ETH", "SHORT", 4e5, 100, 2000), pos("M", "APE", "LONG", 20_000, 1)], 3000, price);
   assert.deepEqual(third.events.map(e => [e.trader, e.kind]), [["A", "FLIP"], ["B", "REDUCE"]]);
   assert.equal(third.events[0].heldMs, 2000);
-  const fourth = diffPositions(third.next, [pos("A", "BTC", "SHORT", 2e5, 101)], 4000, price);
+  const fourth = diffPositions(third.next, [pos("A", "BTC", "SHORT", 2e5, 101), pos("M", "APE", "LONG", 20_000, 1)], 4000, price);
   assert.deepEqual(fourth.events.map(e => [e.trader, e.kind, e.pnl]), [["B", "CLOSE", 2000]]);
   assert.equal(fourth.events[0].heldMs, 2000);
 });
 
 test("Rankings reward consistency across windows and tracked wins; tiers follow rank", () => {
   const perf = (trader, pnls, roi = 0.1) => ({ trader, accountValue: 1e7, windows: { day: { pnl: pnls[0], roi }, week: { pnl: pnls[1], roi }, month: { pnl: pnls[2], roi }, allTime: { pnl: pnls[3], roi } } });
-  const ranks = rankWhales([perf("lucky", [-1e5, -2e5, 5e6, 1e6], 0.9), perf("steady", [1e5, 3e5, 1e6, 5e7], 0.2), perf("loser", [-1e5, -3e5, -1e6, 1e5], -0.3)], [
+  const ranks = rankWhales([perf("lucky", [-1e5, -2e5, 5e6, 1e6], 0.9), perf("steady", [1e5, 3e5, 1e6, 5e7], 0.2), perf("loser", [-1e5, -3e5, -1e6, 1e5], -0.3), { ...perf("mm", [1e5, 1e5, 1e5, 1e5], 0.5), openPositions: 28 }], [
     ...Array.from({ length: 6 }, (_, i) => ({ trader: "steady", kind: "CLOSE", pnl: i < 5 ? 1000 : -500 })),
   ]);
   assert.equal(ranks[0].trader, "steady"); assert.equal(ranks[0].tier, "ELITE"); assert.equal(ranks[0].consistency, 4); assert.equal(ranks[0].trackedCloses, 6); assert.ok(Math.abs(ranks[0].trackedWinRate - 5 / 6) < 1e-9);
-  assert.equal(ranks[2].trader, "loser");
+  assert.equal(ranks.find(r => r.trader === "mm").tier, "WATCH", "market makers never confirm"); assert.ok(ranks.find(r => r.trader === "mm").marketMaker);
+  assert.equal(ranks.find(r => r.trader === "loser").tier, "ELITE", "only three directional whales, so all are top ten") ;
 });
 
 test("Confirmation: two ranked whales opening the same side near price confirm; a profitable old add counts less; opposition and run-away are flagged", () => {

@@ -20,6 +20,8 @@ export type WhaleEvent = { id: string; at: number; trader: string; coin: string;
 
 const key = (trader: string, coin: string) => trader + "|" + coin;
 const SIZE_STEP = 0.15;
+/** Changes below this notional are noise (market-maker inventory shuffles) and are not recorded. */
+export const MIN_EVENT_USD = 50_000;
 
 /** Diff a fresh snapshot against the watch state; returns the events and the next state. */
 export function diffPositions(previous: WatchState | null, positions: WhalePosition[], at: number, markPrice: (coin: string) => number): { events: WhaleEvent[]; next: WatchState } {
@@ -52,11 +54,12 @@ export function diffPositions(previous: WatchState | null, positions: WhalePosit
     const [trader, coin] = k.split("|");
     events.push({ id: [trader, coin, "CLOSE", at].join(":"), at, trader, coin, kind: "CLOSE", side: before.side, sizeUsd: 0, deltaUsd: -before.sizeUsd, entry: before.entry, price: markPrice(coin) || before.entry, pnl: before.pnl, heldMs: at - before.firstSeen });
   }
-  return { events, next };
+  return { events: events.filter(e => Math.abs(e.deltaUsd) >= MIN_EVENT_USD || (e.kind === "CLOSE" && Math.abs(e.deltaUsd) >= MIN_EVENT_USD)), next };
 }
 
-export type WhalePerformance = { trader: string; accountValue: number; windows: Record<"day" | "week" | "month" | "allTime", { pnl: number; roi: number }> };
-export type WhaleRank = WhalePerformance & { rank: number; tier: "ELITE" | "STRONG" | "WATCH"; score: number; trackedCloses: number; trackedWinRate: number | null; trackedPnl: number; consistency: number; label: string };
+export type WhalePerformance = { trader: string; accountValue: number; windows: Record<"day" | "week" | "month" | "allTime", { pnl: number; roi: number }>; /** Open positions right now; many at once means a market maker, not a directional trader. */ openPositions?: number };
+export type WhaleRank = WhalePerformance & { rank: number; tier: "ELITE" | "STRONG" | "WATCH"; score: number; trackedCloses: number; trackedWinRate: number | null; trackedPnl: number; consistency: number; label: string; marketMaker: boolean };
+export const MARKET_MAKER_POSITIONS = 15;
 
 /**
  * Rank by consistency, not by one lucky month: a point per profitable window,
@@ -73,7 +76,10 @@ export function rankWhales(performances: WhalePerformance[], closes: WhaleEvent[
     const score = consistency * 10 + monthRoi * 40 + (winRate === null ? 0 : (winRate - 0.5) * 40) + Math.min(10, Math.log10(Math.max(1, p.windows.allTime.pnl)) );
     return { ...p, score, consistency, trackedCloses: mine.length, trackedWinRate: winRate, trackedPnl: mine.reduce((a, e) => a + e.pnl, 0) };
   }).sort((a, b) => b.score - a.score);
-  return ranked.map((p, index) => ({ ...p, rank: index + 1, tier: index < 10 ? "ELITE" : index < 25 ? "STRONG" : "WATCH", label: p.trader.slice(0, 6) + "…" + p.trader.slice(-4) }));
+  // Market makers (many simultaneous positions) are ranked for information but never confirm a direction.
+  const directional = ranked.filter(p => (p.openPositions ?? 0) <= MARKET_MAKER_POSITIONS);
+  const order = new Map(directional.map((p, i) => [p.trader, i]));
+  return ranked.map((p, index) => { const marketMaker = (p.openPositions ?? 0) > MARKET_MAKER_POSITIONS; const i = order.get(p.trader) ?? Infinity; return { ...p, rank: index + 1, tier: marketMaker ? "WATCH" : i < 10 ? "ELITE" : i < 25 ? "STRONG" : "WATCH", marketMaker, label: p.trader.length > 12 ? p.trader.slice(0, 6) + "…" + p.trader.slice(-4) : p.trader }; });
 }
 
 export type WhaleSignal = {

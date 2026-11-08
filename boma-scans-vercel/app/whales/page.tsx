@@ -89,7 +89,7 @@ export default function WhalesPage() {
       <table className="w-full text-xs">
         <thead><tr className="text-left text-slate-500"><th className="p-2 font-medium">#</th><th className="p-2 font-medium">Whale</th><th className="p-2 font-medium">Tier</th><th className="p-2 text-right font-medium">Account</th><th className="p-2 text-right font-medium">Day</th><th className="p-2 text-right font-medium">Week</th><th className="p-2 text-right font-medium">Month</th><th className="p-2 text-right font-medium">Month ROI</th><th className="p-2 text-right font-medium">All time</th><th className="p-2 text-right font-medium">Tracked closes</th><th className="p-2 text-right font-medium">Score</th></tr></thead>
         <tbody>{(data?.ranks ?? []).map(r => <tr key={r.trader} className="border-t border-white/[0.05] font-mono text-slate-200">
-          <td className="p-2">{r.rank}</td><td className="p-2">{r.label}</td><td className="p-2"><span className={"rounded px-1 font-sans " + tierTone[r.tier]}>{r.tier}</span></td>
+          <td className="p-2">{r.rank}</td><td className="p-2">{r.label}</td><td className="p-2"><span className={"rounded px-1 font-sans " + tierTone[r.tier]}>{r.tier}</span>{r.marketMaker && <span className="ml-1 rounded bg-white/10 px-1 font-sans text-[10px] text-slate-300" title="Many simultaneous positions: hedging flow, not a directional call">MM</span>}</td>
           <td className="p-2 text-right">{formatUsd(r.accountValue)}</td>
           {(["day", "week", "month"] as const).map(w => <td key={w} className={"p-2 text-right " + (r.windows[w].pnl >= 0 ? "text-emerald-300" : "text-rose-300")}>{(r.windows[w].pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(r.windows[w].pnl))}</td>)}
           <td className="p-2 text-right">{(r.windows.month.roi * 100).toFixed(1)}%</td>
@@ -106,6 +106,7 @@ export default function WhalesPage() {
         <ul className="mt-2 list-disc space-y-1 pl-5">
           <li><b>Universe:</b> the 60 most profitable Hyperliquid accounts over 30 days with at least $1M, refreshed daily from the public leaderboard.</li>
           <li><b>History:</b> every position snapshot (3 min) is diffed into OPEN, ADD (+15% size), REDUCE, CLOSE and FLIP events and stored permanently, with the P&amp;L at the time.</li>
+          <li><b>Market makers:</b> accounts holding more than 15 positions at once are hedging books; they are listed (MM) but never confirm a direction. Changes under $50K are not recorded.</li>
           <li><b>Ranking:</b> consistency first: a point per profitable window (day, week, month, all time), 30-day ROI capped, and our own tracked closes once a whale has five or more. Elite = top 10, Strong = next 15.</li>
           <li><b>Confirmation:</b> a signal needs ranked whales opening or adding the same side of a coin within 12 hours (two whales, or one elite with $1M+ of new money). Adds to positions already over 5% in profit and older than a day count at 40%: that is yesterday&apos;s call. Ranked whales on the other side subtract. Price more than 2% past their average entry is &quot;ran away&quot;: wait for a pullback.</li>
           <li><b>Own logic:</b> the whales give direction and entry area; the Bybit 1H chart gives the risk. Stop 1.5 ATR beyond their average entry, targets at 1R, 2R and 3R, and the scanner&apos;s trend read says whether the chart agrees.</li>
