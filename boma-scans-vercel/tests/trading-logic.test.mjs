@@ -672,3 +672,15 @@ test("Positioning verdict: whales with the plan support it, whales against it ca
   assert.equal(mod.hyperliquidCoin("1000PEPEUSDT", new Set(["kPEPE", "BTC"])), "kPEPE");
   assert.equal(mod.hyperliquidCoin("XAUTUSDT", new Set(["kPEPE", "BTC"])), null);
 });
+
+test("Venue top-trader consensus feeds the verdict and the one-line summary", () => {
+  const mod = load("app/lib/positioning.ts");
+  const data = { symbol: "BTCUSDT", coin: "BTC", at: 0, hyperliquid: null, crowd: { longRatio: 0.5, longRatioPrev: 0.5, oiChange24h: 0, fundingRate: 0 },
+    whales: { longUsd: 7e6, shortUsd: 3e6, traders: 6, positions: [] },
+    venues: [{ name: "OKX top traders", kind: "top traders", longShare: 0.64, basis: "positions" }, { name: "Binance top traders", kind: "top traders", longShare: 0.6, basis: "positions" }, { name: "OKX", kind: "all accounts", longShare: 0.75, basis: "accounts" }] };
+  const verdict = mod.judgePositioning(data, "LONG", 100, 95);
+  assert.equal(verdict.level, "SUPPORTS"); assert.ok(verdict.notes.some(n => /Top traders across venues lean LONG \(65%\)/.test(n)));
+  const summary = mod.positioningSummary(data, "LONG");
+  assert.match(summary, /^Smart money 65% with your LONG/); assert.match(summary, /OKX top traders 64% long/); assert.match(summary, /Bybit crowd 50% long/);
+  assert.equal(mod.judgePositioning(data, "SHORT", 100, 105).level, "AGAINST");
+});

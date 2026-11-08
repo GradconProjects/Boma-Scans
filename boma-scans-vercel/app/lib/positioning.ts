@@ -11,7 +11,10 @@ export type Positioning = {
   whales: { longUsd: number; shortUsd: number; traders: number; positions: WhalePosition[] };
   hyperliquid: { funding: number; openInterestUsd: number; markPx: number } | null;
   crowd: { longRatio: number; longRatioPrev: number; oiChange24h: number; fundingRate: number } | null;
+  /** Long share (0–1) of positions / accounts on other venues; absent when the venue has no data for the pair. */
+  venues?: ExchangeVenue[];
 };
+export type ExchangeVenue = { name: string; kind: "top traders" | "all accounts"; longShare: number; basis: "positions" | "accounts" };
 
 export type PositioningVerdict = { level: "SUPPORTS" | "NEUTRAL" | "AGAINST"; headline: string; notes: string[] };
 
@@ -57,6 +60,19 @@ export function judgePositioning(data: Positioning, side: "LONG" | "SHORT", pric
     if ((side === "LONG" && fundingPct >= 0.03) || (side === "SHORT" && fundingPct <= -0.03)) { score -= 1; notes.push("💸 Funding " + fundingPct.toFixed(3) + "%: you pay to hold this side; leveraged " + side.toLowerCase() + "s are crowded."); }
     else if ((side === "LONG" && fundingPct <= -0.01) || (side === "SHORT" && fundingPct >= 0.01)) { score += 1; notes.push("💸 Funding " + fundingPct.toFixed(3) + "%: you are paid to hold this side."); }
   }
+  // Top-trader consensus across venues (Hyperliquid whales by notional, Binance / OKX top traders by position share).
+  const topShares: Array<{ name: string; share: number }> = [];
+  if (total > 0 && traders >= 3) topShares.push({ name: "Hyperliquid whales", share: longUsd / total });
+  for (const venue of data.venues ?? []) if (venue.kind === "top traders") topShares.push({ name: venue.name, share: venue.longShare });
+  if (topShares.length >= 2) {
+    const mean = topShares.reduce((acc, v) => acc + v.share, 0) / topShares.length;
+    const sameSide = side === "LONG" ? mean : 1 - mean;
+    const detail = topShares.map(v => v.name + " " + Math.round(v.share * 100) + "% long").join(" · ");
+    if (sameSide >= 0.58) { score += 1; notes.push("🏦 Top traders across venues lean " + side + " (" + Math.round(sameSide * 100) + "%): " + detail + "."); }
+    else if (sameSide <= 0.42) { score -= 1; notes.push("🏦 Top traders across venues lean " + (side === "LONG" ? "SHORT" : "LONG") + " (" + Math.round((1 - sameSide) * 100) + "%): " + detail + "."); }
+    else notes.push("🏦 Top traders across venues are split: " + detail + ".");
+  } else if (topShares.length === 1 && topShares[0].name !== "Hyperliquid whales") notes.push("🏦 " + topShares[0].name + " " + Math.round(topShares[0].share * 100) + "% long.");
+  for (const venue of (data.venues ?? []).filter(v => v.kind === "all accounts")) notes.push("👥 " + venue.name + " " + Math.round(venue.longShare * 100) + "% of accounts long.");
   if (stop && price > 0) {
     const beyond = data.whales.positions.filter(p => p.liquidation && p.coin === data.coin && (side === "LONG" ? p.side === "LONG" && p.liquidation < price && p.liquidation >= stop * 0.97 : p.side === "SHORT" && p.liquidation > price && p.liquidation <= stop * 1.03));
     if (beyond.length) { const sum = beyond.reduce((acc, p) => acc + p.sizeUsd, 0); notes.push("⚠️ " + formatUsd(sum) + " of whale " + side.toLowerCase() + "s liquidate within 3% of your stop (" + formatPrice(stop) + "); a wick through them is likely, so do not widen the stop into that pocket."); }
@@ -64,4 +80,19 @@ export function judgePositioning(data: Positioning, side: "LONG" | "SHORT", pric
   const level: PositioningVerdict["level"] = score >= 2 ? "SUPPORTS" : score <= -2 ? "AGAINST" : "NEUTRAL";
   const headline = level === "SUPPORTS" ? "Positioning supports the " + side : level === "AGAINST" ? "Positioning is against the " + side + ": half size or wait" : "Positioning neutral: trade the plan as written";
   return { level, headline, notes };
+}
+
+/** One line for a signal card or a Telegram alert: how each venue stacks up against the plan's side. */
+export function positioningSummary(data: Positioning, side: "LONG" | "SHORT"): string {
+  const parts: string[] = [];
+  const total = data.whales.longUsd + data.whales.shortUsd;
+  if (total > 0) parts.push("HL whales " + Math.round(data.whales.longUsd / total * 100) + "% long (" + formatUsd(total) + ")");
+  for (const venue of data.venues ?? []) parts.push(venue.name + " " + Math.round(venue.longShare * 100) + "% long");
+  if (data.crowd) parts.push("Bybit crowd " + Math.round(data.crowd.longRatio * 100) + "% long");
+  const withYou = [
+    ...(total > 0 ? [side === "LONG" ? data.whales.longUsd / total : data.whales.shortUsd / total] : []),
+    ...(data.venues ?? []).filter(v => v.kind === "top traders").map(v => side === "LONG" ? v.longShare : 1 - v.longShare),
+  ];
+  const agree = withYou.length ? Math.round(withYou.reduce((a, b) => a + b, 0) / withYou.length * 100) : null;
+  return (agree === null ? "" : "Smart money " + agree + "% with your " + side + " · ") + (parts.join(" · ") || "no positioning data");
 }

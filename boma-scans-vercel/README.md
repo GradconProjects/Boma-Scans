@@ -106,7 +106,9 @@ Once entered you are told at each target, at the stop, when the engine sees a st
 A section under the signals shows, for every signal and monitored pair, how live positioning relates to the plan:
 
 - **Whales**: the open positions (side, size, entry, leverage, liquidation price, PnL) of the top 60 Hyperliquid traders by 30-day profit with at least $1M in the account, read from Hyperliquid's public API and cached for 3 minutes. The verdict says whether most whale notional sits with or against the plan.
+- **Other venues** (no keys needed): Binance and OKX top-trader long/short position ratios and all-account ratios. Top traders across venues plus the Hyperliquid whales form a "smart money" consensus that feeds the verdict.
 - **Crowd**: Bybit's own long/short account ratio, 24-hour open-interest change and funding rate for the pair.
+- **In the signal**: every signal card in the app and every entry-range, confirmed and qualified-signal alert on Telegram carries the verdict and a one-line summary of how each venue stacks up against the plan.
 - **Liquidation pocket**: whale liquidation prices within 3% of the plan's stop are flagged so the stop is not widened into them.
 
 No public site shows individual Bybit or Binance positions, so Bybit is covered through its aggregate ratios. Server-pushed signals carry the same verdict in a `🐋` line.

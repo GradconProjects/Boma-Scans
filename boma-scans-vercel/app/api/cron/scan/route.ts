@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { cronAuthorized } from "@/app/server/cron-auth";
 import { deliverEvents, readOwnerRecord, telegramConfig, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
-import { judgePositioning } from "@/app/lib/positioning";
+import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
 import { formatFormingSetup, signalButtons } from "@/app/lib/telegram-events";
 import type { ScannerRow } from "@/app/lib/market";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
       if (!pick) return;
       qualified.push(symbol);
       let positioning: string[] = [];
-      try { const snapshot = await whaleSnapshot(); const verdict = judgePositioning(await positioningFor(symbol, snapshot), row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
+      try { const snapshot = await whaleSnapshot(); const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, positioningSummary(data, row.bias), ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
       events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now).split("\n"), ...positioning], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });

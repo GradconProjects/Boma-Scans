@@ -80,6 +80,7 @@ import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
 import { PositioningPanel, type PositioningTarget } from "@/app/components/positioning-panel";
+import { usePositioning } from "@/app/components/use-positioning";
 import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
@@ -1409,6 +1410,7 @@ export default function Home() {
     for (const entry of monitor.entries) { const row = scannerRows.find(item => item.symbol === entry.symbol); const side = entry.side ?? row?.bias; if (side) targets.push({ symbol: entry.symbol, side, price: entry.price ?? row?.price ?? 0, stop: entry.stop ?? row?.stop, kind: "MONITOR" }); }
     return targets;
   })();
+  const positioning = usePositioning(positioningTargets.map(target => target.symbol));
   const analyzedSymbols = new Set(scannerRows.map(row => row.symbol));
   const pendingMarkets = scanUniverse.filter(item => !analyzedSymbols.has(item.symbol));
   const selectedRatedRow = ticker ? scannerRowFromAnalysis(ticker, analysis, dataMode !== "LIVE", instrument ?? undefined, style, btcRelationship) : null;
@@ -1864,7 +1866,7 @@ export default function Home() {
         <Section id="signals-section" storageKey="signals" title="Signals & monitoring" subtitle="Qualified plans, closest-to-ready setups and your monitored pairs" icon={<Radar className="h-5 w-5"/>} badge={signalAlerts.picks.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">{signalAlerts.picks.length} ready</span> : monitor.hits.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">🔔 {monitor.hits.length} at level</span> : undefined}>
         <SignalCenter alerts={signalAlerts} monitor={monitor} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
-          onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")}/>
+          onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")} positioning={positioning.data}/>
         </Section>
         <Collapsible
           id="opportunities"
@@ -2176,7 +2178,7 @@ export default function Home() {
         ) : null}
 
         <Section id="positioning-section" storageKey="positioning" title="Whales & crowd positioning" subtitle="Top Hyperliquid traders' live positions and Bybit's long/short ratio, judged against each plan" icon={<Fish className="h-5 w-5"/>}>
-          <PositioningPanel targets={positioningTargets}/>
+          <PositioningPanel targets={positioningTargets} positioning={positioning}/>
         </Section>
 
         <Section id="chart-section" storageKey="chart" title={"Chart, entry plan & trade manager · " + symbol} subtitle="Live analysis of the selected pair, entry instructions, sizing and your tracked trades" icon={<Radar className="h-5 w-5"/>}>

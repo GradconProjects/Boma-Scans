@@ -1,6 +1,6 @@
 import { marketRead } from "@/app/server/market-analysis";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
-import { hyperliquidCoin, type Positioning, type WhalePosition } from "@/app/lib/positioning";
+import { hyperliquidCoin, type ExchangeVenue, type Positioning, type WhalePosition } from "@/app/lib/positioning";
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const HL_LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
@@ -76,6 +76,35 @@ async function bybitCrowd(symbol: string): Promise<Positioning["crowd"]> {
   } catch { return null; }
 }
 
+const baseCoin = (symbol: string) => symbol.replace(/USDT$/, "").replace(/^1000+/, "");
+const ratioToShare = (ratio: number) => ratio > 0 ? ratio / (1 + ratio) : NaN;
+async function json<T>(url: string): Promise<T> {
+  const response = await fetch(url, { signal: AbortSignal.timeout(8_000), cache: "no-store", headers: { Accept: "application/json" } });
+  if (!response.ok) throw new Error(url + " " + response.status);
+  return response.json() as Promise<T>;
+}
+
+/** Other venues' public ratios (no keys): OKX top-trader positions and all accounts, Binance top-trader positions and all accounts. */
+async function venueRatios(symbol: string): Promise<ExchangeVenue[]> {
+  const coin = baseCoin(symbol);
+  const venues: ExchangeVenue[] = [];
+  const results = await Promise.allSettled([
+    json<{ data: Array<[string, string]> }>("https://www.okx.com/api/v5/rubik/stat/contracts/long-short-position-ratio-contract-top-trader?instId=" + coin + "-USDT-SWAP&period=1H"),
+    json<{ data: Array<[string, string]> }>("https://www.okx.com/api/v5/rubik/stat/contracts/long-short-account-ratio?ccy=" + coin + "&period=1H"),
+    json<Array<{ longShortRatio: string }>>("https://fapi.binance.com/futures/data/topLongShortPositionRatio?symbol=" + symbol + "&period=1h&limit=1"),
+    json<Array<{ longShortRatio: string }>>("https://fapi.binance.com/futures/data/globalLongShortAccountRatio?symbol=" + symbol + "&period=1h&limit=1"),
+  ]);
+  const okxTop = results[0].status === "fulfilled" ? ratioToShare(Number(results[0].value.data?.[0]?.[1])) : NaN;
+  const okxAll = results[1].status === "fulfilled" ? ratioToShare(Number(results[1].value.data?.[0]?.[1])) : NaN;
+  const bnTop = results[2].status === "fulfilled" && Array.isArray(results[2].value) ? ratioToShare(Number(results[2].value[0]?.longShortRatio)) : NaN;
+  const bnAll = results[3].status === "fulfilled" && Array.isArray(results[3].value) ? ratioToShare(Number(results[3].value[0]?.longShortRatio)) : NaN;
+  if (Number.isFinite(okxTop)) venues.push({ name: "OKX top traders", kind: "top traders", longShare: okxTop, basis: "positions" });
+  if (Number.isFinite(bnTop)) venues.push({ name: "Binance top traders", kind: "top traders", longShare: bnTop, basis: "positions" });
+  if (Number.isFinite(okxAll)) venues.push({ name: "OKX", kind: "all accounts", longShare: okxAll, basis: "accounts" });
+  if (Number.isFinite(bnAll)) venues.push({ name: "Binance", kind: "all accounts", longShare: bnAll, basis: "accounts" });
+  return venues;
+}
+
 /** Whale and crowd positioning for a pair, from one shared snapshot. */
 export async function positioningFor(symbol: string, snapshot: Snapshot): Promise<Positioning> {
   const universe = new Set(snapshot.universe);
@@ -83,5 +112,6 @@ export async function positioningFor(symbol: string, snapshot: Snapshot): Promis
   const positions = coin ? snapshot.positions.filter(p => p.coin === coin).sort((a, b) => b.sizeUsd - a.sizeUsd) : [];
   const longUsd = positions.filter(p => p.side === "LONG").reduce((acc, p) => acc + p.sizeUsd, 0);
   const shortUsd = positions.filter(p => p.side === "SHORT").reduce((acc, p) => acc + p.sizeUsd, 0);
-  return { symbol, coin, at: snapshot.at, whales: { longUsd, shortUsd, traders: positions.length, positions: positions.slice(0, 12) }, hyperliquid: coin ? snapshot.ctx[coin] ?? null : null, crowd: await bybitCrowd(symbol) };
+  const [crowd, venues] = await Promise.all([bybitCrowd(symbol), venueRatios(symbol)]);
+  return { symbol, coin, at: snapshot.at, whales: { longUsd, shortUsd, traders: positions.length, positions: positions.slice(0, 12) }, hyperliquid: coin ? snapshot.ctx[coin] ?? null : null, crowd, venues };
 }

@@ -10,6 +10,9 @@ import { STYLE_CONFIG, type ScannerRow, type TradingStyle } from "@/app/lib/mark
 import type { FlexibilityMode } from "@/app/lib/entry-policy";
 import { pollTelegram } from "@/app/server/telegram-poll";
 import { structureAdvice } from "@/app/server/trade-watch";
+import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
+import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
+import { signalButtons } from "@/app/lib/telegram-events";
 import { OWNER_ID } from "@/app/server/owner-auth";
 
 export const dynamic = "force-dynamic";
@@ -61,16 +64,22 @@ export async function GET(request: NextRequest) {
     entries.push(entry);
     const step = transitionMonitor(memory.symbols[symbol] ?? {}, entry, row, now);
     memory.symbols[symbol] = step.memory;
-    if (step.alert) { const event = formatMonitorEvent(entry); if (event) events.push(event); }
+    // Entry-time alerts carry how whales, top traders and the crowd stack up against the plan.
+    const withPositioning = async (event: TelegramEvent | null): Promise<TelegramEvent | null> => {
+      if (!event || !row || !entry.side) return event;
+      try { const data = await positioningFor(symbol, await whaleSnapshot()); const verdict = judgePositioning(data, entry.side, row.price, row.stop); return { ...event, lines: [...event.lines, "", "🐋 " + verdict.headline, positioningSummary(data, entry.side), ...verdict.notes.slice(0, 3)] }; }
+      catch { return event; }
+    };
+    if (step.alert) { const event = entry.state === "ENTRY RANGE" ? await withPositioning(formatMonitorEvent(entry)) : formatMonitorEvent(entry); if (event) events.push(event); }
     if (step.followUp) { const event = formatMonitorEvent(entry); if (event) events.push(event); }
-    for (const kind of step.updates) events.push(formatMonitorUpdate(entry, kind));
+    for (const kind of step.updates) { const event = kind === "CONFIRMED" ? await withPositioning(formatMonitorUpdate(entry, kind)) : formatMonitorUpdate(entry, kind); if (event) events.push(event); }
     for (const exit of step.exits) events.push(formatExitEvent(exit));
     // Still in the trade: ask the engine whether structure says leave or protect.
     if (step.memory.armed && row && analysis) events.push(...structureAdvice(step.memory.armed, analysis, row, now));
     // A monitored pair that qualifies as a full signal is announced as one.
     if (row && isMediumRiskTake(row, true, now)) {
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
-      if (pick) events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now).split("\n") });
+      if (pick) { const event = await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now).split("\n"), buttons: signalButtons(symbol) }); if (event) events.push(event); }
     }
   });
   const digest = formatMonitorDigest(entries.filter(entry => entry.price !== null), now);

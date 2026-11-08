@@ -15,6 +15,7 @@ import { EntryInstructions } from "@/app/components/entry-instructions";
 import { LevelsPanel } from "@/app/components/levels-panel";
 import { useOrderBooks } from "@/app/components/use-order-books";
 import type { OrderBookBalance } from "@/app/lib/order-book";
+import { judgePositioning, positioningSummary, type Positioning } from "@/app/lib/positioning";
 import { InlineChart } from "@/app/components/inline-chart";
 import type { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import type { MonitorEntry } from "@/app/lib/trigger-monitor";
@@ -34,10 +35,22 @@ function MonitorButton({active, onToggle}: {active: boolean; onToggle: () => voi
   return <Button type="button" variant="outline" onClick={onToggle} aria-pressed={active} className={"rounded-xl " + (active ? "border-cyan-300/40 bg-cyan-300/10 text-cyan-100" : "")}>{active ? <Eye className="mr-1.5 h-4 w-4"/> : <EyeOff className="mr-1.5 h-4 w-4"/>}{active ? "Monitoring" : "Monitor"}</Button>;
 }
 
-function SignalCard({signal, historical = false, now, onReview, onPaper, row, book, monitored, onToggleMonitor}: {
+/** How whales, top traders on other venues and the crowd stack up against this signal. */
+function PositioningStrip({ data, side, price, stop }: { data?: Positioning; side: "LONG" | "SHORT"; price: number; stop: number }) {
+  if (!data) return <p className="rounded-xl border border-white/[0.06] bg-slate-950/30 p-3 text-xs text-slate-500">🐋 Loading whale and top-trader positioning…</p>;
+  const verdict = judgePositioning(data, side, price, stop);
+  const tone = verdict.level === "SUPPORTS" ? "border-emerald-300/30 bg-emerald-300/[0.06] text-emerald-100" : verdict.level === "AGAINST" ? "border-rose-300/30 bg-rose-300/[0.06] text-rose-100" : "border-white/[0.08] bg-slate-950/30 text-slate-200";
+  return <div className={"rounded-xl border p-3 " + tone}>
+    <p className="text-sm font-semibold">🐋 {verdict.headline}</p>
+    <p className="mt-1 text-xs leading-5 opacity-90">{positioningSummary(data, side)}</p>
+    <ul className="mt-1.5 space-y-0.5 text-xs leading-5 text-slate-300">{verdict.notes.slice(0, 4).map(note => <li key={note}>{note}</li>)}</ul>
+  </div>;
+}
+
+function SignalCard({signal, historical = false, now, onReview, onPaper, row, book, monitored, onToggleMonitor, positioning}: {
   signal: SignalSnapshot; historical?: boolean; now: number;
   onReview: () => void; onPaper?: () => void; row?: ScannerRow; book?: OrderBookBalance;
-  monitored?: boolean; onToggleMonitor?: () => void;
+  monitored?: boolean; onToggleMonitor?: () => void; positioning?: Positioning;
 }) {
   const [copyFallback, setCopyFallback] = useState("");
   const [chartOpen, setChartOpen] = useState(false);
@@ -59,6 +72,7 @@ function SignalCard({signal, historical = false, now, onReview, onPaper, row, bo
       {signal.executionPlan && <EntryInstructions plan={signal.executionPlan} ready={false} compact
         reason={historical ? "Saved instructions from this alert. Open the live chart for a current entry decision." : "Confirmed at scan time. Open the chart; enter only if READY and the current quote remains inside this range."}/>}
       {signal.executionPlan && <LevelsPanel plan={signal.executionPlan} stop={signal.stop} targets={signal.targets} row={row} book={book} now={now}/>}
+      {!historical && <PositioningStrip data={positioning} side={signal.side} price={row?.price ?? signal.entry} stop={signal.stop}/>}
       {!historical && <InlineChart symbol={signal.symbol} style={signal.style} flexibility={signal.flexibility} targetStyle={row?.targetStyle} timeframe={signal.executionPlan?.timeframe} open={chartOpen} onToggle={() => setChartOpen(value => !value)} onOpenMain={onReview}/>}
       <div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-white/[0.035] p-3"><p className="text-sm text-slate-400">📍 Entry</p><p className="mt-1 break-all font-mono text-lg font-semibold text-white">{formatPrice(signal.entry)}</p></div><div className="rounded-xl bg-rose-300/[0.045] p-3"><p className="text-sm text-rose-200/80">🛑 Stop loss</p><p className="mt-1 break-all font-mono text-lg font-semibold text-rose-200">{formatPrice(signal.stop)}</p></div></div>
       <ol className="divide-y divide-white/[0.05]">{signal.targets.map(target => <li key={target.level} className="py-2 first:pt-0 last:pb-0"><div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 text-sm"><span className="text-slate-300">🎯 TP{target.level} <strong className="ml-2 font-mono text-emerald-200">{formatPrice(target.price)}</strong></span><span className="font-mono text-xs text-slate-400">{target.rewardR.toFixed(2)}R · close {target.exitPct}%</span></div><p className="mt-0.5 text-xs leading-5 text-slate-500">{target.source}</p></li>)}</ol>
@@ -137,8 +151,8 @@ function MonitorPanel({entries, hits, updatedAt, now, rows, onToggleMonitor, onA
   </section>;
 }
 
-export function SignalCenter({alerts, monitor, rows = [], monitored = [], onToggleMonitor = () => {}, tab, onTabChange, now, scanning, live, onReview, onPaper}: {
-  alerts: Alerts; monitor: ReturnType<typeof useTriggerMonitor>; rows?: ScannerRow[]; monitored?: string[]; onToggleMonitor?: (symbol: string) => void; tab: SignalTab; onTabChange: (tab: SignalTab) => void;
+export function SignalCenter({alerts, monitor, rows = [], monitored = [], onToggleMonitor = () => {}, tab, onTabChange, now, scanning, live, onReview, onPaper, positioning = {}}: {
+  alerts: Alerts; monitor: ReturnType<typeof useTriggerMonitor>; rows?: ScannerRow[]; monitored?: string[]; onToggleMonitor?: (symbol: string) => void; tab: SignalTab; onTabChange: (tab: SignalTab) => void; positioning?: Record<string, Positioning>;
   now: number; scanning: boolean; live: boolean;
   onReview: (signal: Pick<SignalSnapshot, "symbol" | "style" | "flexibility">) => void;
   onPaper: (row: ScannerRow) => void;
@@ -178,7 +192,7 @@ export function SignalCenter({alerts, monitor, rows = [], monitored = [], onTogg
       <div className="border-b border-white/[0.07] px-4 pb-3 sm:px-6"><TabsList className="h-11 w-full rounded-xl bg-slate-950/60 sm:w-auto" aria-label="Signals and notifications"><TabsTrigger value="signals" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Radio className="h-4 w-4"/>Signals <span className="font-mono">{alerts.picks.length}</span></TabsTrigger><TabsTrigger value="notifications" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Bell className="h-4 w-4"/>Notifications {alerts.unread > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-xs font-bold text-white">{alerts.unread}</span>}</TabsTrigger></TabsList></div>
       <TabsContent value="signals" className="p-4 sm:p-6">
         <MonitorPanel entries={monitor.entries} hits={monitor.hits} updatedAt={monitor.updatedAt} now={now} rows={rows} onToggleMonitor={onToggleMonitor} onAdd={symbol => { if (!monitoredSet.has(symbol)) { onToggleMonitor(symbol); void pushTelegramEvents([formatMonitorStart(evaluateMonitor(symbol, rows.find(row => row.symbol === symbol), undefined), now)]); } }} onReview={row => onReview(row)}/>
-        {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} row={pick.row} book={books[pick.row.symbol]} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)} monitored={monitoredSet.has(pick.row.symbol)} onToggleMonitor={() => startMonitoring(pick.row.symbol)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
+        {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} row={pick.row} book={books[pick.row.symbol]} positioning={positioning[pick.row.symbol]} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)} monitored={monitoredSet.has(pick.row.symbol)} onToggleMonitor={() => startMonitoring(pick.row.symbol)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
         {watch.length > 0 && <div className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-semibold text-white">👀 Watching · closest to ready</h3><p className="text-xs text-slate-400">Exact levels are set now; each card says what must still happen before it becomes a signal.</p></div>
           <div className="mt-3 grid items-start gap-4 xl:grid-cols-2">{watch.map(row => <WatchRow key={row.symbol} row={row} book={books[row.symbol]} now={now} onReview={() => onReview(row)} monitored={monitoredSet.has(row.symbol)} onToggleMonitor={() => startMonitoring(row.symbol)}/>)}</div>
