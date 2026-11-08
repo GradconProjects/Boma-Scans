@@ -111,11 +111,11 @@ export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSi
 
 /** Telegram alerts: confirmed whale signals, plus elite opens / closes on coins the owner follows. */
 export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleExit[], events: WhaleEvent[], ranks: WhaleRank[], settings: WhaleSettings, now = Date.now()): Promise<TelegramEvent[]> {
-  if (!settings.alerts) return [];
   const out: TelegramEvent[] = [];
   const bucket = Math.floor(now / (6 * 3_600_000));
   const rankBy0 = new Map(ranks.map(r => [r.trader, r]));
-  const entrySignals = signals.filter(s => s.status !== "RAN AWAY" && s.status !== "WEAK" && s.confidence >= 50);
+  // Pairs the owner monitors one by one always report, even with general whale alerts off.
+  const entrySignals = settings.alerts ? signals.filter(s => s.status !== "RAN AWAY" && s.status !== "WEAK" && s.confidence >= 50) : [];
   const watched = new Set(settings.watch ?? []);
   // Watched coins: every directional whale move of $100K+, any tier, and entry / exit signals without the confidence floor.
   for (const e of events.filter(e => watched.has(e.coin) && now - e.at < 15 * 60_000 && Math.abs(e.deltaUsd) >= 100_000)) {
@@ -123,7 +123,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
     out.push({ key: "whale:watch:" + e.id, lines: ["👁 " + e.coin + " watch · " + r.label + " (" + r.tier.toLowerCase() + ", #" + r.rank + ") " + e.kind + " " + e.side, "📍 " + formatUsd(Math.abs(e.deltaUsd)) + (e.kind === "CLOSE" ? " closed · P&L " + (e.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(e.pnl)) + " · held " + Math.round(e.heldMs / 3_600_000) + " h" : " at " + formatPrice(e.entry) + " · price " + formatPrice(e.price))] });
   }
   for (const s of signals.filter(s => watched.has(s.coin) && s.status !== "WEAK" && !entrySignals.includes(s))) entrySignals.push(s);
-  for (const x of exits) {
+  for (const x of settings.alerts ? exits : exits.filter(x => watched.has(x.coin))) {
     out.push({ key: "whale:exit:" + x.coin + ":" + x.side + ":" + Math.floor(x.at / (3 * 3_600_000)), lines: [
       "🐋 WHALE EXIT · " + x.coin + " " + x.side + " · " + (x.urgency === "LEAVE" ? "LEAVE THE TRADE" : "REDUCE"),
       "📍 Whales realised " + (x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl)) + " on the way out",
@@ -151,6 +151,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
     lines[0] = "🐋 WHALE ENTRY · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%";
     out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ Entered at plan price", data: "entered:" + s.symbol }, { text: "✏️ Entered at…", data: "enterat:" + s.symbol }, { text: "👀 Monitor " + s.coin, data: "monitor:" + s.symbol }, { text: "📊 Analyse " + s.coin, data: "analyse:" + s.symbol }] : undefined });
   }
+  if (!settings.alerts) return out;
   const minTier = settings.minTier === "ELITE" ? ["ELITE"] : ["ELITE", "STRONG"];
   const rankBy = new Map(ranks.map(r => [r.trader, r]));
   for (const e of events.filter(e => now - e.at < 15 * 60_000)) {
