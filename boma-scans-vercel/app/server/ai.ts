@@ -45,7 +45,7 @@ export async function saveAiSettings(patch: Partial<AiSettings>) {
 }
 
 /** One structured call to the chosen provider. Anthropic uses the official SDK with structured output; OpenAI its official SDK with a strict JSON schema. */
-async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: string, user: string): Promise<{ value: T; provider: string; model: string }> {
+export async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: string, user: string): Promise<{ value: T; provider: string; model: string }> {
   const settings = await aiSettings();
   if (settings.provider === "anthropic") {
     // Always authenticate with the API key header; a stray ANTHROPIC_AUTH_TOKEN would otherwise be sent as a bearer token.

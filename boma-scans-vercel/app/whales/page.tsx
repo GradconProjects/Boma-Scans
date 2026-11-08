@@ -5,6 +5,7 @@ import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/app/lib/market";
 import { formatUsd } from "@/app/lib/positioning";
 import type { WhaleEvent, WhaleRank, WhaleSignal } from "@/app/lib/whale-logic";
+import { WhaleAnalysisPanel } from "@/app/components/whale-analysis-panel";
 
 type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
 type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[] };
@@ -24,6 +25,7 @@ export default function WhalesPage() {
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const [tab, setTab] = useState<"signals" | "feed" | "ranks" | "rules">("signals");
+  const [analyseCoin, setAnalyseCoin] = useState<{ coin: string; side: "LONG" | "SHORT" } | null>(null);
   const load = async () => {
     setLoading(true);
     try { const r = await fetch("/api/whales", { cache: "no-store" }); const d = await r.json() as Payload; if (!r.ok) throw new Error(d.error || "Whale data unavailable."); setData(d); setError(""); }
@@ -44,11 +46,12 @@ export default function WhalesPage() {
         <h1 className="mt-1 text-2xl font-bold text-white">Follow what consistently successful whales are doing now</h1>
         <p className="mt-1 text-sm text-slate-400">Top Hyperliquid traders by consistency, their live opens, adds and closes, and a confirmation engine that separates new entries from positions that are already in profit. No orders are placed.</p>
       </div>
-      <div className="flex items-center gap-2 text-xs text-slate-400">{data && <span>Updated {melbourne(data.at)}</span>}<Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading} className="rounded-lg">{loading ? "Refreshing…" : "Refresh"}</Button><Link href="/" className="rounded-lg border border-white/10 px-3 py-1.5 text-slate-300 hover:bg-white/5">📡 Scanner</Link></div>
+      <div className="flex items-center gap-2 text-xs text-slate-400">{data && <span>Updated {melbourne(data.at)}</span>}<Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading} className="rounded-lg">{loading ? "Refreshing…" : "Refresh"}</Button></div>
     </div>
     {error && <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{error}{error.includes("Sign in") && <> · <Link href="/login" className="underline">Sign in</Link></>}</p>}
     <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Confirmed signals" + (data ? " · " + data.signals.length : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
 
+    {tab === "signals" && <AnalyseAnyCoin/>}
     {tab === "signals" && <section className="mt-4 grid gap-4 lg:grid-cols-2">
       {!data ? <p className="text-sm text-slate-400">Loading…</p> : data.signals.length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm leading-6 text-slate-400">No confirmed whale signal right now. A signal needs at least two ranked whales (or one elite whale with $1M+ of new money) opening or adding the same side of a coin within 12 hours, with price still near their average entry and no ranked whale on the other side. The live activity tab shows what is building.</p>
         : data.signals.map(s => <article key={s.coin + s.side} className={"rounded-2xl border p-4 " + (s.status === "RAN AWAY" ? "border-white/[0.08] bg-slate-950/40" : s.side === "LONG" ? "border-emerald-300/30 bg-emerald-300/[0.05]" : "border-rose-300/30 bg-rose-300/[0.05]")}>
@@ -62,15 +65,16 @@ export default function WhalesPage() {
           {s.engine ? <div className="mt-3 rounded-xl border border-white/[0.08] bg-slate-950/40 p-3 text-xs leading-5">
             <p className={s.engine.agrees ? "text-emerald-200" : "text-slate-300"}>📈 Chart (1h, {s.symbol}): bias {s.engine.bias} · {s.engine.regime} · {s.engine.trendFrames}/3 frames · {s.engine.agrees ? "agrees with the whales" : "does not confirm yet"}</p>
             <p className="mt-1 font-mono text-slate-200">🛑 Stop idea {formatPrice(s.engine.stop)} (1.5 ATR beyond their entry) · 🎯 {s.engine.targets.map(t => formatPrice(t)).join(" / ")} (1R / 2R / 3R)</p>
-            <Link href={"/?pair=" + s.symbol} className="mt-1 inline-block text-cyan-200 underline">Open {s.symbol} in the scanner</Link>
           </div> : <p className="mt-3 text-xs text-slate-500">Not listed on Bybit; information only.</p>}
           <p className="mt-2 text-xs leading-5 text-slate-400">{s.note}</p>
+          <WhaleAnalysisPanel coin={s.coin} side={s.side}/>
         </article>)}
     </section>}
 
+    {tab === "feed" && analyseCoin && <div className="mt-4 rounded-2xl border border-violet-300/30 bg-violet-300/[0.05] p-4"><p className="text-sm font-semibold text-white">{analyseCoin.coin} {analyseCoin.side}</p><WhaleAnalysisPanel key={analyseCoin.coin + analyseCoin.side} coin={analyseCoin.coin} side={analyseCoin.side}/></div>}
     {tab === "feed" && <section className="mt-4 overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40">
       <table className="w-full text-xs">
-        <thead><tr className="text-left text-slate-500"><th className="p-2 font-medium">Time</th><th className="p-2 font-medium">Whale</th><th className="p-2 font-medium">Event</th><th className="p-2 font-medium">Coin</th><th className="p-2 text-right font-medium">Size change</th><th className="p-2 text-right font-medium">Entry</th><th className="p-2 text-right font-medium">P&amp;L</th><th className="p-2 text-right font-medium">Held</th></tr></thead>
+        <thead><tr className="text-left text-slate-500"><th className="p-2 font-medium">Time</th><th className="p-2 font-medium">Whale</th><th className="p-2 font-medium">Event</th><th className="p-2 font-medium">Coin</th><th className="p-2 text-right font-medium">Size change</th><th className="p-2 text-right font-medium">Entry</th><th className="p-2 text-right font-medium">P&amp;L</th><th className="p-2 text-right font-medium">Held</th><th className="p-2 font-medium"></th></tr></thead>
         <tbody>{(data?.events ?? []).map(e => { const r = rankBy.get(e.trader); return <tr key={e.id} className="border-t border-white/[0.05] font-mono text-slate-200">
           <td className="p-2 whitespace-nowrap text-slate-400">{melbourne(e.at)}</td>
           <td className="p-2 whitespace-nowrap">{e.trader} {r && <span className={"ml-1 rounded px-1 font-sans text-[10px] " + tierTone[r.tier]}>#{r.rank}</span>}</td>
@@ -80,6 +84,7 @@ export default function WhalesPage() {
           <td className="p-2 text-right">{formatPrice(e.entry)}</td>
           <td className={"p-2 text-right " + (e.pnl >= 0 ? "text-emerald-300" : "text-rose-300")}>{(e.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(e.pnl))}</td>
           <td className="p-2 text-right text-slate-400">{e.heldMs ? Math.round(e.heldMs / 3_600_000) + "h" : "new"}</td>
+          <td className="p-2"><button type="button" onClick={() => setAnalyseCoin(current => current?.coin === e.coin && current.side === e.side ? null : { coin: e.coin, side: e.side })} className="rounded-lg border border-white/10 px-2 py-1 font-sans text-[11px] text-cyan-100 hover:bg-white/5">Analyse</button></td>
         </tr>; })}</tbody>
       </table>
       {data && data.events.length === 0 && <p className="p-4 text-sm text-slate-400">No events yet. The first snapshot records existing positions as the baseline; opens, adds, reductions, closes and flips appear from the next change on (snapshots every 3 minutes).</p>}
@@ -125,4 +130,18 @@ export default function WhalesPage() {
       </div>
     </section>}
   </main>;
+}
+
+/** Type any coin to get the full whale + chart + planner read without leaving the section. */
+function AnalyseAnyCoin() {
+  const [coin, setCoin] = useState("");
+  const [target, setTarget] = useState<string | null>(null);
+  return <div className="mt-4 rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3">
+    <form className="flex flex-wrap items-center gap-2" onSubmit={e => { e.preventDefault(); const c = coin.trim().toUpperCase().replace(/USDT$/, ""); if (c) setTarget(c); }}>
+      <label className="text-xs text-slate-400" htmlFor="whale-coin">Full entry analysis for any coin</label>
+      <input id="whale-coin" value={coin} onChange={e => setCoin(e.target.value)} placeholder="BTC, ETH, SOL, kPEPE…" className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 font-mono text-sm text-slate-100"/>
+      <Button type="submit" size="sm" className="rounded-lg">Analyse</Button>
+    </form>
+    {target && <div className="mt-3"><p className="text-sm font-semibold text-white">{target}</p><WhaleAnalysisPanel key={target} coin={target}/></div>}
+  </div>;
 }
