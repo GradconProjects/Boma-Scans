@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 
-type Settings = { provider: "anthropic" | "openai" | "off"; available: string[]; anthropicModel: string; openaiModel: string };
+type Settings = { provider: "anthropic" | "openai" | "off"; available: string[]; anthropicModel: string; openaiModel: string; swapped?: boolean };
 
 /** Provider switch for the second-read reviewer (Anthropic / OpenAI / off) and what it does. */
 export function AiReviewerBox() {
@@ -32,6 +32,7 @@ export function AiReviewerBox() {
       {(["anthropic", "openai", "off"] as const).map(provider => <Button key={provider} type="button" size="sm" variant={settings?.provider === provider ? "default" : "outline"} disabled={busy || (provider !== "off" && !available.includes(provider))} onClick={() => void choose(provider)} className="rounded-lg">{provider === "anthropic" ? "Claude (Anthropic)" : provider === "openai" ? "OpenAI" : "Off"}</Button>)}
     </div>
     {settings && <p className="mt-2 text-[11px] text-slate-500">{available.length ? "Keys found: " + available.join(", ") + ". Models: " + settings.anthropicModel + " · " + settings.openaiModel + " (override with ANTHROPIC_MODEL / OPENAI_MODEL)." : "No key found. In Vercel → Settings → Environment Variables add ANTHROPIC_API_KEY (and optionally OPENAI_API_KEY), then Redeploy."}</p>}
+    {settings?.swapped && <p className="mt-1 text-[11px] text-amber-200">Note: the keys in Vercel are in each other&apos;s variables (an sk-ant- key sits in OPENAI_API_KEY). The app sorts them by shape, so both work; swap them when convenient.</p>}
     {status && <p className="mt-1 text-xs text-slate-300">{status}</p>}
   </div>;
 }

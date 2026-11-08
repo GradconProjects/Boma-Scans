@@ -9,18 +9,32 @@ export type AiProvider = "anthropic" | "openai" | "off";
 export type AiSettings = { provider: AiProvider; anthropicModel: string; openaiModel: string };
 
 const DEFAULT_ANTHROPIC_MODEL = "claude-opus-5-5";
+
+/**
+ * Keys by shape rather than by variable name: an Anthropic key starts with
+ * "sk-ant-", anything else that looks like a key is treated as OpenAI's. A
+ * key pasted into the other variable still works and the panel says so.
+ */
+export function providerKeys() {
+  const values = [process.env.ANTHROPIC_API_KEY, process.env.OPENAI_API_KEY].map(value => (value ?? "").trim()).filter(Boolean);
+  const anthropic = values.find(value => value.startsWith("sk-ant-")) ?? "";
+  const openai = values.find(value => !value.startsWith("sk-ant-")) ?? "";
+  const swapped = (process.env.OPENAI_API_KEY ?? "").trim().startsWith("sk-ant-") || ((process.env.ANTHROPIC_API_KEY ?? "").trim() !== "" && !(process.env.ANTHROPIC_API_KEY ?? "").trim().startsWith("sk-ant-"));
+  return { anthropic, openai, swapped };
+}
 const DEFAULT_OPENAI_MODEL = "gpt-5";
 
 /** Provider choice: the owner's setting, else whichever key is configured (Anthropic first). */
-export async function aiSettings(): Promise<AiSettings & { available: AiProvider[] }> {
+export async function aiSettings(): Promise<AiSettings & { available: AiProvider[]; swapped: boolean }> {
   let saved: Partial<AiSettings> = {};
   try { saved = JSON.parse((await readOwnerRecord("ai-settings")) ?? "{}"); } catch { /* defaults */ }
   const available: AiProvider[] = [];
-  if (process.env.ANTHROPIC_API_KEY) available.push("anthropic");
-  if (process.env.OPENAI_API_KEY) available.push("openai");
+  const keys = providerKeys();
+  if (keys.anthropic) available.push("anthropic");
+  if (keys.openai) available.push("openai");
   const wanted = saved.provider && ["anthropic", "openai", "off"].includes(saved.provider) ? saved.provider : undefined;
   const provider: AiProvider = wanted === "off" ? "off" : wanted && available.includes(wanted) ? wanted : available[0] ?? "off";
-  return { provider, available, anthropicModel: saved.anthropicModel || process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL, openaiModel: saved.openaiModel || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL };
+  return { provider, available, swapped: keys.swapped, anthropicModel: saved.anthropicModel || process.env.ANTHROPIC_MODEL || DEFAULT_ANTHROPIC_MODEL, openaiModel: saved.openaiModel || process.env.OPENAI_MODEL || DEFAULT_OPENAI_MODEL };
 }
 
 export async function saveAiSettings(patch: Partial<AiSettings>) {
@@ -35,7 +49,7 @@ async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: s
   const settings = await aiSettings();
   if (settings.provider === "anthropic") {
     // Always authenticate with the API key header; a stray ANTHROPIC_AUTH_TOKEN would otherwise be sent as a bearer token.
-    const client = new Anthropic({ apiKey: (process.env.ANTHROPIC_API_KEY ?? "").trim(), authToken: null, timeout: 50_000, maxRetries: 1 });
+    const client = new Anthropic({ apiKey: providerKeys().anthropic, authToken: null, timeout: 50_000, maxRetries: 1 });
     const format = zodOutputFormat(schema as never);
     const request = { model: settings.anthropicModel, max_tokens: 4000, system, messages: [{ role: "user" as const, content: user }], output_config: { effort: "high" as const, format } };
     let text = "";
@@ -53,7 +67,7 @@ async function structured<T>(schema: z.ZodType<T>, schemaName: string, system: s
     return { value: schema.parse(JSON.parse(text)), provider: "Claude", model: settings.anthropicModel };
   }
   if (settings.provider === "openai") {
-    const client = new OpenAI({ apiKey: (process.env.OPENAI_API_KEY ?? "").trim(), timeout: 50_000, maxRetries: 1 });
+    const client = new OpenAI({ apiKey: providerKeys().openai, timeout: 50_000, maxRetries: 1 });
     const jsonSchema = z.toJSONSchema(schema as never) as Record<string, unknown>;
     const completion = await client.chat.completions.create({
       model: settings.openaiModel,
