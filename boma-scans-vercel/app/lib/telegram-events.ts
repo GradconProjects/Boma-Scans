@@ -1,6 +1,6 @@
 import { type ScannerRow, formatPrice } from "@/app/lib/market";
 import { appLink, compactSignalLines } from "@/app/lib/signal-alerts";
-import type { ExitEvent, MonitorEntry } from "@/app/lib/trigger-monitor";
+import { entryCall, type ExitEvent, type MonitorEntry } from "@/app/lib/trigger-monitor";
 import type { TrackedTrade, TradeSnapshot } from "@/app/lib/trade-manager";
 
 /** A follow-up message for Telegram. `key` de-duplicates across devices and reloads. */
@@ -22,7 +22,7 @@ export function signalButtons(symbol: string): TelegramButton[] {
 export function formatFormingSetup(row: ScannerRow, now = Date.now()): TelegramEvent {
   const plan = row.executionPlan;
   const long = row.bias === "LONG";
-  const lines = compactSignalLines({ symbol: row.symbol, side: row.bias, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: row.stop, targets: row.takeProfits.map(t => ({ price: t.price, available: t.available })), expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh, keyLevels: row.keyLevels?.summary });
+  const lines = compactSignalLines({ symbol: row.symbol, side: row.bias, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: row.stop, targets: row.takeProfits.map(t => ({ price: t.price, available: t.available })), expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh, keyLevels: row.keyLevels?.summary, call: entryCall(row, row.price).line });
   const toTrigger = (plan.trigger - row.price) / row.price * 100;
   return { key: "forming:" + row.symbol + ":" + [plan.side, plan.trigger, row.stop].join(":") + ":" + Math.floor(now / (6 * 3_600_000)), symbol: row.symbol, lines: [
     "📋 SETUP FORMING · " + row.symbol + " " + row.bias + " · " + row.setupType,
@@ -44,7 +44,8 @@ export function keyboardRows(buttons: TelegramButton[]) {
 function card(entry: MonitorEntry) {
   const plan = entry.plan;
   if (!plan || !entry.side) return [] as string[];
-  return compactSignalLines({ symbol: entry.symbol, side: entry.side, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: entry.stop ?? plan.stop, targets: entry.targets, expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh });
+  const call = entry.price !== null ? entryCall({ symbol: entry.symbol, bias: entry.side, stop: entry.stop ?? plan.stop, entryReady: entry.ready, executionPlan: plan }, entry.price).line : undefined;
+  return compactSignalLines({ symbol: entry.symbol, side: entry.side, entryLow: plan.entryLow, entryHigh: plan.entryHigh, entry: plan.entry, trigger: plan.trigger, timeframe: plan.timeframe, stop: entry.stop ?? plan.stop, targets: entry.targets, expiresAt: plan.expiresAt, zoneLow: plan.zoneLow, zoneHigh: plan.zoneHigh, call });
 }
 
 const FOLLOW_UP_ACTIONS: TradeSnapshot["action"][] = ["TAKE PARTIAL", "CLOSE REMAINDER", "EXIT NOW", "REDUCE / EXIT", "PROTECT PROFIT"];

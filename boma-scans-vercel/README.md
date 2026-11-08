@@ -111,6 +111,10 @@ Every ready-to-enter signal gets a careful second read before it reaches Telegra
 - **Levels are refined before they are final.** The reviewer may move the entry inside the plan's zone, place the stop at a structural level between 0.6× and 1.5× the engine's stop distance, and set five targets between 0.5R and 6R in the trade's direction. Refinements inside those guardrails become the signal's levels (card, fill check, exit tracking); anything outside is discarded and shown as "suggested but kept engine levels". The trigger and the closed-candle rule never change.
 - The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal or refine its levels but never invents one.
 
+## The call: ENTER NOW or WAIT
+
+Every signal card, in the app and on Telegram, opens with the call at the live price: **ENTER NOW** when the plan is READY and a limit at the entry would fill inside the entry window (shown as a price range), **WAIT** with the exact condition (the 1H close through the trigger, or a pullback into the window after price ran past it), or **STAND DOWN** when the plan is invalid. The reviewer makes the same call independently ("Timing: ENTER NOW / WAIT / STAND DOWN" with the prices), so a push you act on has both the engine and the reviewer saying now.
+
 ## What Telegram sends, and when
 
 To keep the chat quiet, individual messages go out only for: a qualified signal that passed review, a monitored pair entering its entry range, a candle-close confirmation, your "Entered" confirmations, exits (targets, stop, leave, protect) and a stop-side hit before entry. Everything else is folded into the hourly **monitor list**: in-trade pairs first (entry, next target, open P&L), then ready-to-enter pairs with limit and stop, then every monitored pair on one line, then forming setups and anything held by review. `/status` prints the same list on demand.

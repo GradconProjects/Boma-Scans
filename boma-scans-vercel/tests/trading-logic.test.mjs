@@ -726,8 +726,8 @@ test("Reviewer prompt is deterministic JSON with the plan, checks, levels and ca
   const data = JSON.parse(a.slice(a.indexOf("{")));
   assert.equal(data.plan.targets[0].r, "-0.76R".replace("-", "") === "0.76R" ? data.plan.targets[0].r : data.plan.targets[0].r);
   assert.equal(data.last24Candles1h.length, 24); assert.match(data.checks[1], /Volume: WAIT \(thin\)/);
-  const lines = ai.reviewLines({ verdict: "CAUTION", confidence: 62, summary: "Fine but crowded.", concerns: ["crowded shorts"], entry_note: "Limit only.", exit_note: "Take T1 early.", provider: "Claude", model: "m", at: 0, planKey: "k", symbol: "XRPUSDT" });
-  assert.match(lines[0], /^🧠 ⚠️ Review \(Claude\): CAUTION · 62% · Fine but crowded\./); assert.equal(lines.length, 4);
+  const lines = ai.reviewLines({ verdict: "CAUTION", timing: "WAIT", timing_reason: "Needs the 1h close below 1.2333.", confidence: 62, summary: "Fine but crowded.", concerns: ["crowded shorts"], entry_note: "Limit only.", exit_note: "Take T1 early.", provider: "Claude", model: "m", at: 0, planKey: "k", symbol: "XRPUSDT" });
+  assert.match(lines[0], /^🧠 ⚠️ Review \(Claude\): CAUTION · 62% · Fine but crowded\./); assert.match(lines[1], /^⏳ Timing: WAIT · Needs the 1h close/); assert.equal(lines.length, 5);
 });
 
 test("Reviewer level refinements apply only inside the guardrails", () => {

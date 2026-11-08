@@ -6,7 +6,7 @@ import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
 import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines } from "@/app/lib/ai-review";
-import { planKeyOf } from "@/app/lib/trigger-monitor";
+import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
 import type { ScannerRow } from "@/app/lib/market";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
@@ -70,7 +70,7 @@ export async function GET(request: NextRequest) {
       if (review?.verdict === "REJECT") { held.push({ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }); return; }
       // The reviewer's level refinements (inside the guardrails) become the signal's levels.
       const finalPick = review?.applied ? getMediumRiskShortlist([applyRefinedLevels(row, review.applied)], equity, true, 1, now)[0] ?? pick : pick;
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now).split("\n"), ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.

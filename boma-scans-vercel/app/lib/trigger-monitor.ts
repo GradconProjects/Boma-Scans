@@ -1,5 +1,5 @@
 import type { EntryExecutionPlan } from "@/app/lib/entry-execution";
-import type { ScannerRow } from "@/app/lib/market";
+import { formatPrice, type ScannerRow } from "@/app/lib/market";
 
 export type TriggerState = "WAITING" | "AT TRIGGER" | "ENTRY RANGE" | "PAST ENTRY" | "STOP HIT" | "NO PLAN";
 
@@ -152,4 +152,21 @@ export function transitionMonitor(previous: MonitorMemory, entry: MonitorEntry, 
 export function parseMonitoredSymbols(raw: unknown): string[] {
   if (!Array.isArray(raw)) return [];
   return Array.from(new Set(raw.filter((item): item is string => typeof item === "string" && /^[A-Z0-9]{2,24}USDT$/.test(item)))).slice(0, 40);
+}
+
+/**
+ * The call for a plan at the current price, in one line: ENTER NOW when the
+ * plan is READY and a limit at the entry would fill inside the window, WAIT
+ * with the exact condition otherwise.
+ */
+export function entryCall(row: Pick<ScannerRow, "symbol" | "bias" | "stop" | "entryReady" | "executionPlan"> & Partial<Pick<ScannerRow, "takeProfits">>, price: number | undefined): { label: "ENTER NOW" | "WAIT" | "STAND DOWN"; line: string } {
+  const plan = row.executionPlan;
+  const long = plan.side === "LONG";
+  const state = evaluateMonitor(row.symbol, { ...row, takeProfits: row.takeProfits ?? [] } as ScannerRow, price).state;
+  const window = formatPrice(long ? plan.zoneLow : plan.entry) + " – " + formatPrice(long ? plan.entry : plan.zoneHigh);
+  if (state === "ENTRY RANGE") return { label: "ENTER NOW", line: "✅ ENTER NOW · price " + formatPrice(price!) + " is inside the entry window " + window + " · " + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(plan.entry) + " or better" };
+  if (state === "STOP HIT" || ["INVALIDATED", "EXPIRED"].includes(plan.status)) return { label: "STAND DOWN", line: "⛔ STAND DOWN · plan " + plan.status.toLowerCase().replaceAll("_", " ") + "; wait for a fresh plan" };
+  if (state === "PAST ENTRY") return { label: "WAIT", line: "⏸ WAIT · price " + formatPrice(price!) + " ran past the window " + window + "; keep the limit at " + formatPrice(plan.entry) + " and do not chase" };
+  if (row.entryReady) return { label: "WAIT", line: "⏳ WAIT · plan is READY; enter only when price comes into the window " + window };
+  return { label: "WAIT", line: "⏳ WAIT · needs a " + plan.timeframe + " close " + (long ? "above " : "below ") + formatPrice(plan.trigger) + ", then price inside the window " + window };
 }

@@ -5,8 +5,16 @@ import Module, { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
 const require = createRequire(import.meta.url);
 const file = new URL("../app/lib/trigger-monitor.ts", import.meta.url).pathname;
-const mod = new Module(file); mod.require = require;
-mod._compile(ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
+const root = new URL("..", import.meta.url).pathname;
+const modules = new Map();
+function load(absolute) {
+  if (modules.has(absolute)) return modules.get(absolute).exports;
+  const m = new Module(absolute); modules.set(absolute, m);
+  m.require = spec => spec.startsWith("@/") ? load(root + spec.slice(2) + ".ts").exports : require(spec);
+  m._compile(ts.transpileModule(readFileSync(absolute, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, absolute);
+  return m;
+}
+const mod = load(file);
 const { evaluateMonitor, parseMonitoredSymbols } = mod.exports;
 const plan = (side, status = "WAIT_CONFIRMATION") => ({ side, status, trigger: 100, entry: side === "LONG" ? 100.2 : 99.8, zoneLow: 98.5, zoneHigh: 101.5, entryLow: side === "LONG" ? 100 : 99, entryHigh: side === "LONG" ? 101 : 100, zoneSource: "FVG", timeframe: "1h", confirmationTime: null });
 const row = (side, ready = false, status) => ({ symbol: "ABCUSDT", bias: side, stop: side === "LONG" ? 95 : 105, entryReady: ready, executionPlan: plan(side, status) });
@@ -83,4 +91,13 @@ test("Runner rule and maximum hold produce LEAVE events; skipped plans are not a
   const entry = evaluateMonitor("ABCUSDT", row, 100.1);
   assert.equal(transitionMonitor({ skipped: entry.planKey }, entry, row, 1).memory.armed, undefined, "skipped plan stays unarmed");
   assert.ok(transitionMonitor({}, entry, row, 1).memory.armed, "otherwise armed");
+});
+test("Entry call says ENTER NOW inside the window, WAIT with the condition otherwise", () => {
+  const { entryCall } = mod.exports;
+  const row = { symbol: "ABCUSDT", bias: "LONG", stop: 95, entryReady: true, executionPlan: { side: "LONG", status: "READY", trigger: 100, entry: 100.2, zoneLow: 98.5, zoneHigh: 101.5, entryLow: 100, entryHigh: 101, timeframe: "1h", confirmationTime: 5 } };
+  assert.equal(entryCall(row, 100.1).label, "ENTER NOW"); assert.match(entryCall(row, 100.1).line, /inside the entry window 98\.5\d* – 100\.2\d* · BUY LIMIT 100\.2/);
+  assert.equal(entryCall(row, 102).label, "WAIT"); assert.match(entryCall(row, 102).line, /ran past the window/);
+  assert.equal(entryCall({ ...row, entryReady: false, executionPlan: { ...row.executionPlan, status: "WAIT_CONFIRMATION" } }, 99).label, "WAIT");
+  assert.match(entryCall({ ...row, entryReady: false, executionPlan: { ...row.executionPlan, status: "WAIT_CONFIRMATION" } }, 99).line, /needs a 1h close above 100/);
+  assert.equal(entryCall(row, 94).label, "STAND DOWN");
 });

@@ -213,6 +213,8 @@ export type CompactSignalInput = {
   zoneLow?: number; zoneHigh?: number;
   /** Historic support / resistance summary line. */
   keyLevels?: string;
+  /** The call at the current price ("✅ ENTER NOW · …" / "⏳ WAIT · …"). */
+  call?: string;
 };
 
 /** The short signal card: coin, side, entry zone, trigger rule, leverage, targets, stop, validity. */
@@ -226,6 +228,7 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
   return [
     "📍 Coin : #" + input.symbol.replace(/USDT$/, "") + "/USDT",
     long ? "🟢 LONG" : "🔴 SHORT",
+    ...(input.call ? [input.call] : []),
     "👉 Entry: " + formatPrice(long ? input.entryHigh : input.entryLow) + " - " + formatPrice(long ? input.entryLow : input.entryHigh) + " · " + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(input.entry),
     ...(input.trigger ? ["🎯 Trigger: " + formatPrice(input.trigger) + " (" + (long ? "close above" : "close below") + (input.timeframe ? ", " + input.timeframe : "") + ")"] : []),
     ...(input.leverage ? ["🌐 Leverage: " + input.leverage + "x"] : []),
@@ -245,9 +248,9 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
 
 export function appLink(origin: string, symbol: string) { return origin.replace(/\/$/, "") + "/?pair=" + symbol; }
 
-export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now(), link?: string) {
+export function telegramSignalText(item: SignalSnapshot, historical = false, now = Date.now(), link?: string, call?: string) {
   const plan = item.executionPlan;
-  const lines = compactSignalLines({
+  const lines = compactSignalLines({ call: historical ? undefined : call,
     symbol: item.symbol, side: item.side, entryLow: plan?.entryLow ?? item.entry, entryHigh: plan?.entryHigh ?? item.entry, entry: item.entry,
     trigger: plan?.trigger, timeframe: plan?.timeframe, leverage: item.leverage, stop: item.stop, targets: item.targets, expiresAt: item.expiresAt,
     zoneLow: plan?.zoneLow, zoneHigh: plan?.zoneHigh, keyLevels: item.keyLevels,
@@ -265,7 +268,7 @@ export function renderTelegramHtml(lines: string[]) {
   // Monospace the price part of a line (before the spaced figures), never percentages.
   const mono = (text: string) => { const [head, ...rest] = text.split("   "); return head.replace(/(?<![\w.])(\d+\.\d+|\d{2,})(?![\w.%])/g, "<code>$1</code>") + (rest.length ? "   " + rest.join("   ") : ""); };
   const spaced: string[] = [];
-  const isGroupStart = (line: string) => /^(📍 Price|👉 Entry|🎯 Target 1:|❌ StopLoss|🧭 |🔗 |✅ |⏳ |⛔ |⏸ |📄 |🗂️|➡️|🏁)/u.test(line);
+  const isGroupStart = (line: string) => /^(📍 Price|👉 Entry|🎯 Target 1:|❌ StopLoss|🧭 |🔗 |✅ |⏳ |⛔ |⏸ |📄 |🗂️|➡️|🏁|🧠 |🐋 |🟢 IN TRADE|👀 MONITORED|📋 FORMING)/u.test(line);
   lines.forEach((line, index) => {
     const previous = spaced[spaced.length - 1];
     const sideLine = /^(🟢 LONG|🔴 SHORT)/u.test(line);
@@ -275,8 +278,8 @@ export function renderTelegramHtml(lines: string[]) {
   });
   return spaced.map((line, index) => {
     const safe = escape(line.slice(0, 2600));
-    if (index === 0 || /^(📍 Coin|🟢 LONG|🔴 SHORT)/u.test(line)) return "<b>" + safe + "</b>";
-    if (/^(📍 Price|👉 Entry|🎯 Trigger|🎯 Target \d|❌ StopLoss|🧭 Enter|🛑 Stop)/u.test(line)) return mono(safe);
+    if (index === 0 || /^(📍 Coin|🟢 LONG|🔴 SHORT|🟢 IN TRADE|✅ READY TO ENTER|👀 MONITORED|📋 FORMING|🧠 HELD BY REVIEW|✅ ENTER NOW|⛔ STAND DOWN)/u.test(line)) return "<b>" + (/^(✅ ENTER NOW|⛔ STAND DOWN)/u.test(line) ? mono(safe) : safe) + "</b>";
+    if (/^(📍 Price|👉 Entry|🎯 Trigger|🎯 Target \d|❌ StopLoss|🧭 Enter|🛑 Stop|• |⏳ WAIT|⏸ WAIT|🏛 |📐 )/u.test(line)) return mono(safe);
     if (/^🔗 /u.test(line)) return "<i>" + safe + "</i>";
     return safe;
   }).join("\n");

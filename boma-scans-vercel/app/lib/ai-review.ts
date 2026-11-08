@@ -5,6 +5,9 @@ import type { Positioning, PositioningVerdict } from "@/app/lib/positioning";
 /** What the reviewer returns for a signal. Stored per plan and shown in the app and on Telegram. */
 export const ReviewSchema = z.object({
   verdict: z.enum(["APPROVE", "CAUTION", "REJECT"]),
+  /** The call at the live price: enter now, wait (with the condition), or stand down. */
+  timing: z.enum(["ENTER NOW", "WAIT", "STAND DOWN"]),
+  timing_reason: z.string(),
   confidence: z.number().min(0).max(100),
   summary: z.string(),
   concerns: z.array(z.string()),
@@ -26,6 +29,8 @@ A rule-based engine, calibrated on a two-year backtest, has produced a trade pla
 
 Judge only from the data given. Never invent prices, news or indicators. Approve by default when the plan is internally consistent; reject only for a concrete, stated reason. Reasons to reject or caution include: the trigger candle is an exhaustion spike (very long range or wick against the direction after an extended run), the entry sits straight under or over a strong historic level with no reaction room while confirmation is weak, structure on the recent candles contradicts the stated bias (lower highs for a long, higher lows for a short), the stop sits inside an obvious liquidity pocket, extreme crowding on the trader's side with funding paid against them, or whale and top-trader positioning strongly opposed together with weak momentum. Positioning alone does not block a trend trade: the backtest found breaks through levels are the better trades.
 
+Timing. Make the call for right now, not in general: ENTER NOW only when the plan is READY (confirmation close printed), the live price is inside the entry window and nothing in the last candles says the move is exhausted; WAIT with the exact condition the trader should wait for (a close through the trigger, a pullback into the window, a retest); STAND DOWN when the plan is invalid or the setup has degraded. timing_reason is one sentence quoting the prices.
+
 Levels. Before the levels are final you may refine them, and the engine applies your numbers only inside these guardrails (anything outside is discarded and the engine's level kept): the entry must stay inside the plan's zone (between zone[0] and zone[1]); the stop must sit at a stated structural level on the trade's protective side, no tighter than 0.6 times and no wider than 1.5 times the engine's stop distance; targets, if given, are exactly five prices moving away from the entry in the trade's direction, each between 0.5R and 6R of the final risk, ideally at the historic zones, swing levels or round numbers you can see in the data. Return null for entry or stop and an empty targets list to keep the engine's values. Say in levels.reasoning in one sentence what you changed and why, or "engine levels kept".
 
 Keep the summary under 220 characters and plain English for a phone screen. Concerns: at most three short items, most important first. entry_note: one sentence on how to take the entry (limit at the plan price, wait for the close, do not chase). exit_note: one sentence on where to be careful with targets or the stop. Confidence is how sure you are of the verdict.`;
@@ -33,6 +38,8 @@ Keep the summary under 220 characters and plain English for a phone screen. Conc
 export type ReviewInput = {
   row: ScannerRow; analysis: MarketAnalysis; candles: Array<{ time: number; open: number; high: number; low: number; close: number; volume: number }>;
   positioning?: Positioning | null; positioningVerdict?: PositioningVerdict | null;
+  /** The engine's own call at the live price, so the reviewer can agree or disagree with it. */
+  call?: string;
 };
 
 /** Compact, deterministic description of the setup for the reviewer. Numbers rounded so the prompt stays stable. */
@@ -52,6 +59,7 @@ export function reviewPrompt(input: ReviewInput): string {
     historicLevels: row.keyLevels ? { summary: row.keyLevels.summary, detail: row.keyLevels.detail, zones: row.keyLevels.zones.slice(0, 6).map(z => ({ price: Number(z.price.toPrecision(6)), kind: z.kind, touches: z.touches, weekly: z.weeklyTouches > 0 })) } : null,
     btc: { relationship: row.btcRelationship.relationship, verdict: row.btcRelationship.divergenceVerdict, dailyTrend: row.btcRelationship.btcDailyTrend, aligned: row.btcRelationship.trendAligned },
     positioning: input.positioningVerdict ? { verdict: input.positioningVerdict.level, notes: input.positioningVerdict.notes } : null,
+    live: { price: row.price, engineCall: input.call ?? null },
     last24Candles1h: candles,
   };
   return "Review this plan and answer in the required JSON shape.\n\n" + JSON.stringify(data);
@@ -60,8 +68,10 @@ export function reviewPrompt(input: ReviewInput): string {
 /** Lines appended to a Telegram signal for a stored review. */
 export function reviewLines(review: SignalReview): string[] {
   const icon = review.verdict === "APPROVE" ? "🧠 ✅" : review.verdict === "CAUTION" ? "🧠 ⚠️" : "🧠 ⛔";
+  const timingIcon = review.timing === "ENTER NOW" ? "✅" : review.timing === "WAIT" ? "⏳" : "⛔";
   return [
     icon + " Review (" + review.provider + "): " + review.verdict + " · " + Math.round(review.confidence) + "% · " + review.summary,
+    timingIcon + " Timing: " + review.timing + " · " + review.timing_reason,
     ...review.concerns.slice(0, 3).map(item => "• " + item),
     ...(review.entry_note ? ["↪ " + review.entry_note] : []),
     ...(review.exit_note ? ["↩ " + review.exit_note] : []),

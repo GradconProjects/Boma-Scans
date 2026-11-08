@@ -16,7 +16,7 @@ import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai-review";
 import { storedReviews } from "@/app/server/ai";
-import { planKeyOf } from "@/app/lib/trigger-monitor";
+import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
 import { OWNER_ID } from "@/app/server/owner-auth";
 
 export const dynamic = "force-dynamic";
@@ -95,7 +95,7 @@ export async function GET(request: NextRequest) {
     // A monitored pair that qualifies as a full signal is announced as one.
     if (row && isMediumRiskTake(row, true, now)) {
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
-      if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now).split("\n"), buttons: signalButtons(symbol) })); if (event) events.push(event); }
+      if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), buttons: signalButtons(symbol) })); if (event) events.push(event); }
     }
   });
   const reviews = await storedReviews().catch(() => ({}));

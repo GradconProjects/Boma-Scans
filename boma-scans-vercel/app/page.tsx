@@ -73,7 +73,7 @@ import { LiveValue } from "@/app/components/live-value";
 import { SignalCenter, type SignalTab } from "@/app/components/signal-center";
 import { TelegramPanel } from "@/app/components/telegram-panel";
 import { snapshotSignal } from "@/app/lib/signal-alerts";
-import { parseArmedPlans, parseMonitoredSymbols, type ArmedPlan } from "@/app/lib/trigger-monitor";
+import { entryCall, parseArmedPlans, parseMonitoredSymbols, type ArmedPlan } from "@/app/lib/trigger-monitor";
 import { DEFAULT_TARGET_STYLE, type TargetStyle } from "@/app/lib/target-policy";
 import { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import { MonitorRail, type RailItem } from "@/app/components/monitor-rail";
@@ -1390,12 +1390,12 @@ export default function Home() {
     const hitSet = new Set(monitor.hits.map(entry => entry.symbol));
     const stateBy = new Map<string, string>(monitor.entries.map(entry => [entry.symbol, entry.state]));
     for (const plan of monitor.armed) stateBy.set(plan.symbol, "IN TRADE · next TP" + (plan.hit + 1));
-    const fromRow = (row: ScannerRow) => compactSignalLines({symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt, zoneLow: row.executionPlan.zoneLow, zoneHigh: row.executionPlan.zoneHigh, keyLevels: row.keyLevels?.summary});
+    const fromRow = (row: ScannerRow) => compactSignalLines({call: entryCall(row, monitor.entries.find(entry => entry.symbol === row.symbol)?.price ?? row.price).line, symbol: row.symbol, side: row.bias, entryLow: row.executionPlan.entryLow, entryHigh: row.executionPlan.entryHigh, entry: row.entry, trigger: row.executionPlan.trigger, timeframe: row.executionPlan.timeframe, stop: row.stop, targets: row.takeProfits, expiresAt: row.executionPlan.expiresAt, zoneLow: row.executionPlan.zoneLow, zoneHigh: row.executionPlan.zoneHigh, keyLevels: row.keyLevels?.summary});
     const items: RailItem[] = [];
     const seen = new Set<string>();
     for (const pick of signalAlerts.picks) {
       const snapshot = snapshotSignal(pick);
-      items.push({symbol: pick.row.symbol, side: pick.row.bias, kind: "SIGNAL", status: stateBy.get(pick.row.symbol) ?? "READY", lines: compactSignalLines({symbol: snapshot.symbol, side: snapshot.side, entryLow: snapshot.executionPlan?.entryLow ?? snapshot.entry, entryHigh: snapshot.executionPlan?.entryHigh ?? snapshot.entry, entry: snapshot.entry, trigger: snapshot.executionPlan?.trigger, timeframe: snapshot.executionPlan?.timeframe, leverage: snapshot.leverage, stop: snapshot.stop, targets: snapshot.targets, expiresAt: snapshot.expiresAt, zoneLow: snapshot.executionPlan?.zoneLow, zoneHigh: snapshot.executionPlan?.zoneHigh}), monitored: monitoredSet.has(pick.row.symbol), hit: hitSet.has(pick.row.symbol)});
+      items.push({symbol: pick.row.symbol, side: pick.row.bias, kind: "SIGNAL", status: stateBy.get(pick.row.symbol) ?? "READY", lines: compactSignalLines({call: entryCall(pick.row, monitor.entries.find(entry => entry.symbol === pick.row.symbol)?.price ?? pick.row.price).line, symbol: snapshot.symbol, side: snapshot.side, entryLow: snapshot.executionPlan?.entryLow ?? snapshot.entry, entryHigh: snapshot.executionPlan?.entryHigh ?? snapshot.entry, entry: snapshot.entry, trigger: snapshot.executionPlan?.trigger, timeframe: snapshot.executionPlan?.timeframe, leverage: snapshot.leverage, stop: snapshot.stop, targets: snapshot.targets, expiresAt: snapshot.expiresAt, zoneLow: snapshot.executionPlan?.zoneLow, zoneHigh: snapshot.executionPlan?.zoneHigh}), monitored: monitoredSet.has(pick.row.symbol), hit: hitSet.has(pick.row.symbol)});
       seen.add(pick.row.symbol);
     }
     for (const entry of monitor.entries) {
