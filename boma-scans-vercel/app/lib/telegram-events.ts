@@ -65,14 +65,18 @@ export function formatMonitorEvent(entry: MonitorEntry): TelegramEvent | null {
     : entry.state === "AT TRIGGER" ? "⏳ Price crossed the trigger. Wait for the " + plan.timeframe + " candle to CLOSE " + (long ? "above" : "below") + " it and for the dashboard to show READY. Do not buy the wick."
     : entry.state === "PAST ENTRY" ? "⏸ Price ran past the entry level. Keep the limit at the level and wait for a pullback; do not chase."
     : "";
-  const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered at plan price", data: "entered:" + entry.symbol }, { text: "✏️ Entered at…", data: "enterat:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }, { text: "📊 Re-analyse", data: "analyse:" + entry.symbol }] : undefined;
-  return { key: "monitor:" + entry.planKey + ":" + entry.state, symbol: entry.symbol, lines: [head, ...levels, instruction, ...(buttons ? ["Tap Entered so exits are tracked from your fill, or Skipped to stop following this plan."] : [])], buttons };
+  const buttons = entry.state === "ENTRY RANGE" ? [{ text: "✅ Entered at plan price", data: "entered:" + entry.symbol }, { text: "✏️ Entered at…", data: "enterat:" + entry.symbol }, { text: "❌ Skipped", data: "skipped:" + entry.symbol }, { text: "📊 Re-analyse", data: "analyse:" + entry.symbol }] : signalButtons(entry.symbol);
+  return { key: "monitor:" + entry.planKey + ":" + entry.state, symbol: entry.symbol, lines: [head, ...levels, instruction, entry.state === "ENTRY RANGE" ? "Tap Entered so exits are tracked from your fill, or Skipped to stop following this plan." : "Already in? Tap Entered (or Entered at… with your fill) so exits are tracked from your price."], buttons };
 }
 
 export type MonitorUpdateKind = "CONFIRMED" | "PLAN UPDATED" | "EXPIRED";
 
 /** Ongoing updates while a pair is monitored. */
 export function formatMonitorUpdate(entry: MonitorEntry, kind: MonitorUpdateKind): TelegramEvent {
+  if (kind === "EXPIRED") return { key: "monitor:" + entry.planKey + ":EXPIRED", symbol: entry.symbol, lines: [
+    "⌛ " + entry.symbol + " " + (entry.side ?? "") + " · PLAN EXPIRED" + (entry.plan ? " (" + entry.plan.timeframe + " confirmation ran out)" : ""),
+    "📍 Price " + (entry.price !== null ? formatPrice(entry.price) : "—") + ". No fill was recorded; cancel a resting order unless you entered. A fresh plan follows when the pair qualifies again.",
+  ], buttons: [{ text: "✅ I entered at plan price", data: "entered:" + entry.symbol }, { text: "✏️ I entered at…", data: "enterat:" + entry.symbol }, { text: "👀 Keep monitoring", data: "monitor:" + entry.symbol }, { text: "📊 Re-analyse", data: "analyse:" + entry.symbol }] };
   const levels = entry.plan ? ["", ...card(entry), ""] : [];
   const head = kind === "CONFIRMED" ? "✅ " + entry.symbol + " " + (entry.side ?? "") + " · CONFIRMED: candle closed, plan READY"
     : kind === "PLAN UPDATED" ? "🔄 " + entry.symbol + " " + (entry.side ?? "") + " · PLAN UPDATED after rescan"
@@ -80,7 +84,7 @@ export function formatMonitorUpdate(entry: MonitorEntry, kind: MonitorUpdateKind
   const note = kind === "CONFIRMED" ? "Enter only while the live price stays inside the entry range; place the limit at the entry price or better."
     : kind === "PLAN UPDATED" ? "New levels replace the earlier ones. Cancel any resting order placed on the old plan."
     : "The entry window closed without a fill. Nothing to do; a fresh plan will be sent if the pair qualifies again.";
-  return { key: "monitor:" + entry.planKey + ":" + kind, symbol: entry.symbol, lines: [head, "📍 Price " + (entry.price !== null ? formatPrice(entry.price) : "—"), ...levels, note] };
+  return { key: "monitor:" + entry.planKey + ":" + kind, symbol: entry.symbol, lines: [head, "📍 Price " + (entry.price !== null ? formatPrice(entry.price) : "—"), ...levels, note], buttons: signalButtons(entry.symbol) };
 }
 
 /** One message per hour summarising every monitored pair. */
@@ -92,7 +96,7 @@ export function formatMonitorDigest(entries: MonitorEntry[], now = Date.now()): 
     if (!plan || entry.price === null) return "• " + entry.symbol + " · " + entry.state.toLowerCase();
     return "• " + entry.symbol + " " + entry.side + " · " + entry.state + " · price " + formatPrice(entry.price) + " · trigger " + formatPrice(plan.trigger) + (entry.toTriggerPct !== null ? " (" + (entry.toTriggerPct > 0 ? "+" : "") + entry.toTriggerPct.toFixed(2) + "%)" : "") + " · stop " + (entry.stop !== null ? formatPrice(entry.stop) : "—");
   });
-  return { key: "monitor:digest:" + hour, lines: ["🕐 Monitoring update · " + entries.length + " pair" + (entries.length === 1 ? "" : "s"), ...lines, "Sent hourly. Alerts for trigger, entry range, confirmation, targets and stop arrive as they happen."] };
+  return { key: "monitor:digest:" + hour, buttons: entries.filter(entry => entry.plan && entry.side).slice(0, 8).map(entry => ({ text: "✅ Entered " + entry.symbol.replace(/USDT$/, ""), data: "entered:" + entry.symbol })), lines: ["🕐 Monitoring update · " + entries.length + " pair" + (entries.length === 1 ? "" : "s"), ...lines, "Sent hourly. Alerts for trigger, entry range, confirmation, targets and stop arrive as they happen."] };
 }
 
 /** Confirmation sent when a pair is added to monitoring (or on "send levels now"). */
@@ -100,7 +104,7 @@ export function formatMonitorStart(entry: MonitorEntry, now = Date.now()): Teleg
   const plan = entry.plan;
   const stamp = Math.floor(now / 60_000);
   if (!plan || !entry.side) return { key: "monitor:" + entry.symbol + ":start:" + stamp, symbol: entry.symbol, lines: ["👀 Monitoring " + entry.symbol, "No scanned plan yet for this pair; levels follow after the next scan. You will be told when price reaches the trigger or entry range."] };
-  return { key: "monitor:" + entry.planKey + ":start:" + stamp, symbol: entry.symbol, lines: [
+  return { key: "monitor:" + entry.planKey + ":start:" + stamp, symbol: entry.symbol, buttons: signalButtons(entry.symbol), lines: [
     "👀 Monitoring " + entry.symbol + " " + entry.side + " · " + entry.state,
     "📍 Price " + (entry.price !== null ? formatPrice(entry.price) : "—") + (entry.toTriggerPct !== null ? " · " + (entry.toTriggerPct > 0 ? "+" : "") + entry.toTriggerPct.toFixed(2) + "% to trigger" : ""),
     "", ...card(entry), "",

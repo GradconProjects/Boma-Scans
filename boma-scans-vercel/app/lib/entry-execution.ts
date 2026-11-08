@@ -51,7 +51,10 @@ export function buildEntryExecutionPlan(input: {
   mode: FlexibilityMode; setupType: string; score: number; threshold: number;
   confluence: number; frames: number; strongClose: boolean;
   structureReady: boolean; momentumAligned: boolean;
+  /** Candles a confirmation stays valid (style policy); defaults to the location policy. */
+  validCandles?: number;
 }): EntryExecutionPlan {
+  const validCandles = input.validCandles ?? ENTRY_LOCATION_POLICY.validCandles;
   const { candles, side, marketPrice, intervalMs } = input;
   const long = side === "LONG";
   const sign = long ? 1 : -1;
@@ -124,7 +127,7 @@ export function buildEntryExecutionPlan(input: {
   const invalidated = sign * (marketPrice - stop) <= 0 || currentBarBreachedStop ||
     sign * (current.close - (long ? zoneLow : zoneHigh)) < 0;
   const staleHistory = input.now < current.time + intervalMs || input.now >= current.time + intervalMs * 3;
-  const expiredConfirmation = confirmationTime !== null && input.now >= confirmationTime + intervalMs * 3;
+  const expiredConfirmation = confirmationTime !== null && input.now >= confirmationTime + intervalMs * (validCandles + 1);
   const freshConfirmation = confirmationTime !== null && !expiredConfirmation && sign * (current.close - trigger) >= 0;
   const locationOkay = !invalidated && !staleHistory && !tooExtended && !tooLate && reclaimed && !impulsePending;
   const alternativeAllowed = !impulsePending && input.setupType !== "CHoCH REVERSAL" && input.setupType !== "PULLBACK";
@@ -146,7 +149,7 @@ export function buildEntryExecutionPlan(input: {
       : "The entry price has run beyond " + priceText(long ? entryHigh : entryLow) + ". Skip this chase; require a fresh retest and close.";
   }
   else if (stopTooWide) { status = "BLOCKED"; reason = "The structural stop is too distant for this entry. Wait for a tighter structure; do not move the stop inside the zone."; }
-  else if (expiredConfirmation) { status = "EXPIRED"; reason = "The confirmation is over two candles old. Require a new retest and confirmation."; }
+  else if (expiredConfirmation) { status = "EXPIRED"; reason = "The confirmation is over " + validCandles + " candles old. Require a new retest and confirmation."; }
   else if (!timing.passed || !reclaimed) {
     status = freshConfirmation ? "WAIT_PRICE" : retests.length ? "WAIT_CONFIRMATION" : "WAIT_RETEST";
     reason = freshConfirmation ? "Price lost the confirmation level. Wait for a fresh close that reclaims it."
@@ -156,7 +159,7 @@ export function buildEntryExecutionPlan(input: {
   const timeframe = intervalMs < 3_600_000 ? intervalMs / 60_000 + "m" : intervalMs / 3_600_000 + "h";
   // Fixed structural limit: quote changes never move the entry price.
   const entry = trigger;
-  const expiresAt = (confirmationTime ?? current.time) + intervalMs * (ENTRY_LOCATION_POLICY.validCandles + 1);
+  const expiresAt = (confirmationTime ?? current.time) + intervalMs * (validCandles + 1);
   const cancelText = "Cancel if a " + timeframe + " candle closes " + (long ? "below " : "above ") + priceText(long ? zoneLow : zoneHigh) +
     ", price touches stop " + priceText(stop) + ", or this confirmation expires. Never chase " + (long ? "above " : "below ") + priceText(long ? entryHigh : entryLow) + ".";
   return {

@@ -702,3 +702,13 @@ test("Historic levels: zones cluster daily and weekly swings; a long into a majo
   assert.ok(fromFloor.roomR > 1.5); assert.equal(fromFloor.status, "PASS");
   assert.match(fromFloor.summary, /room \d+\.\dR|open road/);
 });
+
+test("A Day plan stays valid for a day of 1H candles, a Scalp plan for two candles", () => {
+  const { PLAN_VALID_CANDLES } = load("app/lib/target-policy.ts");
+  assert.equal(PLAN_VALID_CANDLES.DAY, 24); assert.equal(PLAN_VALID_CANDLES.SWING, 72); assert.equal(PLAN_VALID_CANDLES.SCALP, 2);
+  const now = Date.now();
+  const {plan: short} = executionFixture(now);
+  const {input} = executionFixture(now);
+  const long = execution.buildEntryExecutionPlan({ ...input, validCandles: 24 });
+  assert.equal(long.expiresAt - short.expiresAt, 22 * input.intervalMs, "24 valid candles instead of the policy's 2");
+});

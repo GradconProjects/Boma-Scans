@@ -101,6 +101,10 @@ Qualified signals need a pullback into the zone and a closed 1H candle through t
 
 Once entered you are told at each target, at the stop, when the engine sees a structure change against the trade (leave or protect the stop), when the runner should be closed after target 2 and when the maximum hold time is reached.
 
+## How long a plan stays valid
+
+A confirmed plan is valid for 2 candles in Scalp, 24 candles (a day on the 1H chart) in Day, 72 in Swing and 120 in Position, so a resting day-trade order can sit overnight. The plan is still cancelled early when a candle closes beyond the zone or price crosses the stop, and the Telegram card's "Expires" line shows the real deadline. Every Telegram message that shows a plan carries the Entered / Entered at… buttons, including confirmations, plan updates, the hourly digest and the expiry notice, so a trade you joined can be recorded at any point.
+
 ## Historic support & resistance
 
 Signals are read against higher-timeframe history, not only the last few hours. Daily and weekly swing highs and lows (plus yearly, multi-year and prior-month extremes) are clustered into zones. The zones become the strongest take-profit candidates, and each signal states the nearest major level in its path and the room to it in R. The two-year backtest showed that blocking trades for lack of room removed the best trades (trend breaks through levels), so the levels inform the exit plan rather than veto the entry; see the policy document for the numbers. The levels panel shows the nearest support and resistance with frame and touch count ("S 1.1900 (W×3) · R 1.2600 (D×2) · room 1.8R"), the chart draws the zones as dashed lines, and Telegram cards carry the same line.

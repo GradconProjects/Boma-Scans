@@ -73,7 +73,7 @@ export function snapshotSignal(pick: MediumRiskRecommendation): SignalSnapshot {
   return {
     id: key + ":" + row.analyzedAt, key, scope: signalScope(row),
     createdAt: row.analyzedAt,
-    expiresAt: Math.min(row.executionPlan.expiresAt, row.analyzedAt + Math.min(15 * 60_000, 2 * INTERVAL_MS[STYLE_CONFIG[row.style].interval])),
+    expiresAt: row.executionPlan.expiresAt,
     executionPlan: {...row.executionPlan, steps: [...row.executionPlan.steps]},
     readAt: null, withdrawnAt: null,
     symbol: row.symbol, side: row.bias, style: row.style, flexibility: row.flexibility,

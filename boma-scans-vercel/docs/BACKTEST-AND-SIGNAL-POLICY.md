@@ -60,7 +60,8 @@ Other evidence used:
 4. **Regime:** only ADX 25+ (TRENDING) markets qualify; weak trend waits.
 5. **All timeframes aligned:** a trend, breakout or pullback signal needs the execution frame (1H close vs EMA21), context frame (4H close vs EMA50) and macro frame (1D close vs EMA200) all on the trade's side. Two of three now shows WAIT. In the backtest, 2/3-aligned trend setups averaged about +0.12R against +0.30R to +0.47R for full alignment. CHoCH reversals trade against the higher frames by design and keep their one-frame requirement. ADX trend strength is measured on the context (4H) frame.
 6. **Historic support and resistance.** Confirmed swing highs and lows on the daily chart (three closed candles either side) and the weekly chart (two either side), the yearly and multi-year extremes and the prior month's range are clustered into zones about 0.6 daily-ATR wide; a zone counts when it has two touches or one weekly / yearly reference. Zone edges enter the target map with the highest structural weight, so targets snap to historic levels, and every signal shows the nearest supporting and opposing level with frame and touch count and the room to it in R. The levels are **not** an entry gate: see the table below.
-7. The old 1.2R weighted-reward minimum and the "all five targets structural" rule are removed. They blocked nearly every signal and did not improve results.
+7. **Plan validity by style.** A confirmed plan stays valid for 2 execution candles in Scalp, 24 in Day, 72 in Swing and 120 in Position (invalidation by a close beyond the zone or a stop-side cross still cancels it early). The backtest fills at the signal bar, so validity is a policy limit for resting orders rather than a calibrated parameter.
+8. The old 1.2R weighted-reward minimum and the "all five targets structural" rule are removed. They blocked nearly every signal and did not improve results.
 
 ## End-to-end result of the finished engine
 

@@ -1,4 +1,4 @@
-import { targetBudget, TARGET_EXIT_WEIGHTS, MAX_ROUND_TRIP_COST_R, R_LADDER, R_LADDER_WEIGHTS, SIGNAL_INTERVAL_MS, DEFAULT_TARGET_STYLE, TA_DESIRED_R, TA_WINDOW, type TargetStyle } from "@/app/lib/target-policy";
+import { targetBudget, TARGET_EXIT_WEIGHTS, MAX_ROUND_TRIP_COST_R, R_LADDER, R_LADDER_WEIGHTS, SIGNAL_INTERVAL_MS, DEFAULT_TARGET_STYLE, TA_DESIRED_R, TA_WINDOW, type TargetStyle, PLAN_VALID_CANDLES } from "@/app/lib/target-policy";
 import { relativeRiskBand, type FlexibilityMode, type QualityOverride } from "@/app/lib/entry-policy";
 import { buildEntryExecutionPlan, type EntryExecutionPlan } from "@/app/lib/entry-execution";
 
@@ -1629,7 +1629,7 @@ export function analyzeMarket(
   const locationPlan = buildEntryExecutionPlan({
     candles: usable, liveCandle: executionSource[executionSource.length - 1], side: bias,
     marketPrice: executionPrice, zoneLow: entryLow, zoneHigh: entryHigh, zoneSource,
-    ema21: currentEma21, atr: atrValue, intervalMs: executionIntervalMs,
+    ema21: currentEma21, atr: atrValue, intervalMs: executionIntervalMs, validCandles: PLAN_VALID_CANDLES[style],
     now: options.now ?? Date.now(), breakTime,
     mode: flexibility, setupType, score, threshold: setupThreshold,
     confluence: structuralConfluence, frames: trendFrames, strongClose,

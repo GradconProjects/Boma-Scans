@@ -52,3 +52,10 @@ export const DEFAULT_TARGET_STYLE: TargetStyle = "TA";
 /** Desired distances (in R) that TA targets are matched against, and the window around each. */
 export const TA_DESIRED_R = [0.9, 1.6, 2.5, 3.5, 5];
 export const TA_WINDOW = { low: 0.55, high: 1.45 };
+
+/**
+ * How long a confirmed plan stays valid, in execution candles, by style. A day
+ * trader's resting order can sit for a day; a swing order for three. A plan is
+ * still cancelled early when price closes beyond the zone or crosses the stop.
+ */
+export const PLAN_VALID_CANDLES = { SCALP: 2, DAY: 24, SWING: 72, POSITION: 120 } as const;
