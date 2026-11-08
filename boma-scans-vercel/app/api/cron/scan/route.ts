@@ -7,6 +7,8 @@ import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines } from "@/app/lib/ai-review";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
+import { majorEventGate } from "@/app/lib/push-policy";
+import { whaleAlignment } from "@/app/server/whale-align";
 import type { ScannerRow } from "@/app/lib/market";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
@@ -65,12 +67,16 @@ export async function GET(request: NextRequest) {
       qualified.push(symbol);
       let positioning: string[] = [];
       try { const snapshot = await whaleSnapshot(); const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, positioningSummary(data, row.bias), ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
+      // Push policy: a major structural event, a stop that can hold four hours, and no ranked whales against it.
+      const gate = majorEventGate(row, result.analysis, result.candles);
+      const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
+      if (!gate.ok || whales.stance === "AGAINST") { held.push({ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }); return; }
       // Careful second read before the push; a REJECT holds the signal and is listed in the hourly monitor list instead.
       const review = await reviewBeforePush(result);
       if (review?.verdict === "REJECT") { held.push({ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }); return; }
       // The reviewer's level refinements (inside the guardrails) become the signal's levels.
       const finalPick = review?.applied ? getMediumRiskShortlist([applyRefinedLevels(row, review.applied)], equity, true, 1, now)[0] ?? pick : pick;
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), "", "⚡ Major event: " + gate.event + " · stop " + (Math.abs(row.executionPlan.entry - row.stop) / result.analysis.metrics.atr).toFixed(1) + " ATR (holds ~" + gate.survivalHours + " h of normal range)", "🐋 Whales " + (whales.stance === "WITH" ? "with you: " : "neutral: ") + whales.detail, ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.

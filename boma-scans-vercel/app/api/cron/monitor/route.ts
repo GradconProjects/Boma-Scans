@@ -18,6 +18,8 @@ import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai
 import { storedReviews } from "@/app/server/ai";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
 import { trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
+import { majorEventGate } from "@/app/lib/push-policy";
+import { whaleAlignment } from "@/app/server/whale-align";
 import { OWNER_ID } from "@/app/server/owner-auth";
 
 export const dynamic = "force-dynamic";
@@ -86,22 +88,26 @@ export async function GET(request: NextRequest) {
       if (review.verdict === "REJECT") { memory.held = [{ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10); return null; }
       return { ...event, lines: [...event.lines, "", ...reviewLines(review)] };
     };
-    // Push policy: only entry range is an individual alert; trigger / past-entry states go into the hourly list.
-    if (step.alert && entry.state === "ENTRY RANGE") { const event = await reviewed(await withPositioning(formatMonitorEvent(entry))); if (event) events.push(event); }
-    if (step.followUp) { const event = formatMonitorEvent(entry); if (event) events.push(event); }
-    for (const kind of step.updates) { if (kind === "PLAN UPDATED") continue; const event = kind === "CONFIRMED" ? await reviewed(await withPositioning(formatMonitorUpdate(entry, kind))) : formatMonitorUpdate(entry, kind); if (event) events.push(event); }
+    // Quiet policy: monitoring messages (entry range, confirmation, expiry, stop-side hit) go only to pairs the owner said they entered or placed an order for.
+    const entered = !!step.memory.armed || !!(step.memory as { confirmed?: boolean }).confirmed;
+    if (entered && step.alert && entry.state === "ENTRY RANGE") { const event = await reviewed(await withPositioning(formatMonitorEvent(entry))); if (event) events.push(event); }
+    if (entered && step.followUp) { const event = formatMonitorEvent(entry); if (event) events.push(event); }
+    for (const kind of step.updates) { if (!entered || kind === "PLAN UPDATED") continue; const event = kind === "CONFIRMED" ? await reviewed(await withPositioning(formatMonitorUpdate(entry, kind))) : formatMonitorUpdate(entry, kind); if (event) events.push(event); }
     for (const exit of step.exits) events.push(formatExitEvent(exit));
     // Still in the trade: ask the engine whether structure says leave or protect.
     if (step.memory.armed && row && analysis) events.push(...structureAdvice(step.memory.armed, analysis, row, now));
-    // A monitored pair that qualifies as a full signal is announced as one.
-    if (row && isMediumRiskTake(row, true, now)) {
+    // A monitored pair that qualifies as a full signal is announced as one, under the same push policy as the scan.
+    if (row && analysis && isMediumRiskTake(row, true, now)) {
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
-      if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), buttons: signalButtons(symbol) })); if (event) events.push(event); }
+      const gate = majorEventGate(row, analysis, candles);
+      const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
+      if (pick && (!gate.ok || whales.stance === "AGAINST")) memory.held = [{ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10);
+      else if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), buttons: signalButtons(symbol) })); if (event) events.push(event); }
     }
   });
   const reviews = await storedReviews().catch(() => ({}));
   const inTrade = Object.entries(memory.symbols).filter(([, m]) => m.armed).map(([symbol, m]) => ({ symbol, side: m.armed!.side, entry: m.armed!.entry, hit: m.armed!.hit, price: prices[symbol] ?? null }));
-  const digest = formatMonitorDigest(entries.filter(entry => entry.price !== null), now, { inTrade, forming: (memory.forming ?? []).filter(f => now - f.at < 6 * 3_600_000), reviews: Object.fromEntries(Object.entries(reviews).map(([key, review]) => [key, { verdict: review.verdict, summary: review.summary }])), held: (memory.held ?? []).filter(h => now - h.at < 12 * 3_600_000) });
+  const digest = workspace.telegramDigest === true ? formatMonitorDigest(entries.filter(entry => entry.price !== null), now, { inTrade, forming: (memory.forming ?? []).filter(f => now - f.at < 6 * 3_600_000), reviews: Object.fromEntries(Object.entries(reviews).map(([key, review]) => [key, { verdict: review.verdict, summary: review.summary }])), held: (memory.held ?? []).filter(h => now - h.at < 12 * 3_600_000) }) : null;
   if (digest) events.push(digest);
   for (const symbol of Object.keys(memory.symbols)) if (!monitored.includes(symbol)) delete memory.symbols[symbol];
   memory.lastRunAt = now; memory.lastError = problems[0];

@@ -8,7 +8,7 @@ import type { WhaleEvent, WhaleExit, WhaleRank, WhaleSignal } from "@/app/lib/wh
 import { WhaleAnalysisPanel } from "@/app/components/whale-analysis-panel";
 
 type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
-type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[] };
+type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; watch?: string[] };
 type Payload = { at: number; signals: Signal[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; error?: string };
 
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
@@ -39,6 +39,13 @@ export function WhalesView() {
     if (d.settings) setData(current => current ? { ...current, settings: d.settings! } : current);
   };
   const rankBy = new Map((data?.ranks ?? []).map(r => [r.trader, r]));
+  const watched = new Set(data?.settings.watch ?? []);
+  const toggleWatch = async (coin: string) => {
+    const r = await fetch("/api/whales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: watched.has(coin) ? "unwatch" : "watch", coin }) });
+    const d = await r.json() as { settings?: Settings };
+    if (d.settings) setData(current => current ? { ...current, settings: d.settings! } : current);
+  };
+  const WatchButton = ({ coin }: { coin: string }) => <Button type="button" size="sm" variant={watched.has(coin) ? "default" : "outline"} onClick={() => void toggleWatch(coin)} className="rounded-lg">{watched.has(coin) ? "👁 Monitoring " + coin : "👁 Monitor " + coin + " alone"}</Button>;
   return <main className="mx-auto max-w-6xl px-4 py-6 text-slate-100">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div>
@@ -51,6 +58,15 @@ export function WhalesView() {
     {error && <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{error}{error.includes("Sign in") && <> · <Link href="/login" className="underline">Sign in</Link></>}</p>}
     <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Entry & exit signals" + (data ? " · " + (data.signals.filter(s => s.status !== "WEAK").length + data.exits.length) : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
 
+    {tab === "signals" && data && <section className="mt-4 rounded-2xl border border-violet-300/30 bg-violet-300/[0.05] p-3">
+      <p className="text-sm font-semibold text-white">👁 Pairs you monitor in the whale system {watched.size ? "· " + watched.size : ""}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">Every directional whale move of $100K+ on these coins is sent to Telegram as it happens, and their entry and exit signals are sent without the confidence floor. Pick a coin from any signal, any activity row, or type one below.</p>
+      {watched.size > 0 && <div className="mt-2 flex flex-wrap gap-2">{Array.from(watched).map(c => <button key={c} type="button" onClick={() => void toggleWatch(c)} className="rounded-lg border border-violet-300/40 bg-violet-300/10 px-2 py-1 font-mono text-xs text-violet-100 hover:bg-violet-300/20" title="Stop monitoring">{c} ✕</button>)}</div>}
+      <form className="mt-2 flex flex-wrap items-center gap-2" onSubmit={e => { e.preventDefault(); const input = (e.currentTarget.elements.namedItem("watch-coin") as HTMLInputElement); const c = input.value.trim().toUpperCase().replace(/USDT$/, ""); if (c) { void toggleWatch(c); input.value = ""; } }}>
+        <input name="watch-coin" placeholder="Coin to monitor, e.g. SOL" className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 font-mono text-sm text-slate-100"/>
+        <Button type="submit" size="sm" variant="outline" className="rounded-lg">Monitor this pair</Button>
+      </form>
+    </section>}
     {tab === "signals" && <AnalyseAnyCoin/>}
     {tab === "signals" && data && data.exits.length > 0 && <section className="mt-4">
       <h2 className="text-sm font-bold uppercase tracking-widest text-rose-200">🚪 Whale exit signals</h2>
@@ -59,6 +75,7 @@ export function WhalesView() {
         <p className="mt-1 text-xs text-slate-300">Whales realised {(x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl))} on the way out</p>
         <ul className="mt-2 space-y-1 text-xs text-slate-300">{x.whales.map(w => <li key={w.label + w.kind}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span>{w.wasLeader && <span className="ml-1 rounded bg-rose-300/20 px-1 text-rose-100">led the entry</span>} {w.kind.toLowerCase()} {formatUsd(Math.abs(w.deltaUsd))} · {(w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl))} · held {w.heldHours}h</li>)}</ul>
         <p className="mt-2 text-xs leading-5 text-slate-400">{x.note}</p>
+        <div className="mt-3 flex flex-wrap gap-2"><WatchButton coin={x.coin}/></div>
         <WhaleAnalysisPanel coin={x.coin} side={x.side}/>
       </article>)}</div>
     </section>}
@@ -77,6 +94,7 @@ export function WhalesView() {
             <p className="mt-1 font-mono text-slate-200">🛑 Stop idea {formatPrice(s.engine.stop)} (1.5 ATR beyond their entry) · 🎯 {s.engine.targets.map(t => formatPrice(t)).join(" / ")} (1R / 2R / 3R)</p>
           </div> : <p className="mt-3 text-xs text-slate-500">Not listed on Bybit; information only.</p>}
           <p className="mt-2 text-xs leading-5 text-slate-400">{s.note}</p>
+          <div className="mt-3 flex flex-wrap gap-2"><WatchButton coin={s.coin}/></div>
           <WhaleAnalysisPanel coin={s.coin} side={s.side}/>
         </article>)}
     </section>}
@@ -98,7 +116,7 @@ export function WhalesView() {
           <td className="p-2 text-right">{formatPrice(e.entry)}</td>
           <td className={"p-2 text-right " + (e.pnl >= 0 ? "text-emerald-300" : "text-rose-300")}>{(e.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(e.pnl))}</td>
           <td className="p-2 text-right text-slate-400">{e.heldMs ? Math.round(e.heldMs / 3_600_000) + "h" : "new"}</td>
-          <td className="p-2"><button type="button" onClick={() => setAnalyseCoin(current => current?.coin === e.coin && current.side === e.side ? null : { coin: e.coin, side: e.side })} className="rounded-lg border border-white/10 px-2 py-1 font-sans text-[11px] text-cyan-100 hover:bg-white/5">Analyse</button></td>
+          <td className="p-2 whitespace-nowrap"><button type="button" onClick={() => setAnalyseCoin(current => current?.coin === e.coin && current.side === e.side ? null : { coin: e.coin, side: e.side })} className="rounded-lg border border-white/10 px-2 py-1 font-sans text-[11px] text-cyan-100 hover:bg-white/5">Analyse</button> <button type="button" onClick={() => void toggleWatch(e.coin)} className={"rounded-lg border px-2 py-1 font-sans text-[11px] hover:bg-white/5 " + (watched.has(e.coin) ? "border-violet-300/40 text-violet-100" : "border-white/10 text-slate-300")}>{watched.has(e.coin) ? "👁 on" : "👁"}</button></td>
         </tr>; })}</tbody>
       </table>
       {data && data.events.length === 0 && <p className="p-4 text-sm text-slate-400">No events yet. The first snapshot records existing positions as the baseline; opens, adds, reductions, closes and flips appear from the next change on (snapshots every 3 minutes).</p>}

@@ -23,7 +23,12 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   const user = await getOwnerUser(); if (!user) return reply({ error: "Sign in at /login." }, 401);
   if (request.headers.get("origin") && request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Origin rejected." }, 403);
-  const body = await request.json().catch(() => ({})) as { alerts?: boolean; minTier?: "ELITE" | "STRONG"; coins?: string[]; action?: string; coin?: string; side?: "LONG" | "SHORT" };
+  const body = await request.json().catch(() => ({})) as { alerts?: boolean; minTier?: "ELITE" | "STRONG"; coins?: string[]; watch?: string[]; action?: string; coin?: string; side?: "LONG" | "SHORT" };
+  if (body.action === "watch" || body.action === "unwatch") {
+    const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);
+    const current = await whaleSettings(); const watch = body.action === "watch" ? Array.from(new Set([coin, ...(current.watch ?? [])])).slice(0, 20) : (current.watch ?? []).filter(c => c !== coin);
+    return reply({ settings: await saveWhaleSettings({ watch }) });
+  }
   if (body.action === "purge-baseline") { const since = Number((body as { since?: number }).since) || Date.now() - 3_600_000; return reply({ removed: await purgeBaselineOpens(since) }); }
   if (body.action === "analyse") {
     const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, "");
@@ -34,6 +39,7 @@ export async function POST(request: NextRequest) {
   const patch: Record<string, unknown> = {};
   if (typeof body.alerts === "boolean") patch.alerts = body.alerts;
   if (body.minTier === "ELITE" || body.minTier === "STRONG") patch.minTier = body.minTier;
+  if (Array.isArray(body.watch)) patch.watch = body.watch.map(c => String(c).replace(/[^A-Za-z0-9]/g, "")).filter(Boolean).slice(0, 20);
   if (Array.isArray(body.coins)) patch.coins = body.coins.map(c => String(c).toUpperCase().replace(/[^A-Z0-9k]/g, "")).filter(Boolean).slice(0, 30);
   return reply({ settings: await saveWhaleSettings(patch) });
 }

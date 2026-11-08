@@ -134,7 +134,11 @@ Every signal card, in the app and on Telegram, opens with the call at the live p
 
 ## What Telegram sends, and when
 
-To keep the chat quiet, individual messages go out only for: a qualified signal that passed review, a monitored pair entering its entry range, a candle-close confirmation, your "Entered" confirmations, exits (targets, stop, leave, protect) and a stop-side hit before entry. Everything else is folded into the hourly **monitor list**: in-trade pairs first (entry, next target, open P&L), then ready-to-enter pairs with limit and stop, then every monitored pair on one line, then forming setups and anything held by review. `/status` prints the same list on demand.
+The phone is for decisions, not noise. The scanner pushes an **entry call** only when all of these hold: the engine's plan is READY, a **major structural event** happened on the trade's side (change of character, break of structure or liquidity sweep, or a breakout / CHoCH-reversal setup), the **stop can hold about four hours** (at least two 1H ATRs from the entry, and the last four candles never traded within 20% of it), the **ranked whales are not against it** (fresh whale money or the ranked open book on the other side holds the signal), and the AI reviewer did not reject it. Held signals are listed in the app with the reason. Regular monitoring messages (entry range, confirmation, expiry, stop-side hit) go **only to pairs you marked as entered**; exits and leave / protect advice are for entered pairs by nature. The hourly monitor list is off unless `telegramDigest` is enabled in the workspace; `/status` prints it on demand. In the whale system, pairs you choose to **monitor alone** report every directional whale move of $100K+ as it happens, plus their entry and exit signals without the confidence floor.
+
+### Signals mirror the whales
+
+Where a Bybit pair is listed on Hyperliquid, every scanner push states the ranked whales' stance (fresh money in the last 24 hours first, then their open book). Whales against the side hold the push; whales with it are stated on the card; the AI reviewer is told the same rule.
 
 ## How long a plan stays valid
 
