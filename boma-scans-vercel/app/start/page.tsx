@@ -16,7 +16,7 @@ export default async function StartPage() {
         <h2 className="mt-2 text-xl font-semibold text-white">Signal scanner</h2>
         <p className="mt-2 text-sm leading-6 text-slate-300">Rule-based 1H setups on every Bybit USDT perpetual, backtested over two years: entry window, trigger, stop, five targets, AI second read, monitoring and exits on Telegram.</p>
       </Link>
-      <Link href="/whales" className="rounded-3xl border border-violet-300/30 bg-violet-300/[0.06] p-6 transition hover:bg-violet-300/[0.12]">
+      <Link href="/?view=whales" className="rounded-3xl border border-violet-300/30 bg-violet-300/[0.06] p-6 transition hover:bg-violet-300/[0.12]">
         <p className="text-2xl">🐋</p>
         <h2 className="mt-2 text-xl font-semibold text-white">Whale system</h2>
         <p className="mt-2 text-sm leading-6 text-slate-300">What consistently successful Hyperliquid whales are doing now: live opens, adds and closes, performance rankings, and confirmed signals when several ranked whales enter the same side.</p>

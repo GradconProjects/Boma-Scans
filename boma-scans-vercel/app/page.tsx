@@ -81,6 +81,8 @@ import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
 import { PositioningPanel, type PositioningTarget } from "@/app/components/positioning-panel";
 import { usePositioning } from "@/app/components/use-positioning";
+import { WhalesView } from "@/app/components/whales-view";
+import { readView, VIEW_EVENT, type SystemView } from "@/app/components/system-switch";
 import type { SignalReview } from "@/app/lib/ai-review";
 import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
@@ -399,6 +401,14 @@ export default function Home() {
   const [monitoredReady, setMonitoredReady] = useState(false);
   // Deep link from Telegram: /?pair=XRPUSDT selects the pair and expands its row in the side panel.
   const [focusPair, setFocusPair] = useState("");
+  // Which system is showing. The scanner stays mounted (hidden) while the whale view is up, so switching back is instant.
+  const [view, setView] = useState<SystemView>("scanner");
+  useEffect(() => {
+    const sync = () => setView(readView());
+    sync();
+    window.addEventListener("popstate", sync); window.addEventListener(VIEW_EVENT, sync);
+    return () => { window.removeEventListener("popstate", sync); window.removeEventListener(VIEW_EVENT, sync); };
+  }, []);
   useEffect(() => {
     const pair = (new URLSearchParams(window.location.search).get("pair") ?? "").toUpperCase();
     if (!/^[A-Z0-9]{2,24}USDT$/.test(pair)) return;
@@ -1735,8 +1745,9 @@ export default function Home() {
       ? currentEntryStatus === "AVOID" ? "GATED" : "≤" + (currentEntryStatus === "ALLOW" ? "0.45" : "0.25") + "%"
       : "≤" + analysis.riskMultiplier.toFixed(2) + "%";
 
-  return (
-    <main className="min-h-screen overflow-x-hidden pb-20 text-foreground md:pb-6">
+  return (<>
+    {view === "whales" && <WhalesView/>}
+    <main className={"min-h-screen overflow-x-hidden pb-20 text-foreground md:pb-6" + (view === "whales" ? " hidden" : "")} aria-hidden={view === "whales"}>
       <Toaster position="top-right" theme="dark" />
       <header className="sticky top-0 z-50 border-b border-white/[0.07] bg-[#05090f]/90 backdrop-blur-2xl">
         <div className="mx-auto flex min-h-[72px] max-w-[1680px] flex-wrap items-center gap-3 px-4 py-3 lg:px-8">
@@ -2848,5 +2859,5 @@ export default function Home() {
       <nav aria-label="Mobile navigation" className="fixed inset-x-0 bottom-0 z-40 flex justify-around border-t border-white/10 bg-[#0a0b0f]/95 px-3 py-3 pb-[max(12px,env(safe-area-inset-bottom))] backdrop-blur md:hidden">{[["signals-center", "Signals", Radio], ["notifications", "Alerts", Bell], ["chart-focus", "Chart", LineChart], ["trade-manager", "Trades", BriefcaseBusiness]].map(([id,label,Icon]) => {const NavIcon = Icon as typeof Radar; return <button type="button" key={String(id)} onClick={() => navigateSection(String(id))} className="flex min-w-14 flex-col items-center gap-1 text-xs text-slate-400"><NavIcon className="h-5 w-5"/>{String(label)}</button>;})}</nav>
       <Dialog open={chartFullscreen} onOpenChange={setChartFullscreen}><DialogContent className="h-[95dvh] w-[98vw] max-w-none overflow-hidden border-white/10 bg-[#080d15] p-3 sm:max-w-none"><DialogTitle className="text-sm">{symbol} · {intervalLabel} chart</DialogTitle><DialogDescription className="text-xs text-slate-500">Zoom with the wheel or buttons; drag to pan. {entryMode === "MARKET" ? "Current-entry" : "Preferred"} levels.</DialogDescription><MarketChart candles={candles} analysis={analysis} symbol={symbol} intervalLabel={intervalLabel} loading={loading} style={style} entryMode={entryMode} currentEntryStatus={currentEntryStatus} preferredEntryReady={setupReady} fullscreen /></DialogContent></Dialog>
     </main>
-  );
+  </>);
 }
