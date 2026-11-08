@@ -58,7 +58,7 @@ export async function trackWhales(now = Date.now()): Promise<{ events: WhaleEven
 }
 
 export async function whaleRankings(): Promise<WhaleRank[]> {
-  const [rows, closes, snapshot] = await Promise.all([whaleAddresses(), recentEvents(30 * 86_400_000, 2000), whaleSnapshot()]);
+  const rows = await whaleAddresses(); const snapshot = await whaleSnapshot(); const closes = await recentEvents(30 * 86_400_000, 2000);
   const openBy = new Map<string, number>();
   for (const p of snapshot.positions) openBy.set(p.trader, (openBy.get(p.trader) ?? 0) + 1);
   const performances: WhalePerformance[] = rows.map(r => { const label = r.address.slice(0, 6) + "…" + r.address.slice(-4); return { trader: label, accountValue: r.accountValue, openPositions: openBy.get(label) ?? 0, windows: r.windows ?? { day: { pnl: 0, roi: 0 }, week: { pnl: 0, roi: 0 }, month: { pnl: 0, roi: 0 }, allTime: { pnl: 0, roi: 0 } } }; });
@@ -69,7 +69,7 @@ export type WhaleSignalWithPlan = WhaleSignal & { symbol: string | null; engine?
 
 /** Confirmed whale signals with the Bybit symbol and our engine's read of the same chart. */
 export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSignalWithPlan[]; ranks: WhaleRank[]; events: WhaleEvent[] }> {
-  const [ranks, events] = await Promise.all([whaleRankings(), recentEvents(24 * 3_600_000)]);
+  const ranks = await whaleRankings(); const events = await recentEvents(24 * 3_600_000);
   const snapshot = await whaleSnapshot();
   const prices: Record<string, number> = Object.fromEntries(Object.entries(snapshot.ctx).map(([coin, c]) => [coin, c.markPx]));
   const raw = confirmWhaleSignals(events, ranks, prices, now).slice(0, 8);

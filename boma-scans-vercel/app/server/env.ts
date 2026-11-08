@@ -104,11 +104,14 @@ async function postgresExecute(url: string): Promise<Execute> {
   const tables = ["account_records", "telegram_deliveries", "telegram_runtime", "telegram_updates", "login_attempts", "whale_events"];
   const existing = await withTimeout(sql.unsafe("SELECT c.relname AS name, c.relrowsecurity AS rls FROM pg_class c JOIN pg_namespace n ON n.oid = c.relnamespace WHERE n.nspname = current_schema() AND c.relkind = 'r' AND c.relname = ANY($1)", [tables]), "schema check");
   const known = new Map(Array.from(existing as unknown as Array<{ name: string; rls: boolean }>).map(row => [row.name, row.rls]));
+  // Only tables this process creates get their ALTER; an existing table is never altered on a hot path,
+  // because an ALTER waits for an exclusive lock and every other statement then queues behind it.
+  const created = new Set<string>();
   for (const statement of POSTGRES_SCHEMA) {
     const create = /^CREATE TABLE IF NOT EXISTS (\w+)/.exec(statement);
     const alter = /^ALTER TABLE (\w+) ENABLE ROW LEVEL SECURITY$/.exec(statement);
-    if (create && known.has(create[1])) continue;
-    if (alter && known.get(alter[1]) === true) continue;
+    if (create) { if (known.has(create[1])) continue; created.add(create[1]); }
+    if (alter && !created.has(alter[1])) continue;
     await withTimeout(sql.unsafe(statement), "schema setup");
   }
   globalState.__bomaClose = () => sql.end({ timeout: 1 }).catch(() => undefined);
