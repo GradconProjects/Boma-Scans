@@ -5,7 +5,7 @@ import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
 import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
-import { reviewLines } from "@/app/lib/ai-review";
+import { applyRefinedLevels, reviewLines } from "@/app/lib/ai-review";
 import { planKeyOf } from "@/app/lib/trigger-monitor";
 import type { ScannerRow } from "@/app/lib/market";
 import { analyzePair, marketRead } from "@/app/server/market-analysis";
@@ -68,7 +68,9 @@ export async function GET(request: NextRequest) {
       // Careful second read before the push; a REJECT holds the signal and is listed in the hourly monitor list instead.
       const review = await reviewBeforePush(result);
       if (review?.verdict === "REJECT") { held.push({ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }); return; }
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now).split("\n"), ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
+      // The reviewer's level refinements (inside the guardrails) become the signal's levels.
+      const finalPick = review?.applied ? getMediumRiskShortlist([applyRefinedLevels(row, review.applied)], equity, true, 1, now)[0] ?? pick : pick;
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now).split("\n"), ...positioning, ...(review ? ["", ...reviewLines(review)] : [])], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.

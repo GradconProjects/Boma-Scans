@@ -10,13 +10,23 @@ export const ReviewSchema = z.object({
   concerns: z.array(z.string()),
   entry_note: z.string(),
   exit_note: z.string(),
+  /** Optional refinement of the levels; nulls / empty keep the engine's. */
+  levels: z.object({
+    entry: z.number().nullable(),
+    stop: z.number().nullable(),
+    targets: z.array(z.number()),
+    reasoning: z.string(),
+  }),
 });
-export type SignalReview = z.infer<typeof ReviewSchema> & { provider: string; model: string; at: number; planKey: string; symbol: string };
+export type ReviewLevels = { entry: number; stop: number; targets: number[]; reasoning: string; changed: Array<"entry" | "stop" | "targets"> };
+export type SignalReview = z.infer<typeof ReviewSchema> & { provider: string; model: string; at: number; planKey: string; symbol: string; applied?: ReviewLevels | null; rejectedLevels?: string[] };
 
 export const REVIEWER_SYSTEM = `You are the senior risk reviewer for a discretionary crypto perpetual-futures desk (Bybit USDT perps, 1H execution chart, Melbourne-based day/swing trader).
 A rule-based engine, calibrated on a two-year backtest, has produced a trade plan. Your job is a careful second read before it is sent to the trader, not a re-derivation of the plan.
 
 Judge only from the data given. Never invent prices, news or indicators. Approve by default when the plan is internally consistent; reject only for a concrete, stated reason. Reasons to reject or caution include: the trigger candle is an exhaustion spike (very long range or wick against the direction after an extended run), the entry sits straight under or over a strong historic level with no reaction room while confirmation is weak, structure on the recent candles contradicts the stated bias (lower highs for a long, higher lows for a short), the stop sits inside an obvious liquidity pocket, extreme crowding on the trader's side with funding paid against them, or whale and top-trader positioning strongly opposed together with weak momentum. Positioning alone does not block a trend trade: the backtest found breaks through levels are the better trades.
+
+Levels. Before the levels are final you may refine them, and the engine applies your numbers only inside these guardrails (anything outside is discarded and the engine's level kept): the entry must stay inside the plan's zone (between zone[0] and zone[1]); the stop must sit at a stated structural level on the trade's protective side, no tighter than 0.6 times and no wider than 1.5 times the engine's stop distance; targets, if given, are exactly five prices moving away from the entry in the trade's direction, each between 0.5R and 6R of the final risk, ideally at the historic zones, swing levels or round numbers you can see in the data. Return null for entry or stop and an empty targets list to keep the engine's values. Say in levels.reasoning in one sentence what you changed and why, or "engine levels kept".
 
 Keep the summary under 220 characters and plain English for a phone screen. Concerns: at most three short items, most important first. entry_note: one sentence on how to take the entry (limit at the plan price, wait for the close, do not chase). exit_note: one sentence on where to be careful with targets or the stop. Confidence is how sure you are of the verdict.`;
 
@@ -55,5 +65,52 @@ export function reviewLines(review: SignalReview): string[] {
     ...review.concerns.slice(0, 3).map(item => "• " + item),
     ...(review.entry_note ? ["↪ " + review.entry_note] : []),
     ...(review.exit_note ? ["↩ " + review.exit_note] : []),
+    ...(review.applied ? ["📐 Levels refined (" + review.applied.changed.join(", ") + "): " + review.applied.reasoning] : []),
+    ...(review.rejectedLevels?.length ? ["📐 Suggested but kept engine levels: " + review.rejectedLevels.join("; ")] : []),
   ];
+}
+
+/**
+ * Apply the reviewer's level suggestions inside the guardrails. Returns the
+ * final levels and which of them changed; out-of-bounds suggestions are
+ * dropped with a reason so the trader can see what was refused.
+ */
+export function refineLevels(row: Pick<ScannerRow, "bias" | "stop" | "executionPlan" | "takeProfits">, levels: z.infer<typeof ReviewSchema>["levels"]): { applied: ReviewLevels | null; rejected: string[] } {
+  const plan = row.executionPlan;
+  const sign = row.bias === "LONG" ? 1 : -1;
+  const rejected: string[] = [];
+  const changed: ReviewLevels["changed"] = [];
+  let entry = plan.entry;
+  if (levels.entry !== null && Number.isFinite(levels.entry)) {
+    if (levels.entry >= plan.zoneLow && levels.entry <= plan.zoneHigh) { if (Math.abs(levels.entry - entry) > entry * 1e-6) { entry = levels.entry; changed.push("entry"); } }
+    else rejected.push("entry " + levels.entry + " is outside the zone " + plan.zoneLow + " – " + plan.zoneHigh);
+  }
+  const engineRisk = Math.abs(plan.entry - row.stop);
+  let stop = row.stop;
+  if (levels.stop !== null && Number.isFinite(levels.stop)) {
+    const distance = sign * (entry - levels.stop);
+    if (distance >= engineRisk * 0.6 && distance <= engineRisk * 1.5) { if (Math.abs(levels.stop - stop) > stop * 1e-6) { stop = levels.stop; changed.push("stop"); } }
+    else rejected.push("stop " + levels.stop + " is " + (distance <= 0 ? "on the wrong side of the entry" : distance < engineRisk * 0.6 ? "tighter than 0.6× the engine stop" : "wider than 1.5× the engine stop"));
+  }
+  const risk = Math.max(Math.abs(entry - stop), Number.EPSILON);
+  let targets = row.takeProfits.map(t => t.price);
+  if (levels.targets.length) {
+    const ok = levels.targets.length === 5 && levels.targets.every((price, index) => Number.isFinite(price) && sign * (price - entry) / risk >= 0.5 && sign * (price - entry) / risk <= 6 && (index === 0 || sign * (price - levels.targets[index - 1]) > 0));
+    if (ok) { if (levels.targets.some((price, index) => Math.abs(price - targets[index]) > price * 1e-6)) { targets = levels.targets; changed.push("targets"); } }
+    else rejected.push("targets must be five prices in trade direction between 0.5R and 6R");
+  }
+  return { applied: changed.length ? { entry, stop, targets, reasoning: levels.reasoning, changed } : null, rejected };
+}
+
+/** A copy of the row with the refined levels in place (plan key unchanged: the trigger and the plan's own stop field stay). */
+export function applyRefinedLevels<T extends Pick<ScannerRow, "bias" | "stop" | "entry" | "executionPlan" | "takeProfits">>(row: T, applied: ReviewLevels): T {
+  const sign = row.bias === "LONG" ? 1 : -1;
+  const risk = Math.max(Math.abs(applied.entry - applied.stop), Number.EPSILON);
+  return {
+    ...row,
+    entry: applied.entry,
+    stop: applied.stop,
+    executionPlan: { ...row.executionPlan, entry: applied.entry },
+    takeProfits: row.takeProfits.map((target, index) => ({ ...target, price: applied.targets[index] ?? target.price, rewardR: sign * ((applied.targets[index] ?? target.price) - applied.entry) / risk, available: true, source: applied.changed.includes("targets") ? "AI-refined level" : target.source, rationale: applied.changed.includes("targets") ? applied.reasoning : target.rationale })),
+  };
 }

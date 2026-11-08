@@ -14,7 +14,7 @@ import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
 import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
-import { reviewLines } from "@/app/lib/ai-review";
+import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai-review";
 import { storedReviews } from "@/app/server/ai";
 import { planKeyOf } from "@/app/lib/trigger-monitor";
 import { OWNER_ID } from "@/app/server/owner-auth";
@@ -64,6 +64,9 @@ export async function GET(request: NextRequest) {
     let row: ScannerRow | undefined; let analysis: Awaited<ReturnType<typeof analyzePair>>["analysis"] | undefined; let candles: Awaited<ReturnType<typeof analyzePair>>["candles"] = [];
     try { const result = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle); row = result.row; analysis = result.analysis; candles = result.candles; }
     catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "analysis failed")); }
+    // The reviewer analyses before the levels are final: when a plan is READY its refinements (inside the guardrails) become the levels used for the card, the fill check and the exits.
+    let review: SignalReview | null = null;
+    if (row && analysis && row.executionPlan.status === "READY" && row.entryReady) { review = await reviewBeforePush({ row, analysis, candles }); if (review?.applied) row = applyRefinedLevels(row, review.applied); }
     const entry = evaluateMonitor(symbol, row, prices[symbol]);
     entries.push(entry);
     const step = transitionMonitor(memory.symbols[symbol] ?? {}, entry, row, now);
@@ -77,7 +80,7 @@ export async function GET(request: NextRequest) {
     // Careful second read before anything "ready to enter" is pushed; a REJECT holds the message and is listed instead.
     const reviewed = async (event: TelegramEvent | null): Promise<TelegramEvent | null> => {
       if (!event || !row || !analysis) return event;
-      const review = await reviewBeforePush({ row, analysis, candles });
+      review ??= await reviewBeforePush({ row, analysis, candles });
       if (!review) return event;
       if (review.verdict === "REJECT") { memory.held = [{ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10); return null; }
       return { ...event, lines: [...event.lines, "", ...reviewLines(review)] };

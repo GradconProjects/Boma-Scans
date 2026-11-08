@@ -108,7 +108,8 @@ Every ready-to-enter signal gets a careful second read before it reaches Telegra
 - **APPROVE / CAUTION** are pushed with the note appended. **REJECT** is held: nothing is pushed, and the pair appears under "Held by review" in the hourly monitor list and in the app.
 - Each plan is reviewed once (cached six hours). The app's signal cards show the verdict and offer "Review now"; on Telegram `/why BTCUSDT` gives a plain-English read, `/review BTCUSDT` a fresh verdict.
 - **Provider switch**: Anthropic (default model `claude-opus-5-5`, via the official `@anthropic-ai/sdk` with structured output and adaptive thinking at high effort) or OpenAI (default model `gpt-5`, via the official `openai` SDK with a strict JSON schema). Set `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` in Vercel and choose in the Telegram panel or with `/ai anthropic|openai|off`. Override models with `ANTHROPIC_MODEL` / `OPENAI_MODEL`. Reviews are billed on your own provider account; a review is a few thousand input tokens.
-- The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal but never invents one.
+- **Levels are refined before they are final.** The reviewer may move the entry inside the plan's zone, place the stop at a structural level between 0.6× and 1.5× the engine's stop distance, and set five targets between 0.5R and 6R in the trade's direction. Refinements inside those guardrails become the signal's levels (card, fill check, exit tracking); anything outside is discarded and shown as "suggested but kept engine levels". The trigger and the closed-candle rule never change.
+- The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal or refine its levels but never invents one.
 
 ## What Telegram sends, and when
 

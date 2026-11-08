@@ -2,7 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 import OpenAI from "openai";
 import { z } from "zod/v4";
-import { ReviewSchema, REVIEWER_SYSTEM, reviewPrompt, type ReviewInput, type SignalReview } from "@/app/lib/ai-review";
+import { refineLevels, ReviewSchema, REVIEWER_SYSTEM, reviewPrompt, type ReviewInput, type SignalReview } from "@/app/lib/ai-review";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
 
 export type AiProvider = "anthropic" | "openai" | "off";
@@ -75,7 +75,8 @@ export async function reviewSignal(input: ReviewInput, planKey: string, force = 
   const store = await readReviews();
   if (!force && store[planKey] && Date.now() - store[planKey].at < 6 * 3_600_000) return store[planKey];
   const { value, provider, model } = await structured(ReviewSchema, "signal_review", REVIEWER_SYSTEM, reviewPrompt(input));
-  const review: SignalReview = { ...value, provider, model, at: Date.now(), planKey, symbol: input.row.symbol };
+  const { applied, rejected } = refineLevels(input.row, value.levels);
+  const review: SignalReview = { ...value, provider, model, at: Date.now(), planKey, symbol: input.row.symbol, applied, rejectedLevels: rejected };
   const entries = Object.entries({ ...store, [planKey]: review }).sort((a, b) => b[1].at - a[1].at).slice(0, 60);
   try { await writeOwnerRecord("ai-reviews", JSON.stringify(Object.fromEntries(entries))); } catch { /* cache only */ }
   return review;

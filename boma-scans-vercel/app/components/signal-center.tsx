@@ -73,6 +73,8 @@ function ReviewStrip({ review, symbol, onReviewed }: { review?: SignalReview; sy
       <p className="mt-1 text-xs leading-5">{review.summary}</p>
       {review.concerns.length > 0 && <ul className="mt-1 list-disc pl-4 text-xs leading-5 text-slate-300">{review.concerns.slice(0, 3).map(item => <li key={item}>{item}</li>)}</ul>}
       {(review.entry_note || review.exit_note) && <p className="mt-1 text-xs leading-5 text-slate-300">{review.entry_note} {review.exit_note}</p>}
+      {review.applied && <p className="mt-1 font-mono text-xs leading-5 text-cyan-100">📐 Refined ({review.applied.changed.join(", ")}): entry {formatPrice(review.applied.entry)} · stop {formatPrice(review.applied.stop)} · T {review.applied.targets.map(price => formatPrice(price)).join(" / ")}<span className="ml-1 font-sans text-slate-400">{review.applied.reasoning}</span></p>}
+      {review.rejectedLevels && review.rejectedLevels.length > 0 && <p className="mt-1 text-[11px] leading-4 text-slate-500">Suggested but kept engine levels: {review.rejectedLevels.join("; ")}</p>}
     </> : <p className="mt-1 text-xs leading-5 text-slate-400">Server pushes are reviewed automatically before they reach Telegram; ask here for a read of this card.</p>}
     {error && <p className="mt-1 text-xs text-amber-200">{error}</p>}
   </div>;

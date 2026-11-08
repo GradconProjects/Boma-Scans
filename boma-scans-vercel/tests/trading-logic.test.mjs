@@ -729,3 +729,17 @@ test("Reviewer prompt is deterministic JSON with the plan, checks, levels and ca
   const lines = ai.reviewLines({ verdict: "CAUTION", confidence: 62, summary: "Fine but crowded.", concerns: ["crowded shorts"], entry_note: "Limit only.", exit_note: "Take T1 early.", provider: "Claude", model: "m", at: 0, planKey: "k", symbol: "XRPUSDT" });
   assert.match(lines[0], /^🧠 ⚠️ Review \(Claude\): CAUTION · 62% · Fine but crowded\./); assert.equal(lines.length, 4);
 });
+
+test("Reviewer level refinements apply only inside the guardrails", () => {
+  const ai = load("app/lib/ai-review.ts");
+  const row = { bias: "LONG", entry: 100, stop: 95, executionPlan: { entry: 100, zoneLow: 98.5, zoneHigh: 101, trigger: 100, stop: 95 }, takeProfits: [101, 102, 103, 104, 105].map((price, i) => ({ price, rewardR: (price - 100) / 5, exitPct: 10, source: "s", rationale: "r", available: true, level: i + 1 })) };
+  const good = ai.refineLevels(row, { entry: 99.5, stop: 94, targets: [103, 105, 107, 110, 115], reasoning: "swing lows" });
+  assert.deepEqual(good.applied.changed, ["entry", "stop", "targets"]); assert.equal(good.applied.stop, 94); assert.deepEqual(good.rejected, []);
+  const bad = ai.refineLevels(row, { entry: 103, stop: 99.5, targets: [101, 100, 99, 98, 97], reasoning: "x" });
+  assert.equal(bad.applied, null); assert.equal(bad.rejected.length, 3);
+  assert.match(bad.rejected[0], /outside the zone/); assert.match(bad.rejected[1], /tighter/); assert.match(bad.rejected[2], /five prices/);
+  const kept = ai.refineLevels(row, { entry: null, stop: null, targets: [], reasoning: "engine levels kept" });
+  assert.equal(kept.applied, null);
+  const refined = ai.applyRefinedLevels(row, good.applied);
+  assert.equal(refined.executionPlan.entry, 99.5); assert.equal(refined.executionPlan.stop, 95, "plan key stays stable"); assert.equal(refined.takeProfits[0].price, 103); assert.ok(Math.abs(refined.takeProfits[0].rewardR - (103 - 99.5) / 5.5) < 1e-9);
+});
