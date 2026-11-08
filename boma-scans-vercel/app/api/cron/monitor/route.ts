@@ -108,7 +108,7 @@ export async function GET(request: NextRequest) {
   // Whale system: diff the latest snapshot into events, confirm signals, alert.
   try {
     const tracked = await trackWhales(now);
-    if (tracked.events.length || now % (10 * 60_000) < 60_000) { const [{ signals, ranks, events: recent }, settings] = await Promise.all([whaleSignals(now), whaleSettings()]); events.push(...whaleAlerts(signals, recent, ranks, settings, now)); }
+    if (tracked.events.length || now % (10 * 60_000) < 60_000) { const [{ signals, exits, ranks, events: recent }, settings] = await Promise.all([whaleSignals(now), whaleSettings()]); events.push(...await whaleAlerts(signals, exits, recent, ranks, settings, now)); }
   } catch (error) { problems.push("whales: " + (error instanceof Error ? error.message : "failed")); }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
   try { await writeOwnerRecord("monitor-memory", JSON.stringify(memory)); } catch (error) { problems.push("memory: " + (error instanceof Error ? error.message : "save failed")); }

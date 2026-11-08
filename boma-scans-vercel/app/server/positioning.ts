@@ -4,7 +4,7 @@ import { hyperliquidCoin, type ExchangeVenue, type Positioning, type WhalePositi
 
 const HL_INFO = "https://api.hyperliquid.xyz/info";
 const HL_LEADERBOARD = "https://stats-data.hyperliquid.xyz/Mainnet/leaderboard";
-const WHALE_COUNT = 60;
+const WHALE_COUNT = 120;
 const WHALES_TTL = 24 * 3_600_000;
 const POSITIONS_TTL = 3 * 60_000;
 

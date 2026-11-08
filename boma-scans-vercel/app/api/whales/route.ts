@@ -13,10 +13,10 @@ export async function GET() {
   const mark = (name: string) => { steps[step] = Date.now() - t; step = name; t = Date.now(); };
   try {
     await trackWhales(); mark("signals");
-    const { signals, ranks } = await whaleSignals(); mark("events");
+    const { signals, exits, ranks } = await whaleSignals(); mark("events");
     const events = await recentEvents(48 * 3_600_000, 300); mark("settings");
     const settings = await whaleSettings(); mark("done");
-    return reply({ at: Date.now(), signals, ranks, events, settings, steps });
+    return reply({ at: Date.now(), signals, exits, ranks, events, settings, steps });
   } catch (error) { return reply({ error: (error instanceof Error ? error.message : "Whale data unavailable.") + " (step: " + step + ")", steps }, 502); }
 }
 

@@ -79,7 +79,7 @@ export function rankWhales(performances: WhalePerformance[], closes: WhaleEvent[
   // Market makers (many simultaneous positions) are ranked for information but never confirm a direction.
   const directional = ranked.filter(p => (p.openPositions ?? 0) <= MARKET_MAKER_POSITIONS);
   const order = new Map(directional.map((p, i) => [p.trader, i]));
-  return ranked.map((p, index) => { const marketMaker = (p.openPositions ?? 0) > MARKET_MAKER_POSITIONS; const i = order.get(p.trader) ?? Infinity; return { ...p, rank: index + 1, tier: marketMaker ? "WATCH" : i < 10 ? "ELITE" : i < 25 ? "STRONG" : "WATCH", marketMaker, label: p.trader.length > 12 ? p.trader.slice(0, 6) + "…" + p.trader.slice(-4) : p.trader }; });
+  return ranked.map((p, index) => { const marketMaker = (p.openPositions ?? 0) > MARKET_MAKER_POSITIONS; const i = order.get(p.trader) ?? Infinity; return { ...p, rank: index + 1, tier: marketMaker ? "WATCH" : i < 15 ? "ELITE" : i < 40 ? "STRONG" : "WATCH", marketMaker, label: p.trader.length > 12 ? p.trader.slice(0, 6) + "…" + p.trader.slice(-4) : p.trader }; });
 }
 
 export type WhaleSignal = {
@@ -91,8 +91,10 @@ export type WhaleSignal = {
   note: string;
 };
 
-const WINDOW_MS = 12 * 3_600_000;
-const tierWeight: Record<WhaleRank["tier"], number> = { ELITE: 2, STRONG: 1, WATCH: 0.25 };
+const WINDOW_MS = 24 * 3_600_000;
+const tierWeight: Record<WhaleRank["tier"], number> = { ELITE: 2, STRONG: 1.2, WATCH: 0.6 };
+/** Weight of a whale's action: tier, zero for market makers (hedging flow), size on a log scale. */
+const actionWeight = (r: WhaleRank, deltaUsd: number) => (r.marketMaker ? 0 : tierWeight[r.tier]) * Math.min(1.6, Math.max(0.5, Math.log10(Math.max(100_000, deltaUsd)) - 5));
 
 /**
  * Confirmation engine. Groups fresh OPEN / ADD / FLIP events by coin and side,
@@ -112,23 +114,62 @@ export function confirmWhaleSignals(events: WhaleEvent[], ranks: WhaleRank[], pr
     // One entry per whale (the latest), new money only.
     const byTrader = new Map<string, WhaleEvent>();
     for (const e of list.sort((a, b) => a.at - b.at)) byTrader.set(e.trader, e);
-    const entries = Array.from(byTrader.values()).map(e => { const r = rankBy.get(e.trader)!; const profitShare = e.sizeUsd > 0 ? e.pnl / e.sizeUsd : 0; const alreadyProfitable = e.kind === "ADD" && profitShare > 0.05 && e.heldMs > 24 * 3_600_000; return { e, r, weight: tierWeight[r.tier] * (alreadyProfitable ? 0.4 : 1) * Math.min(1.5, Math.max(0.5, Math.log10(Math.max(100_000, e.deltaUsd)) - 5)) }; });
-    const opposed = events.filter(e => now - e.at <= WINDOW_MS && e.coin === coin && e.side !== side && (e.kind === "OPEN" || e.kind === "ADD" || e.kind === "FLIP") && rankBy.has(e.trader) && rankBy.get(e.trader)!.tier !== "WATCH").map(e => ({ label: rankBy.get(e.trader)!.label, tier: rankBy.get(e.trader)!.tier, kind: e.kind, deltaUsd: e.deltaUsd }));
+    const entries = Array.from(byTrader.values()).map(e => { const r = rankBy.get(e.trader)!; const profitShare = e.sizeUsd > 0 ? e.pnl / e.sizeUsd : 0; const alreadyProfitable = e.kind === "ADD" && profitShare > 0.05 && e.heldMs > 24 * 3_600_000; return { e, r, weight: actionWeight(r, e.deltaUsd) * (alreadyProfitable ? 0.4 : 1) }; }).filter(x => x.weight > 0);
+    if (!entries.length) continue;
+    const opposed = events.filter(e => now - e.at <= WINDOW_MS && e.coin === coin && e.side !== side && (e.kind === "OPEN" || e.kind === "ADD" || e.kind === "FLIP") && rankBy.has(e.trader) && !rankBy.get(e.trader)!.marketMaker && Math.abs(e.deltaUsd) >= 250_000).map(e => ({ label: rankBy.get(e.trader)!.label, tier: rankBy.get(e.trader)!.tier, kind: e.kind, deltaUsd: e.deltaUsd }));
     const score = entries.reduce((a, x) => a + x.weight, 0) - opposed.reduce((a, o) => a + tierWeight[o.tier] * 0.8, 0);
-    // Only elite and strong whales count towards the confirmation; watch-tier whales add a little weight but cannot confirm on their own.
-    const distinct = entries.filter(x => x.r.tier !== "WATCH").length;
+    // Directional whales (not market makers) count towards the confirmation.
+    const distinct = entries.length;
     const flowUsd = entries.reduce((a, x) => a + Math.max(0, x.e.deltaUsd), 0);
     const avgEntry = entries.reduce((a, x) => a + x.e.entry * Math.max(1, x.e.deltaUsd), 0) / Math.max(1, entries.reduce((a, x) => a + Math.max(1, x.e.deltaUsd), 0));
     const sign = side === "LONG" ? 1 : -1;
     const distancePct = sign * (price - avgEntry) / avgEntry * 100;
     const eliteCount = entries.filter(x => x.r.tier === "ELITE").length;
-    const strong = distinct >= 2 && score >= 2.5 || (eliteCount >= 1 && flowUsd >= 1_000_000 && score >= 2);
-    const status: WhaleSignal["status"] = !strong ? "WEAK" : distancePct > 2 ? "RAN AWAY" : Math.abs(distancePct) <= 0.6 ? "NEW ENTRY" : "ENTRY AVAILABLE";
+    // Confirmed by a cluster of directional whales, by one ranked whale with $1M+ of new money, or by any directional whale with $3M+.
+    const biggest = Math.max(...entries.map(x => x.e.deltaUsd));
+    const rankedBig = entries.some(x => x.r.tier !== "WATCH" && x.e.deltaUsd >= 1_000_000);
+    const strong = (distinct >= 2 && score >= 1.8) || rankedBig || biggest >= 3_000_000;
+    const status: WhaleSignal["status"] = !strong ? "WEAK" : distancePct > 2.5 ? "RAN AWAY" : Math.abs(distancePct) <= 0.6 ? "NEW ENTRY" : "ENTRY AVAILABLE";
     const confidence = Math.max(0, Math.min(100, Math.round(35 + score * 12 + (distinct - 1) * 8 - opposed.length * 12 - Math.max(0, distancePct) * 6)));
-    const note = (strong ? distinct + " ranked whale" + (distinct === 1 ? "" : "s") + " " + (eliteCount ? "(" + eliteCount + " elite) " : "") + "opened or added " + side + " " + coin + " in the last 12 h, " + Math.round(flowUsd / 1e5) / 10 + "M of new money" : "Not enough ranked whales behind this " + side + " yet") + (opposed.length ? "; " + opposed.length + " ranked whale" + (opposed.length === 1 ? "" : "s") + " on the other side" : "") + (status === "RAN AWAY" ? "; price has moved " + distancePct.toFixed(1) + "% past their average entry, wait for a pullback" : ".");
+    const note = (strong ? distinct + " directional whale" + (distinct === 1 ? "" : "s") + " " + (eliteCount ? "(" + eliteCount + " elite) " : "") + "opened or added " + side + " " + coin + " in the last 24 h, " + Math.round(flowUsd / 1e5) / 10 + "M of new money" : "Building: " + distinct + " whale" + (distinct === 1 ? "" : "s") + ", " + Math.round(flowUsd / 1e5) / 10 + "M so far; needs a second directional whale or $1M+ from a ranked one") + (opposed.length ? "; " + opposed.length + " ranked whale" + (opposed.length === 1 ? "" : "s") + " on the other side" : "") + (status === "RAN AWAY" ? "; price has moved " + distancePct.toFixed(1) + "% past their average entry, wait for a pullback" : ".");
     signals.push({ coin, side, at: Math.max(...entries.map(x => x.e.at)), whales: entries.map(x => ({ label: x.r.label, trader: x.e.trader, tier: x.r.tier, kind: x.e.kind, deltaUsd: x.e.deltaUsd, entry: x.e.entry, at: x.e.at })), opposed, score, confidence, status, avgEntry, price, distancePct, flowUsd, distinct, note });
   }
-  return signals.filter(s => s.status !== "WEAK").sort((a, b) => b.confidence - a.confidence);
+  return signals.sort((a, b) => (a.status === "WEAK" ? 1 : 0) - (b.status === "WEAK" ? 1 : 0) || b.confidence - a.confidence);
+}
+
+export type IssuedSignal = { coin: string; side: "LONG" | "SHORT"; at: number; traders: string[] };
+export type WhaleExit = {
+  coin: string; side: "LONG" | "SHORT"; at: number; urgency: "LEAVE" | "REDUCE";
+  whales: Array<{ label: string; tier: WhaleRank["tier"]; kind: WhaleEventKind; deltaUsd: number; pnl: number; heldHours: number; wasLeader: boolean }>;
+  realizedPnl: number; note: string;
+};
+
+/**
+ * Exit signals: directional whales closing, cutting or flipping the side we
+ * follow. LEAVE when the whales behind an issued entry signal are leaving
+ * (half of them, or the leader) or when two or more directional whales exit
+ * the same side within six hours; REDUCE when one of them cuts a position.
+ */
+export function confirmWhaleExits(events: WhaleEvent[], ranks: WhaleRank[], issued: IssuedSignal[], now = Date.now()): WhaleExit[] {
+  const rankBy = new Map(ranks.map(r => [r.trader, r]));
+  const fresh = events.filter(e => now - e.at <= 6 * 3_600_000 && (e.kind === "CLOSE" || e.kind === "REDUCE" || e.kind === "FLIP") && Math.abs(e.deltaUsd) >= 250_000 && rankBy.has(e.trader) && !rankBy.get(e.trader)!.marketMaker);
+  const groups = new Map<string, WhaleEvent[]>();
+  for (const e of fresh) { const exitedSide = e.kind === "FLIP" ? (e.side === "LONG" ? "SHORT" : "LONG") : e.side; const g = e.coin + "|" + exitedSide; groups.set(g, [...(groups.get(g) ?? []), e]); }
+  const out: WhaleExit[] = [];
+  for (const [g, list] of groups) {
+    const [coin, side] = g.split("|") as [string, "LONG" | "SHORT"];
+    const signal = issued.filter(s => s.coin === coin && s.side === side && now - s.at <= 72 * 3_600_000).sort((a, b) => b.at - a.at)[0];
+    const byTrader = new Map<string, WhaleEvent>(); for (const e of list.sort((a, b) => a.at - b.at)) byTrader.set(e.trader, e);
+    const whales = Array.from(byTrader.values()).map(e => { const r = rankBy.get(e.trader)!; return { label: r.label, tier: r.tier, kind: e.kind, deltaUsd: e.deltaUsd, pnl: e.pnl, heldHours: Math.round(e.heldMs / 3_600_000), wasLeader: !!signal && signal.traders[0] === e.trader }; });
+    const followed = signal ? whales.filter(w => signal.traders.includes(rankBy.get(list.find(e => rankBy.get(e.trader)!.label === w.label)!.trader)!.trader)) : [];
+    const leaving = followed.length >= Math.ceil((signal?.traders.length ?? 99) / 2) || whales.some(w => w.wasLeader) || whales.filter(w => w.kind !== "REDUCE").length >= 2;
+    if (!leaving && !(signal && whales.length)) continue;
+    const realizedPnl = whales.reduce((a, w) => a + w.pnl, 0);
+    const urgency: WhaleExit["urgency"] = leaving ? "LEAVE" : "REDUCE";
+    const note = (signal ? "Whales behind the " + coin + " " + side + " entry signal are " + (urgency === "LEAVE" ? "leaving" : "cutting") + ": " : whales.length + " directional whales exited " + side + " " + coin + " within six hours: ") + whales.map(w => w.label + " " + w.kind.toLowerCase() + " " + Math.round(Math.abs(w.deltaUsd) / 1e5) / 10 + "M (" + (w.pnl >= 0 ? "+" : "−") + Math.round(Math.abs(w.pnl) / 1e3) + "K)").join(", ") + ".";
+    out.push({ coin, side, at: Math.max(...list.map(e => e.at)), urgency, whales, realizedPnl, note });
+  }
+  return out.sort((a, b) => (a.urgency === "LEAVE" ? 0 : 1) - (b.urgency === "LEAVE" ? 0 : 1) || b.at - a.at);
 }
 
 /** Bybit symbol for a Hyperliquid coin: BTC → BTCUSDT, kPEPE → 1000PEPEUSDT. */

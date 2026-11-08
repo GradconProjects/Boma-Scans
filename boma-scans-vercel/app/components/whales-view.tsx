@@ -4,12 +4,12 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/app/lib/market";
 import { formatUsd } from "@/app/lib/positioning";
-import type { WhaleEvent, WhaleRank, WhaleSignal } from "@/app/lib/whale-logic";
+import type { WhaleEvent, WhaleExit, WhaleRank, WhaleSignal } from "@/app/lib/whale-logic";
 import { WhaleAnalysisPanel } from "@/app/components/whale-analysis-panel";
 
 type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
 type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[] };
-type Payload = { at: number; signals: Signal[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; error?: string };
+type Payload = { at: number; signals: Signal[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; error?: string };
 
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const tierTone: Record<WhaleRank["tier"], string> = { ELITE: "bg-violet-300/20 text-violet-100", STRONG: "bg-cyan-300/20 text-cyan-100", WATCH: "bg-white/10 text-slate-300" };
@@ -49,12 +49,22 @@ export function WhalesView() {
       <div className="flex items-center gap-2 text-xs text-slate-400">{data && <span>Updated {melbourne(data.at)}</span>}<Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading} className="rounded-lg">{loading ? "Refreshing…" : "Refresh"}</Button></div>
     </div>
     {error && <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{error}{error.includes("Sign in") && <> · <Link href="/login" className="underline">Sign in</Link></>}</p>}
-    <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Confirmed signals" + (data ? " · " + data.signals.length : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
+    <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Entry & exit signals" + (data ? " · " + (data.signals.filter(s => s.status !== "WEAK").length + data.exits.length) : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
 
     {tab === "signals" && <AnalyseAnyCoin/>}
+    {tab === "signals" && data && data.exits.length > 0 && <section className="mt-4">
+      <h2 className="text-sm font-bold uppercase tracking-widest text-rose-200">🚪 Whale exit signals</h2>
+      <div className="mt-2 grid gap-3 lg:grid-cols-2">{data.exits.map(x => <article key={x.coin + x.side + x.at} className={"rounded-2xl border p-4 " + (x.urgency === "LEAVE" ? "border-rose-300/40 bg-rose-300/[0.07]" : "border-amber-300/30 bg-amber-300/[0.05]")}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg font-bold text-white">{x.coin} {x.side} · {x.urgency === "LEAVE" ? "LEAVE" : "REDUCE"}</h3><span className="font-mono text-xs text-slate-300">{melbourne(x.at)}</span></div>
+        <p className="mt-1 text-xs text-slate-300">Whales realised {(x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl))} on the way out</p>
+        <ul className="mt-2 space-y-1 text-xs text-slate-300">{x.whales.map(w => <li key={w.label + w.kind}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span>{w.wasLeader && <span className="ml-1 rounded bg-rose-300/20 px-1 text-rose-100">led the entry</span>} {w.kind.toLowerCase()} {formatUsd(Math.abs(w.deltaUsd))} · {(w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl))} · held {w.heldHours}h</li>)}</ul>
+        <p className="mt-2 text-xs leading-5 text-slate-400">{x.note}</p>
+        <WhaleAnalysisPanel coin={x.coin} side={x.side}/>
+      </article>)}</div>
+    </section>}
     {tab === "signals" && <section className="mt-4 grid gap-4 lg:grid-cols-2">
-      {!data ? <p className="text-sm text-slate-400">Loading…</p> : data.signals.length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm leading-6 text-slate-400">No confirmed whale signal right now. A signal needs at least two ranked whales (or one elite whale with $1M+ of new money) opening or adding the same side of a coin within 12 hours, with price still near their average entry and no ranked whale on the other side. The live activity tab shows what is building.</p>
-        : data.signals.map(s => <article key={s.coin + s.side} className={"rounded-2xl border p-4 " + (s.status === "RAN AWAY" ? "border-white/[0.08] bg-slate-950/40" : s.side === "LONG" ? "border-emerald-300/30 bg-emerald-300/[0.05]" : "border-rose-300/30 bg-rose-300/[0.05]")}>
+      {!data ? <p className="text-sm text-slate-400">Loading…</p> : data.signals.filter(s => s.status !== "WEAK").length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm leading-6 text-slate-400 lg:col-span-2">No confirmed whale entry right now. An entry needs a cluster of directional whales (two or more, score 1.8+), one ranked whale with $1M+ of new money, or any directional whale with $3M+ within 24 hours, with price still near their average entry. What is building is listed below; the live activity tab shows every move.</p>
+        : data.signals.filter(s => s.status !== "WEAK").map(s => <article key={s.coin + s.side} className={"rounded-2xl border p-4 " + (s.status === "RAN AWAY" ? "border-white/[0.08] bg-slate-950/40" : s.side === "LONG" ? "border-emerald-300/30 bg-emerald-300/[0.05]" : "border-rose-300/30 bg-rose-300/[0.05]")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-white">{s.side === "LONG" ? "🟢" : "🔴"} {s.coin} {s.side}</h2>
             <span className="flex items-center gap-2 text-xs"><span className={"rounded-full px-2 py-0.5 font-semibold " + (s.status === "NEW ENTRY" ? "bg-emerald-300/20 text-emerald-100" : s.status === "ENTRY AVAILABLE" ? "bg-cyan-300/20 text-cyan-100" : "bg-white/10 text-slate-300")}>{s.status}</span><span className="font-mono text-slate-300">{s.confidence}%</span></span>
@@ -69,6 +79,10 @@ export function WhalesView() {
           <p className="mt-2 text-xs leading-5 text-slate-400">{s.note}</p>
           <WhaleAnalysisPanel coin={s.coin} side={s.side}/>
         </article>)}
+    </section>}
+    {tab === "signals" && data && data.signals.some(s => s.status === "WEAK") && <section className="mt-4">
+      <h2 className="text-sm font-bold uppercase tracking-widest text-slate-400">📋 Building (not yet confirmed)</h2>
+      <ul className="mt-2 grid gap-2 text-xs text-slate-300 lg:grid-cols-2">{data.signals.filter(s => s.status === "WEAK").map(s => <li key={s.coin + s.side} className="rounded-xl border border-white/[0.07] bg-slate-950/40 p-3"><span className="font-semibold text-white">{s.side === "LONG" ? "🟢" : "🔴"} {s.coin} {s.side}</span> · {s.whales.map(w => w.label + " " + w.kind.toLowerCase() + " " + formatUsd(Math.max(0, w.deltaUsd))).join(", ")}<br/><span className="text-slate-400">{s.note}</span></li>)}</ul>
     </section>}
 
     {tab === "feed" && analyseCoin && <div className="mt-4 rounded-2xl border border-violet-300/30 bg-violet-300/[0.05] p-4"><p className="text-sm font-semibold text-white">{analyseCoin.coin} {analyseCoin.side}</p><WhaleAnalysisPanel key={analyseCoin.coin + analyseCoin.side} coin={analyseCoin.coin} side={analyseCoin.side}/></div>}

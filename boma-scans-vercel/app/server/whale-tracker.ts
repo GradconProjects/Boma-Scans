@@ -2,7 +2,7 @@ import { env } from "@/app/server/env";
 import { marketRead, analyzePair } from "@/app/server/market-analysis";
 import { whaleAddresses, whaleSnapshot } from "@/app/server/positioning";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
-import { bybitSymbolFor, confirmWhaleSignals, diffPositions, rankWhales, type WatchState, type WhaleEvent, type WhalePerformance, type WhaleRank, type WhaleSignal } from "@/app/lib/whale-logic";
+import { bybitSymbolFor, confirmWhaleExits, confirmWhaleSignals, diffPositions, rankWhales, type IssuedSignal, type WatchState, type WhaleEvent, type WhaleExit, type WhalePerformance, type WhaleRank, type WhaleSignal } from "@/app/lib/whale-logic";
 import { formatUsd } from "@/app/lib/positioning";
 import { formatPrice, STYLE_CONFIG } from "@/app/lib/market";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
@@ -67,12 +67,20 @@ export async function whaleRankings(): Promise<WhaleRank[]> {
 
 export type WhaleSignalWithPlan = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
 
-/** Confirmed whale signals with the Bybit symbol and our engine's read of the same chart. */
-export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSignalWithPlan[]; ranks: WhaleRank[]; events: WhaleEvent[] }> {
+export async function issuedSignals(): Promise<IssuedSignal[]> { try { return JSON.parse((await readOwnerRecord("whale-issued")) ?? "[]"); } catch { return []; } }
+async function rememberIssued(signals: WhaleSignalWithPlan[], now: number) {
+  const current = (await issuedSignals()).filter(s => now - s.at < 7 * 86_400_000);
+  for (const s of signals) if (!current.some(i => i.coin === s.coin && i.side === s.side && now - i.at < 24 * 3_600_000)) current.push({ coin: s.coin, side: s.side, at: now, traders: s.whales.map(w => w.trader) });
+  try { await writeOwnerRecord("whale-issued", JSON.stringify(current.slice(-60))); } catch { /* best effort */ }
+}
+
+/** Confirmed whale entry signals (with the Bybit symbol and our engine's read) and exit signals. */
+export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSignalWithPlan[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[] }> {
   const ranks = await whaleRankings(); const events = await recentEvents(24 * 3_600_000);
+  const exits = confirmWhaleExits(events, ranks, await issuedSignals(), now);
   const snapshot = await whaleSnapshot();
   const prices: Record<string, number> = Object.fromEntries(Object.entries(snapshot.ctx).map(([coin, c]) => [coin, c.markPx]));
-  const raw = confirmWhaleSignals(events, ranks, prices, now).slice(0, 8);
+  const raw = confirmWhaleSignals(events, ranks, prices, now).slice(0, 12);
   let symbols = new Set<string>();
   try { const tickers = await marketRead({ kind: "tickers" }); symbols = new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? "")); } catch { /* no mapping */ }
   const signals: WhaleSignalWithPlan[] = [];
@@ -90,15 +98,28 @@ export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSi
     }
     signals.push({ ...s, symbol, engine });
   }
-  return { signals, ranks, events };
+  return { signals, exits, ranks, events };
 }
 
 /** Telegram alerts: confirmed whale signals, plus elite opens / closes on coins the owner follows. */
-export function whaleAlerts(signals: WhaleSignalWithPlan[], events: WhaleEvent[], ranks: WhaleRank[], settings: WhaleSettings, now = Date.now()): TelegramEvent[] {
+export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleExit[], events: WhaleEvent[], ranks: WhaleRank[], settings: WhaleSettings, now = Date.now()): Promise<TelegramEvent[]> {
   if (!settings.alerts) return [];
   const out: TelegramEvent[] = [];
   const bucket = Math.floor(now / (6 * 3_600_000));
-  for (const s of signals.filter(s => s.status !== "RAN AWAY" && s.confidence >= 55)) {
+  const entrySignals = signals.filter(s => s.status !== "RAN AWAY" && s.status !== "WEAK" && s.confidence >= 50);
+  await rememberIssued(entrySignals, now);
+  for (const x of exits) {
+    out.push({ key: "whale:exit:" + x.coin + ":" + x.side + ":" + Math.floor(x.at / (3 * 3_600_000)), lines: [
+      "🐋 WHALE EXIT · " + x.coin + " " + x.side + " · " + (x.urgency === "LEAVE" ? "LEAVE THE TRADE" : "REDUCE"),
+      "📍 Whales realised " + (x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl)) + " on the way out",
+      "",
+      ...x.whales.map(w => "• " + w.label + " (" + w.tier.toLowerCase() + (w.wasLeader ? ", led the entry" : "") + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.abs(w.deltaUsd)) + " · " + (w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl)) + " · held " + w.heldHours + " h"),
+      "",
+      x.note,
+      x.urgency === "LEAVE" ? "If you followed this side, close or trail the remainder now; the whales who made the call have left." : "If you followed this side, take a partial and tighten the stop; one of the whales is cutting.",
+    ] });
+  }
+  for (const s of entrySignals) {
     const lines = [
       "🐋 WHALE SIGNAL · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%",
       "📍 Price " + formatPrice(s.price) + " · whales' avg entry " + formatPrice(s.avgEntry) + " (" + (s.distancePct >= 0 ? "+" : "") + s.distancePct.toFixed(2) + "%)",
@@ -111,7 +132,8 @@ export function whaleAlerts(signals: WhaleSignalWithPlan[], events: WhaleEvent[]
       s.note,
       "No order is placed. Follow what ranked whales do now, not what their old positions say.",
     ];
-    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "📊 Analyse " + s.coin, data: "analyse:" + s.symbol }, { text: "👀 Monitor " + s.coin, data: "monitor:" + s.symbol }] : undefined });
+    lines[0] = "🐋 WHALE ENTRY · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%";
+    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ Entered at plan price", data: "entered:" + s.symbol }, { text: "✏️ Entered at…", data: "enterat:" + s.symbol }, { text: "👀 Monitor " + s.coin, data: "monitor:" + s.symbol }, { text: "📊 Analyse " + s.coin, data: "analyse:" + s.symbol }] : undefined });
   }
   const minTier = settings.minTier === "ELITE" ? ["ELITE"] : ["ELITE", "STRONG"];
   const rankBy = new Map(ranks.map(r => [r.trader, r]));

@@ -7,7 +7,7 @@ const require = createRequire(import.meta.url);
 const file = new URL("../app/lib/whale-logic.ts", import.meta.url).pathname;
 const mod = new Module(file); mod.require = require;
 mod._compile(ts.transpileModule(readFileSync(file, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, file);
-const { diffPositions, rankWhales, confirmWhaleSignals, bybitSymbolFor } = mod.exports;
+const { diffPositions, rankWhales, confirmWhaleSignals, confirmWhaleExits, bybitSymbolFor } = mod.exports;
 const pos = (trader, coin, side, sizeUsd, entry, pnl = 0) => ({ trader, coin, side, sizeUsd, entry, leverage: 5, liquidation: null, pnl, accountValue: 5e6 });
 const price = () => 100;
 
@@ -45,8 +45,18 @@ test("Confirmation: two ranked whales opening the same side near price confirm; 
     ev("A", "XRP", "LONG", "OPEN", 2e6, 1), ev("B", "XRP", "LONG", "OPEN", 2e6, 1), ev("C", "XRP", "SHORT", "OPEN", 2e6, 1),
   ], ranks, { SOL: 100.3, DOGE: 0.1, ETH: 100, XRP: 1.05 }, now);
   const sol = signals.find(s => s.coin === "SOL"); assert.ok(sol); assert.equal(sol.status, "NEW ENTRY"); assert.equal(sol.distinct, 2); assert.ok(sol.confidence >= 55);
-  assert.ok(!signals.some(s => s.coin === "DOGE"), "one elite with only $300K plus a watch-tier whale is not enough");
+  assert.equal(signals.find(s => s.coin === "DOGE").status, "WEAK", "one elite with only $300K plus a watch-tier whale is not enough");
   const eth = signals.find(s => s.coin === "ETH"); assert.ok(!eth || eth.status === "RAN AWAY" || eth.score < sol.score, "adds to already profitable old positions are discounted");
   const xrp = signals.find(s => s.coin === "XRP"); assert.ok(xrp); assert.equal(xrp.opposed.length, 1); assert.equal(xrp.status, "RAN AWAY");
   assert.equal(bybitSymbolFor("kPEPE", new Set(["1000PEPEUSDT"])), "1000PEPEUSDT"); assert.equal(bybitSymbolFor("BTC", new Set(["BTCUSDT"])), "BTCUSDT"); assert.equal(bybitSymbolFor("HYPE", new Set(["BTCUSDT"])), null);
+});
+
+test("Exit signals: the whales behind an issued entry leaving means LEAVE; one cut means REDUCE", () => {
+  const ranks = [{ trader: "A", label: "A", tier: "ELITE", marketMaker: false }, { trader: "B", label: "B", tier: "STRONG", marketMaker: false }, { trader: "M", label: "M", tier: "WATCH", marketMaker: true }];
+  const now = 200 * 3_600_000;
+  const ev = (trader, coin, side, kind, deltaUsd, pnl) => ({ id: trader + coin + kind, at: now - 3_600_000, trader, coin, kind, side, sizeUsd: 0, deltaUsd, entry: 100, price: 100, pnl, heldMs: 10 * 3_600_000 });
+  const issued = [{ coin: "SOL", side: "LONG", at: now - 20 * 3_600_000, traders: ["A", "B"] }];
+  const exits = confirmWhaleExits([ev("A", "SOL", "LONG", "CLOSE", -2e6, 150_000), ev("B", "SOL", "LONG", "REDUCE", -4e5, 20_000), ev("M", "SOL", "LONG", "CLOSE", -5e6, 0), ev("B", "ETH", "LONG", "REDUCE", -3e5, -10_000)], ranks, issued, now);
+  const sol = exits.find(x => x.coin === "SOL"); assert.ok(sol); assert.equal(sol.urgency, "LEAVE"); assert.ok(sol.whales.some(w => w.wasLeader)); assert.equal(sol.whales.length, 2, "market makers never count"); assert.equal(sol.realizedPnl, 170_000);
+  assert.ok(!exits.some(x => x.coin === "ETH"), "a single cut on a coin we never signalled is not an exit signal");
 });
