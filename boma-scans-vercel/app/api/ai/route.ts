@@ -38,8 +38,8 @@ export async function POST(request: NextRequest) {
     const flexibility = (["STRICT", "BALANCED", "FLEXIBLE"].includes(String(workspace.flexibility)) ? workspace.flexibility : "STRICT") as FlexibilityMode;
     try {
       const result = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, workspace.targetStyle === "LADDER" ? "LADDER" : "TA");
-      const review = await reviewBeforePush(result, true);
-      if (!review) return reply({ error: "The reviewer could not assess this pair right now." }, 502);
+      const review = await reviewBeforePush(result, true, true);
+      if (!review) return reply({ error: "No AI provider configured." }, 400);
       return reply({ review });
     } catch (error) { return reply({ error: error instanceof Error ? error.message : "Review failed." }, 502); }
   }

@@ -114,8 +114,7 @@ import {
   formatPrice,
   generateDemoCandles,
   normalizeTicker,
-  scannerRowFromAnalysis,
-} from "@/app/lib/market";
+  scannerRowFromAnalysis, SCAN_TURNOVER_FLOOR } from "@/app/lib/market";
 import {
   ADAPTIVE_STYLE_MAX_LEVERAGE,
   buildAdaptiveLeveragePlan,
@@ -446,7 +445,7 @@ export default function Home() {
   const autoScanIntervalLabel =
     AUTO_SCAN_INTERVALS.find((option) => option.minutes === autoScanMinutes)
       ?.label ?? "15 min";
-  const scanLiquidityFloor = STYLE_LIQUIDITY_FLOOR[style];
+  const scanLiquidityFloor = SCAN_TURNOVER_FLOOR;
 
   useEffect(() => {
     const timer = window.setTimeout(() => {

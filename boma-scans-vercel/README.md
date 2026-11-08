@@ -111,6 +111,10 @@ Every ready-to-enter signal gets a careful second read before it reaches Telegra
 - **Levels are refined before they are final.** The reviewer may move the entry inside the plan's zone, place the stop at a structural level between 0.6× and 1.5× the engine's stop distance, and set five targets between 0.5R and 6R in the trade's direction. Refinements inside those guardrails become the signal's levels (card, fill check, exit tracking); anything outside is discarded and shown as "suggested but kept engine levels". The trigger and the closed-candle rule never change.
 - The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal or refine its levels but never invents one.
 
+## Every Bybit pair is graded
+
+The scanner (in the app and on the server) grades every trading USDT perpetual on Bybit with more than $100K of daily turnover, several hundred pairs, not only the most liquid ones. A pair still needs at least $2M of daily turnover (Day style; $1M Swing, $10M Scalp) and a spread-plus-fees cost inside the engine's limit to qualify as a signal, so thin markets are graded and shown but do not produce pushes.
+
 ## The call: ENTER NOW or WAIT
 
 Every signal card, in the app and on Telegram, opens with the call at the live price: **ENTER NOW** when the plan is READY and a limit at the entry would fill inside the entry window (shown as a price range), **WAIT** with the exact condition (the 1H close through the trigger, or a pullback into the window after price ran past it), or **STAND DOWN** when the plan is invalid. The reviewer makes the same call independently ("Timing: ENTER NOW / WAIT / STAND DOWN" with the prices), so a push you act on has both the engine and the reviewer saying now.

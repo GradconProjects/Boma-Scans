@@ -12,7 +12,7 @@ import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { getMediumRiskShortlist, isMediumRiskTake } from "@/app/lib/recommendations";
 import { signalKey, snapshotSignal, telegramSignalText } from "@/app/lib/signal-alerts";
-import { STYLE_CONFIG, STYLE_LIQUIDITY_FLOOR, type TradingStyle } from "@/app/lib/market";
+import { SCAN_TURNOVER_FLOOR, STYLE_CONFIG, type TradingStyle } from "@/app/lib/market";
 import type { FlexibilityMode } from "@/app/lib/entry-policy";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
 
@@ -43,14 +43,14 @@ export async function GET(request: NextRequest) {
   const flexibility = (["STRICT", "BALANCED", "FLEXIBLE"].includes(String(workspace.flexibility)) ? workspace.flexibility : "STRICT") as FlexibilityMode;
   const targetStyle = workspace.targetStyle === "LADDER" ? "LADDER" : "TA";
   const equity = Number(workspace.equity) > 0 ? Number(workspace.equity) : 10_000;
-  const limit = Math.min(80, Math.max(5, Number(process.env.SERVER_SCAN_PAIRS) || 50));
+  const limit = Number(process.env.SERVER_SCAN_PAIRS) > 0 ? Number(process.env.SERVER_SCAN_PAIRS) : 1000;
   const tickers = await marketRead({ kind: "tickers" });
   const universe = (tickers.result!.list as Array<{ symbol?: string; turnover24h?: string }>)
-    .filter(item => item.symbol?.endsWith("USDT") && !BLACKLIST.has(item.symbol) && Number(item.turnover24h) >= STYLE_LIQUIDITY_FLOOR[style])
+    .filter(item => item.symbol?.endsWith("USDT") && !BLACKLIST.has(item.symbol) && Number(item.turnover24h) >= SCAN_TURNOVER_FLOOR)
     .sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, limit).map(item => item.symbol as string);
   const events: TelegramEvent[] = []; const qualified: string[] = []; const problems: string[] = []; const forming: ScannerRow[] = []; const held: Array<{ symbol: string; planKey: string; reason: string; at: number }> = [];
   const debug = request.nextUrl.searchParams.get("debug") === "1"; const diagnostics: Record<string, unknown>[] = [];
-  await mapLimit(universe, 4, async symbol => {
+  await mapLimit(universe, 8, async symbol => {
     try {
       const result = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle); const { row } = result;
       if (debug) diagnostics.push({ symbol, decision: row.decision, bias: row.bias, setup: row.setupType, regime: row.regime, trendFrames: row.trendFrames, entryReady: row.entryReady, plan: row.executionPlan.status, direction: row.direction, score: row.score, entryQuality: row.entryQuality, rating: row.ratingScore, riskBand: row.riskBand, btc: row.btcRelationship.divergenceVerdict, costR: Number(row.executionCostR.toFixed(2)), costLimit: Number(row.spreadCostLimitR.toFixed(2)), failedChecks: row.entryChecks.filter(c => c.required && c.status !== "PASS").map(c => c.label), analyzedAgeS: Math.round((now - row.analyzedAt) / 1000), lev: row.exchangeMaxLeverage, step: row.quantityStep });

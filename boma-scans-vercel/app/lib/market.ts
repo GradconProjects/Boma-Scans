@@ -307,12 +307,19 @@ export const STYLE_CONFIG: Record<
   },
 };
 
+/**
+ * Minimum 24h turnover for a pair to QUALIFY as a signal. Every trading pair
+ * is scanned and graded; below this floor the liquidity check fails and the
+ * spread-cost check does the rest. (Backtest pairs were all far above it.)
+ */
 export const STYLE_LIQUIDITY_FLOOR: Record<TradingStyle, number> = {
-  SCALP: 25_000_000,
-  DAY: 10_000_000,
-  SWING: 5_000_000,
-  POSITION: 5_000_000,
+  SCALP: 10_000_000,
+  DAY: 2_000_000,
+  SWING: 1_000_000,
+  POSITION: 1_000_000,
 };
+/** Pairs below this turnover are not even scanned: dead markets. */
+export const SCAN_TURNOVER_FLOOR = 100_000;
 
 export const TIMEFRAMES = [
   { value: "1", label: "1m" },

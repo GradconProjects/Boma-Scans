@@ -110,8 +110,8 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   try {
    const result=await analyzePair(pair,STYLE_CONFIG[settings.style].interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
    if(command==="/review") {
-    const review=await reviewBeforePush(result,true);
-    if(!review){await send("⚠️ The reviewer could not assess "+pair+" right now. Try again in a minute.");return;}
+    const review=await reviewBeforePush(result,true,true);
+    if(!review){await send("⚠️ No AI provider is configured.");return;}
     await send(renderTelegramHtml([pair+" "+result.row.bias+" · "+result.row.executionPlan.status.replaceAll("_"," ")+" · price "+formatPrice(result.row.price),"",...reviewLines(review),"","🔗 Open in app: "+appLink(origin,pair)]),keyboardRows(signalButtons(pair)),true);return;
    }
    const {text,provider}=await explainSetup({row:result.row,analysis:result.analysis,candles:result.candles});
