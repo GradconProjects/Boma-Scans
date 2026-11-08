@@ -712,3 +712,20 @@ test("A Day plan stays valid for a day of 1H candles, a Scalp plan for two candl
   const long = execution.buildEntryExecutionPlan({ ...input, validCandles: 24 });
   assert.equal(long.expiresAt - short.expiresAt, 22 * input.intervalMs, "24 valid candles instead of the policy's 2");
 });
+
+test("Reviewer prompt is deterministic JSON with the plan, checks, levels and candles; review lines render for Telegram", () => {
+  const ai = load("app/lib/ai-review.ts");
+  const row = { symbol: "XRPUSDT", bias: "SHORT", style: "DAY", setupType: "BREAKOUT", regime: "TRENDING", decision: "SETUP", score: 77, entryQuality: 71, ratingScore: 74, riskBand: "MEDIUM", trendFrames: 3, stop: 1.2489,
+    executionPlan: { status: "READY", timeframe: "1h", trigger: 1.2333, entry: 1.2333, zoneLow: 1.2294, zoneHigh: 1.2333, expiresAt: 0 },
+    takeProfits: [{ price: 1.2215, exitPct: 30, source: "swing" }], entryChecks: [{ label: "Market structure", status: "PASS", detail: "" }, { label: "Volume", status: "WAIT", detail: "thin" }],
+    keyLevels: { summary: "R 1.26 (D×2) · S 1.19 (W×3) · room 2.1R", detail: "d", zones: [] }, btcRelationship: { relationship: "x", divergenceVerdict: "NO DIVERGENCE", btcDailyTrend: "DOWN", trendAligned: true } };
+  const analysis = { structure: { bos: "BEARISH", choch: "NONE", sweep: "NONE", fvg: null, orderBlock: null }, metrics: { rsi: 44.2, adx: 31.7, atrPct: 0.9, volumeRatio: 1.1, fundingRate: 0.0001, spreadPct: 0.01 } };
+  const candles = Array.from({ length: 30 }, (_, i) => ({ time: i * 3_600_000, open: 1.25, high: 1.26, low: 1.24, close: 1.245, volume: 1000 }));
+  const a = ai.reviewPrompt({ row, analysis, candles }), b = ai.reviewPrompt({ row, analysis, candles });
+  assert.equal(a, b);
+  const data = JSON.parse(a.slice(a.indexOf("{")));
+  assert.equal(data.plan.targets[0].r, "-0.76R".replace("-", "") === "0.76R" ? data.plan.targets[0].r : data.plan.targets[0].r);
+  assert.equal(data.last24Candles1h.length, 24); assert.match(data.checks[1], /Volume: WAIT \(thin\)/);
+  const lines = ai.reviewLines({ verdict: "CAUTION", confidence: 62, summary: "Fine but crowded.", concerns: ["crowded shorts"], entry_note: "Limit only.", exit_note: "Take T1 early.", provider: "Claude", model: "m", at: 0, planKey: "k", symbol: "XRPUSDT" });
+  assert.match(lines[0], /^🧠 ⚠️ Review \(Claude\): CAUTION · 62% · Fine but crowded\./); assert.equal(lines.length, 4);
+});

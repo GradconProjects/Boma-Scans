@@ -81,6 +81,7 @@ import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { Section } from "@/app/components/section";
 import { PositioningPanel, type PositioningTarget } from "@/app/components/positioning-panel";
 import { usePositioning } from "@/app/components/use-positioning";
+import type { SignalReview } from "@/app/lib/ai-review";
 import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
@@ -1415,6 +1416,14 @@ export default function Home() {
     return targets;
   })();
   const positioning = usePositioning(positioningTargets.map(target => target.symbol));
+  const [reviews, setReviews] = useState<Record<string, SignalReview>>({});
+  useEffect(() => {
+    let stopped = false;
+    const pull = async () => { try { const d = await (await fetch("/api/ai", { cache: "no-store" })).json() as { reviews?: Record<string, SignalReview> }; if (!stopped && d.reviews) setReviews(d.reviews); } catch { /* signed out or offline */ } };
+    void pull();
+    const timer = window.setInterval(() => void pull(), 120_000);
+    return () => { stopped = true; window.clearInterval(timer); };
+  }, []);
   const analyzedSymbols = new Set(scannerRows.map(row => row.symbol));
   const pendingMarkets = scanUniverse.filter(item => !analyzedSymbols.has(item.symbol));
   const selectedRatedRow = ticker ? scannerRowFromAnalysis(ticker, analysis, dataMode !== "LIVE", instrument ?? undefined, style, btcRelationship) : null;
@@ -1870,7 +1879,7 @@ export default function Home() {
         <Section id="signals-section" storageKey="signals" title="Signals & monitoring" subtitle="Qualified plans, closest-to-ready setups and your monitored pairs" icon={<Radar className="h-5 w-5"/>} badge={signalAlerts.picks.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">{signalAlerts.picks.length} ready</span> : monitor.hits.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">🔔 {monitor.hits.length} at level</span> : undefined}>
         <SignalCenter alerts={signalAlerts} monitor={monitor} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
-          onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")} positioning={positioning.data}/>
+          onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")} positioning={positioning.data} reviews={reviews} onReviewed={review => setReviews(current => ({ ...current, [review.planKey]: review }))}/>
         </Section>
         <Collapsible
           id="opportunities"

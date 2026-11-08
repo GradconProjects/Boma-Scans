@@ -101,6 +101,19 @@ Qualified signals need a pullback into the zone and a closed 1H candle through t
 
 Once entered you are told at each target, at the stop, when the engine sees a structure change against the trade (leave or protect the stop), when the runner should be closed after target 2 and when the maximum hold time is reached.
 
+## AI reviewer (Anthropic or OpenAI)
+
+Every ready-to-enter signal gets a careful second read before it reaches Telegram. The reviewer receives the plan, every entry check, the market structure, the historic levels, the whale and crowd positioning, BTC context and the last 24 1H candles, and answers in a fixed shape: APPROVE, CAUTION or REJECT with a confidence, a one-line summary, up to three concerns, an entry note and an exit note.
+
+- **APPROVE / CAUTION** are pushed with the note appended. **REJECT** is held: nothing is pushed, and the pair appears under "Held by review" in the hourly monitor list and in the app.
+- Each plan is reviewed once (cached six hours). The app's signal cards show the verdict and offer "Review now"; on Telegram `/why BTCUSDT` gives a plain-English read, `/review BTCUSDT` a fresh verdict.
+- **Provider switch**: Anthropic (default model `claude-opus-5-5`, via the official `@anthropic-ai/sdk` with structured output and adaptive thinking at high effort) or OpenAI (default model `gpt-5`, via the official `openai` SDK with a strict JSON schema). Set `ANTHROPIC_API_KEY` and/or `OPENAI_API_KEY` in Vercel and choose in the Telegram panel or with `/ai anthropic|openai|off`. Override models with `ANTHROPIC_MODEL` / `OPENAI_MODEL`. Reviews are billed on your own provider account; a review is a few thousand input tokens.
+- The signal logic itself stays rule-based and backtestable; the reviewer can hold a signal but never invents one.
+
+## What Telegram sends, and when
+
+To keep the chat quiet, individual messages go out only for: a qualified signal that passed review, a monitored pair entering its entry range, a candle-close confirmation, your "Entered" confirmations, exits (targets, stop, leave, protect) and a stop-side hit before entry. Everything else is folded into the hourly **monitor list**: in-trade pairs first (entry, next target, open P&L), then ready-to-enter pairs with limit and stop, then every monitored pair on one line, then forming setups and anything held by review. `/status` prints the same list on demand.
+
 ## How long a plan stays valid
 
 A confirmed plan is valid for 2 candles in Scalp, 24 candles (a day on the 1H chart) in Day, 72 in Swing and 120 in Position, so a resting day-trade order can sit overnight. The plan is still cancelled early when a candle closes beyond the zone or price crosses the stop, and the Telegram card's "Expires" line shows the real deadline. Every Telegram message that shows a plan carries the Entered / Entered at… buttons, including confirmations, plan updates, the hourly digest and the expiry notice, so a trade you joined can be recorded at any point.

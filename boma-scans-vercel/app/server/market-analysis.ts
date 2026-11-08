@@ -23,5 +23,5 @@ export async function analyzePair(symbol:string,interval:string,style:TradingSty
  const analysis=analyzeMarket(fast,mid,slow,ticker,style,{flexibility,takerFeePct:fee,slippagePct:slippage,targetStyle,weekly});
  const relationship=analyzeBtcRelationship(symbol,fast,btc,analysis,btcDaily);
  const row=scannerRowFromAnalysis(ticker,analysis,false,normalizeInstrument(instrument.result!.list[0] as Record<string,unknown>),style,relationship);
- return {analysis,row,relationship,ticker};
+ return {analysis,row,relationship,ticker,candles:fast};
 }

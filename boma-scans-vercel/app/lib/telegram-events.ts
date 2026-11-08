@@ -87,16 +87,46 @@ export function formatMonitorUpdate(entry: MonitorEntry, kind: MonitorUpdateKind
   return { key: "monitor:" + entry.planKey + ":" + kind, symbol: entry.symbol, lines: [head, "📍 Price " + (entry.price !== null ? formatPrice(entry.price) : "—"), ...levels, note], buttons: signalButtons(entry.symbol) };
 }
 
-/** One message per hour summarising every monitored pair. */
-export function formatMonitorDigest(entries: MonitorEntry[], now = Date.now()): TelegramEvent | null {
-  if (!entries.length) return null;
+/**
+ * The hourly monitor list. Pairs that are ready to enter or already in a trade
+ * are the "current" ones and come first with their levels; everything else is
+ * one line each, so the chat is not flooded with intermediate alerts.
+ */
+export function formatMonitorDigest(entries: MonitorEntry[], now = Date.now(), extra: { inTrade?: Array<{ symbol: string; side: "LONG" | "SHORT"; entry: number; hit: number; price?: number | null }>; forming?: Array<{ symbol: string; side: string; trigger: number; status: string }>; reviews?: Record<string, { verdict: string; summary: string }>; held?: Array<{ symbol: string; reason: string }> } = {}): TelegramEvent | null {
+  const inTrade = extra.inTrade ?? [];
+  if (!entries.length && !inTrade.length) return null;
   const hour = Math.floor(now / 3_600_000);
-  const lines = entries.map(entry => {
-    const plan = entry.plan;
-    if (!plan || entry.price === null) return "• " + entry.symbol + " · " + entry.state.toLowerCase();
-    return "• " + entry.symbol + " " + entry.side + " · " + entry.state + " · price " + formatPrice(entry.price) + " · trigger " + formatPrice(plan.trigger) + (entry.toTriggerPct !== null ? " (" + (entry.toTriggerPct > 0 ? "+" : "") + entry.toTriggerPct.toFixed(2) + "%)" : "") + " · stop " + (entry.stop !== null ? formatPrice(entry.stop) : "—");
-  });
-  return { key: "monitor:digest:" + hour, buttons: entries.filter(entry => entry.plan && entry.side).slice(0, 8).map(entry => ({ text: "✅ Entered " + entry.symbol.replace(/USDT$/, ""), data: "entered:" + entry.symbol })), lines: ["🕐 Monitoring update · " + entries.length + " pair" + (entries.length === 1 ? "" : "s"), ...lines, "Sent hourly. Alerts for trigger, entry range, confirmation, targets and stop arrive as they happen."] };
+  const tradeSymbols = new Set(inTrade.map(t => t.symbol));
+  const ready = entries.filter(e => !tradeSymbols.has(e.symbol) && e.plan && e.side && (e.state === "ENTRY RANGE" || (e.ready && e.state !== "STOP HIT")));
+  const rest = entries.filter(e => !tradeSymbols.has(e.symbol) && !ready.includes(e));
+  const pct = (a: number, b: number) => ((a - b) / b * 100).toFixed(2) + "%";
+  const lines: string[] = ["📡 MONITOR LIST · " + new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", minute: "2-digit" }).format(now) + " Melbourne"];
+  if (inTrade.length) {
+    lines.push("", "🟢 IN TRADE");
+    for (const t of inTrade) { const sign = t.side === "LONG" ? 1 : -1; lines.push("• " + t.symbol + " " + t.side + " · from " + formatPrice(t.entry) + " · next T" + (t.hit + 1) + (t.price ? " · " + (sign * (t.price - t.entry) >= 0 ? "+" : "") + (sign * (t.price - t.entry) / t.entry * 100).toFixed(2) + "%" : "")); }
+  }
+  if (ready.length) {
+    lines.push("", "✅ READY TO ENTER");
+    for (const e of ready) {
+      const plan = e.plan!; const review = extra.reviews?.[e.planKey];
+      lines.push("• " + e.symbol + " " + e.side + " · " + e.state + " · price " + formatPrice(e.price ?? plan.entry) + " · limit " + formatPrice(plan.entry) + " · stop " + formatPrice(e.stop ?? plan.stop) + (review ? " · review " + review.verdict : ""));
+    }
+  }
+  if (rest.length) {
+    lines.push("", "👀 MONITORED");
+    for (const e of rest) { const plan = e.plan; lines.push("• " + e.symbol + (e.side ? " " + e.side : "") + " · " + e.state.toLowerCase() + (plan && e.price !== null ? " · " + formatPrice(e.price) + " vs trigger " + formatPrice(plan.trigger) + (e.toTriggerPct !== null ? " (" + (e.toTriggerPct > 0 ? "+" : "") + e.toTriggerPct.toFixed(2) + "%)" : "") : "")); }
+  }
+  if (extra.forming?.length) {
+    lines.push("", "📋 FORMING (not yet signals)");
+    for (const f of extra.forming.slice(0, 8)) lines.push("• " + f.symbol + " " + f.side + " · " + f.status.replaceAll("_", " ").toLowerCase() + " · trigger " + formatPrice(f.trigger));
+  }
+  if (extra.held?.length) {
+    lines.push("", "🧠 HELD BY REVIEW");
+    for (const h of extra.held.slice(0, 5)) lines.push("• " + h.symbol + " · " + h.reason);
+  }
+  lines.push("", "Full alerts arrive only for entry range, confirmation, your entered trades and exits. /status any time.");
+  const buttons = [...ready.map(e => ({ text: "✅ Entered " + e.symbol.replace(/USDT$/, ""), data: "entered:" + e.symbol })), ...inTrade.map(t => ({ text: "❌ Closed " + t.symbol.replace(/USDT$/, ""), data: "skipped:" + t.symbol }))].slice(0, 8);
+  return { key: "monitor:digest:" + hour, lines, buttons: buttons.length ? buttons : undefined };
 }
 
 /** Confirmation sent when a pair is added to monitoring (or on "send levels now"). */

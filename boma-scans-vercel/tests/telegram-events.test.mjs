@@ -53,8 +53,9 @@ test("Monitor updates and the hourly digest have stable keys and clear text", ()
   assert.match(formatMonitorUpdate(entry, "EXPIRED").lines[0], /EXPIRED/);
   const digest = formatMonitorDigest([entry, { ...entry, symbol: "ABCUSDT", plan: null, state: "NO PLAN" }], 7_200_000);
   assert.equal(digest.key, "monitor:digest:2");
-  assert.match(digest.lines[1], /DGAIUSDT SHORT · AT TRIGGER · price 0\.7594\d* · trigger 0\.76432\d* \(-0\.65%\)/);
-  assert.match(digest.lines[2], /ABCUSDT · no plan/);
+  const text = digest.lines.join("\n");
+  assert.match(text, /READY TO ENTER\n• DGAIUSDT SHORT · AT TRIGGER · price 0\.7594\d* · limit 0\.76\d* · stop 0\.78/);
+  assert.match(text, /ABCUSDT SHORT · no plan/);
   assert.equal(formatMonitorDigest([]), null);
 });
 
@@ -74,4 +75,22 @@ test("A forming setup is pushed with its levels, what must still happen, and its
   assert.ok(event.lines.some(line => /pull back into the zone/.test(line) && /close below 495/.test(line)));
   assert.deepEqual(event.buttons.map(b => b.data), ["monitor:BCHUSDT", "analyse:BCHUSDT", "unmonitor:BCHUSDT"]);
   assert.equal(formatFormingSetup(row, 3_600_000 * 2).key, event.key, "same plan within six hours is not repeated");
+});
+
+test("Monitor list puts in-trade and ready pairs first and folds the rest into one line each", () => {
+  const { formatMonitorDigest } = load("app/lib/telegram-events.ts");
+  const base = { price: 100.5, toTriggerPct: -0.5, plan, stop: 95, targets: [] };
+  const entries = [
+    { ...base, symbol: "AAAUSDT", side: "LONG", state: "ENTRY RANGE", ready: true, planKey: "a" },
+    { ...base, symbol: "BBBUSDT", side: "LONG", state: "AT TRIGGER", ready: false, planKey: "b" },
+    { ...base, symbol: "CCCUSDT", side: "LONG", state: "WAITING", ready: false, planKey: "c" },
+  ];
+  const digest = formatMonitorDigest(entries, 3_600_000 * 10, { inTrade: [{ symbol: "CCCUSDT", side: "LONG", entry: 100, hit: 1, price: 101 }], forming: [{ symbol: "DDDUSDT", side: "SHORT", trigger: 50, status: "WAIT_RETEST" }], reviews: { a: { verdict: "CAUTION", summary: "x" } }, held: [{ symbol: "EEEUSDT", reason: "exhaustion spike" }] });
+  const text = digest.lines.join("\n");
+  assert.ok(text.indexOf("IN TRADE") < text.indexOf("READY TO ENTER") && text.indexOf("READY TO ENTER") < text.indexOf("MONITORED") && text.indexOf("MONITORED") < text.indexOf("FORMING"));
+  assert.match(text, /CCCUSDT LONG · from 100\.0000 · next T2 · \+1\.00%/);
+  assert.match(text, /AAAUSDT LONG · ENTRY RANGE .* review CAUTION/);
+  assert.match(text, /BBBUSDT LONG · at trigger/);
+  assert.match(text, /HELD BY REVIEW[\s\S]*EEEUSDT · exhaustion spike/);
+  assert.deepEqual(digest.buttons.map(b => b.data), ["entered:AAAUSDT", "skipped:CCCUSDT"]);
 });

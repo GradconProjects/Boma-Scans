@@ -29,6 +29,12 @@ export type MonitorEntry = {
  * ENTRY" means price already ran beyond the level in the trade direction, so
  * wait for it to come back rather than chase.
  */
+/** Stable identity of a plan: symbol, side, trigger, stop and the confirming candle. */
+export function planKeyOf(row: Pick<ScannerRow, "symbol" | "executionPlan">) {
+  const plan = row.executionPlan;
+  return [row.symbol, plan.side, plan.trigger, plan.stop, plan.confirmationTime ?? 0].join(":");
+}
+
 export function evaluateMonitor(symbol: string, row: ScannerRow | undefined, price: number | undefined): MonitorEntry {
   if (!row) return { symbol, side: null, state: "NO PLAN", price: price ?? null, toTriggerPct: null, plan: null, stop: null, targets: [], ready: false, planKey: symbol + ":none" };
   const targets = (row.takeProfits ?? []).map(target => ({ price: target.price, available: target.available }));
