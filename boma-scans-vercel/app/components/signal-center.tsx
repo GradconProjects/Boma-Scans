@@ -23,7 +23,6 @@ import type { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import type { MonitorEntry } from "@/app/lib/trigger-monitor";
 import { formatMonitorStart, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { useEffect } from "react";
-import { evaluateMonitor } from "@/app/lib/trigger-monitor";
 import { Send } from "lucide-react";
 
 export type SignalTab = "signals" | "notifications";
@@ -203,11 +202,8 @@ export function SignalCenter({alerts, monitor, rows = [], monitored = [], onTogg
     .slice(0, 6);
   const books = useOrderBooks([...visiblePicks.map(pick => pick.row.symbol), ...watch.map(row => row.symbol)]);
   const monitoredSet = new Set(monitored);
-  // Toggling on sends a "now monitoring" message with the levels; toggling off is silent.
-  function startMonitoring(symbol: string) {
-    onToggleMonitor(symbol);
-    if (!monitoredSet.has(symbol)) void pushTelegramEvents([formatMonitorStart(evaluateMonitor(symbol, rows.find(row => row.symbol === symbol), undefined), now)]);
-  }
+  // Toggling monitoring is silent on Telegram; "Send levels to Telegram" is the explicit way to push a card.
+  function startMonitoring(symbol: string) { onToggleMonitor(symbol); }
   return <section id="signals-center" className="mb-5 scroll-mt-52 rounded-3xl border border-cyan-300/20 bg-[#09131e]/95 shadow-[0_18px_80px_-45px_rgba(103,232,249,0.35)]">
     <div className="flex flex-wrap items-center justify-between gap-4 p-4 sm:px-6 sm:pt-5"><div><div className="flex items-center gap-2"><Radio className="h-5 w-5 text-cyan-200"/><h2 className="text-lg font-semibold text-white">Trade signals</h2>{alerts.picks.length > 0 && <span className="rounded-full bg-emerald-300/10 px-2.5 py-1 text-sm font-semibold text-emerald-200">{alerts.picks.length} ready to review</span>}</div><p className="mt-1 text-sm text-slate-400">Telegram-style plans · long and short · live checks before entry</p></div>
       <Button type="button" variant="outline" onClick={alerts.toggleSound} aria-pressed={soundActive} className={"rounded-xl " + (soundActive ? "border-cyan-300/30 bg-cyan-300/10 text-cyan-200" : "text-slate-300")}>{soundActive ? <Volume2 className="mr-2 h-4 w-4"/> : <VolumeX className="mr-2 h-4 w-4"/>}{soundActive ? alerts.volume === 0 ? "Sound muted · 0%" : "Sound on · tap to mute" : "Enable sound"}</Button>
@@ -216,7 +212,7 @@ export function SignalCenter({alerts, monitor, rows = [], monitored = [], onTogg
     <Tabs value={tab} onValueChange={value => onTabChange(value as SignalTab)} className="gap-0">
       <div className="border-b border-white/[0.07] px-4 pb-3 sm:px-6"><TabsList className="h-11 w-full rounded-xl bg-slate-950/60 sm:w-auto" aria-label="Signals and notifications"><TabsTrigger value="signals" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Radio className="h-4 w-4"/>Signals <span className="font-mono">{alerts.picks.length}</span></TabsTrigger><TabsTrigger value="notifications" className="rounded-lg px-4 text-sm data-[state=active]:bg-cyan-200 data-[state=active]:text-slate-950"><Bell className="h-4 w-4"/>Notifications {alerts.unread > 0 && <span className="rounded-full bg-rose-500 px-1.5 py-0.5 text-xs font-bold text-white">{alerts.unread}</span>}</TabsTrigger></TabsList></div>
       <TabsContent value="signals" className="p-4 sm:p-6">
-        <MonitorPanel entries={monitor.entries} hits={monitor.hits} updatedAt={monitor.updatedAt} now={now} rows={rows} onToggleMonitor={onToggleMonitor} onAdd={symbol => { if (!monitoredSet.has(symbol)) { onToggleMonitor(symbol); void pushTelegramEvents([formatMonitorStart(evaluateMonitor(symbol, rows.find(row => row.symbol === symbol), undefined), now)]); } }} onReview={row => onReview(row)}/>
+        <MonitorPanel entries={monitor.entries} hits={monitor.hits} updatedAt={monitor.updatedAt} now={now} rows={rows} onToggleMonitor={onToggleMonitor} onAdd={symbol => { if (!monitoredSet.has(symbol)) onToggleMonitor(symbol); }} onReview={row => onReview(row)}/>
         {alerts.picks.length ? <><div className="grid items-start gap-4 xl:grid-cols-2">{visiblePicks.map(pick => <SignalCard key={pick.row.symbol} signal={snapshotSignal(pick)} row={pick.row} book={books[pick.row.symbol]} positioning={positioning[pick.row.symbol]} review={reviews[planKeyOf(pick.row)]} onReviewed={onReviewed} now={now} onReview={() => onReview(pick.row)} onPaper={() => onPaper(pick.row)} monitored={monitoredSet.has(pick.row.symbol)} onToggleMonitor={() => startMonitoring(pick.row.symbol)}/>)}</div>{alerts.picks.length > 2 && <Button type="button" variant="outline" onClick={() => setShowAll(value => !value)} className="mt-4 w-full rounded-xl">{showAll ? "Show top two signals" : "Show all " + alerts.picks.length + " qualified signals"}<ChevronDown className={"ml-2 h-4 w-4 " + (showAll ? "rotate-180" : "")}/></Button>}</> : <div className="rounded-2xl border border-dashed border-white/10 bg-white/[0.02] px-5 py-7"><p className="flex items-center gap-2 text-base font-semibold text-slate-200"><Radio className={"h-5 w-5 text-cyan-200 " + (scanning ? "animate-pulse" : "")}/>{scanning ? "Checking the market for a complete setup…" : live ? "No entry-ready signal on this scan" : "Waiting for a verified live scan"}</p><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-400">{scanning ? "Signals appear here when the scan completes and every required entry check passes." : "A qualifying long or short plan will appear here automatically. Developing and higher-risk ideas are still in Market opportunities below."}</p></div>}
         {watch.length > 0 && <div className="mt-6">
           <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-base font-semibold text-white">👀 Watching · closest to ready</h3><p className="text-xs text-slate-400">Exact levels are set now; each card says what must still happen before it becomes a signal.</p></div>

@@ -8,6 +8,9 @@ import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextInterval
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
 import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { keyboardRows, signalButtons, type TelegramButton } from "@/app/lib/telegram-events";
+import { majorEventGate } from "@/app/lib/push-policy";
+import { whaleAlignment } from "@/app/server/whale-align";
+import { scannerRowFromAnalysis } from "@/app/lib/market";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { memory, recordKey } from "@/app/server/memory-store";
 import { cronKey } from "@/app/server/cron-auth";
@@ -108,6 +111,11 @@ export async function POST(request:NextRequest) {
       const ticker=normalizeTicker(quote.result!.list[0] as Record<string,unknown>);
       const analysis=analyzeMarket(fast,contextBars,macroBars,ticker,signal.style,{flexibility:signal.flexibility});
       const btcContext=analyzeBtcRelationship(signal.symbol,fast,btc,analysis,btcDaily);
+      // Same push policy as the scheduled scan: a major structural event, a stop that holds four hours, whales not against.
+      const gateRow=scannerRowFromAnalysis(ticker,analysis,false,undefined,signal.style,btcContext);
+      const gate=majorEventGate(gateRow,analysis,fast);
+      const whales=await whaleAlignment(signal.symbol,analysis.bias).catch(()=>({stance:"NEUTRAL" as const,detail:"",coin:null}));
+      if(!gate.ok || whales.stance==="AGAINST")continue;
       // Same plan = same side and the trigger/stop within 15% of a normal candle
       // range. Exact float equality silently dropped valid alerts whenever the
       // server saw one more candle or a slightly different history window.

@@ -84,7 +84,6 @@ import { usePositioning } from "@/app/components/use-positioning";
 import { WhalesView } from "@/app/components/whales-view";
 import { readView, VIEW_EVENT, type SystemView } from "@/app/components/system-switch";
 import type { SignalReview } from "@/app/lib/ai-review";
-import { formatExitEvent, formatMonitorEvent, formatMonitorUpdate, pushTelegramEvents } from "@/app/lib/telegram-events";
 import { toast as notify } from "sonner";
 import { useSignalAlerts } from "@/app/components/use-signal-alerts";
 import type { SignalSnapshot } from "@/app/lib/signal-alerts";
@@ -99,7 +98,6 @@ import {
   MarketTicker,
   ScannerRow,
   STYLE_CONFIG,
-  STYLE_LIQUIDITY_FLOOR,
   TIMEFRAMES,
   INTERVAL_MS,
   TradingStyle,
@@ -1374,18 +1372,14 @@ export default function Home() {
   const mediumRiskPicks = getMediumRiskShortlist(scannerRows, equity, scannerLive);
   const monitor = useTriggerMonitor({rows: scannerRows, monitored, onAlert: entries => {
     signalAlerts.playTrigger();
-    notify("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering. Pushed to Telegram if connected.", duration: 12000});
-    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
-  }, onFollowUp: entries => {
+    notify("🔔 " + entries.map(entry => entry.symbol + " " + entry.state.toLowerCase()).join(" · "), {description: "Price reached a monitored level. Confirm the candle close and the live checks before entering. Telegram carries only entries you took.", duration: 12000});
+      }, onFollowUp: entries => {
     notify("⛔ " + entries.map(entry => entry.symbol + " plan invalidated").join(" · "), {description: "Price reached the stop side before entry. Cancel any resting order.", duration: 12000});
-    void pushTelegramEvents(entries.map(formatMonitorEvent).filter((event): event is NonNullable<typeof event> => event !== null));
-  }, onUpdate: updates => {
+      }, onUpdate: updates => {
     for (const update of updates) notify((update.kind === "CONFIRMED" ? "✅ " : update.kind === "PLAN UPDATED" ? "🔄 " : "⌛ ") + update.entry.symbol + " · " + update.kind.toLowerCase(), {duration: 10000});
-    void pushTelegramEvents(updates.filter(update => update.kind !== "STOP HIT").map(update => formatMonitorUpdate(update.entry, update.kind as "CONFIRMED" | "PLAN UPDATED" | "EXPIRED")));
   }, onExit: events => {
     signalAlerts.playTrigger();
     for (const event of events) notify(event.kind === "STOP" ? "❌ " + event.symbol + " stop hit · close the remainder" : event.kind === "CLOSE" ? "🚪 " + event.symbol + " leave the trade · " + event.reason : "🎯 " + event.symbol + " target " + event.level + " hit · close " + event.exitPct + "%", {duration: 15000});
-    void pushTelegramEvents(events.map(formatExitEvent));
   }});
   const signalAlerts = useSignalAlerts({rows: scannerRows, equity, live: scannerLive,
     scanAt: lastScan, scope: style + ":" + flexibility, now: scannerNow, partial: scannerRunning, onOpen: openNotifications});
