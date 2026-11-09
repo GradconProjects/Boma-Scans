@@ -22,7 +22,6 @@ import { InlineChart } from "@/app/components/inline-chart";
 import type { useTriggerMonitor } from "@/app/components/use-trigger-monitor";
 import type { MonitorEntry } from "@/app/lib/trigger-monitor";
 import { formatMonitorStart, pushTelegramEvents } from "@/app/lib/telegram-events";
-import { useEffect } from "react";
 import { Send } from "lucide-react";
 
 export type SignalTab = "signals" | "notifications";
@@ -161,7 +160,7 @@ function MonitorPanel({entries, hits, updatedAt, now, rows, onToggleMonitor, onA
   }
   return <section aria-label="Monitored pairs" className={"mb-5 rounded-2xl border p-4 " + (hits.length ? "border-emerald-300/40 bg-emerald-300/[0.05]" : "border-white/[0.08] bg-white/[0.02]")}>
     <div className="flex flex-wrap items-center justify-between gap-3">
-      <div><h3 className="flex items-center gap-2 text-base font-semibold text-white"><Target className="h-5 w-5 text-cyan-200"/>Monitored pairs{hits.length > 0 && <span className="rounded-full bg-emerald-300/20 px-2.5 py-0.5 text-sm font-semibold text-emerald-100">🔔 {hits.length} at entry level</span>}</h3><p className="mt-1 text-xs text-slate-400">Live price checked every 10 s against each pair's plan. A distinct chime plays when price reaches the trigger or the entry range.{updatedAt ? " Updated " + Math.max(0, Math.round((now - updatedAt) / 1000)) + "s ago." : ""}</p></div>
+      <div><h3 className="flex items-center gap-2 text-base font-semibold text-white"><Target className="h-5 w-5 text-cyan-200"/>Monitored pairs{hits.length > 0 && <span className="rounded-full bg-emerald-300/20 px-2.5 py-0.5 text-sm font-semibold text-emerald-100">🔔 {hits.length} at entry level</span>}</h3><p className="mt-1 text-xs text-slate-400">Live price checked every 10 s against each pair&apos;s plan. A distinct chime plays when price reaches the trigger or the entry range.{updatedAt ? " Updated " + Math.max(0, Math.round((now - updatedAt) / 1000)) + "s ago." : ""}</p></div>
       <form onSubmit={event => {event.preventDefault(); add();}} className="flex items-center gap-2"><Input value={draft} onChange={event => setDraft(event.target.value)} placeholder="Add pair, e.g. SOL" aria-label="Add a pair to monitor" className="h-9 w-40 font-mono uppercase"/><Button type="submit" size="sm" variant="outline" className="rounded-lg"><Plus className="h-4 w-4"/></Button>{entries.length > 0 && <Button type="button" size="sm" variant="outline" onClick={() => void sendLevels()} className="rounded-lg"><Send className="mr-1.5 h-3.5 w-3.5"/>Send levels to Telegram</Button>}</form>
     </div>
     {telegramNote && <p role="status" className="mt-2 text-xs text-cyan-200">{telegramNote}</p>}
