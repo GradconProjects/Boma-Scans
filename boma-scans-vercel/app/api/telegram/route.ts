@@ -47,7 +47,10 @@ export async function GET(request:NextRequest) {
   const key=await cronKey();
   const origin=request?.nextUrl?.origin??"";
   const schedule=config?.enabled?await ensureSchedule(origin,request?.nextUrl?.searchParams.get("schedule")==="retry").catch(()=>null):null;
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null});
+  // What actually went out: the last deliveries, newest first (keys name the source).
+  let deliveries:Array<{key:string;status:string;at:number}>=[];
+  try { if(env.DB) deliveries=(await env.DB.prepare("SELECT signal_key AS key,status,created_at AS at FROM telegram_deliveries WHERE user_id=? ORDER BY created_at DESC LIMIT 60").bind(user.userId).all<{key:string;status:string;at:number}>()).results; } catch { /* diagnostics only */ }
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null,deliveries});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
