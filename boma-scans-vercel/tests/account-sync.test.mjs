@@ -90,7 +90,12 @@ test('Monitored-pair and trade follow-ups are pushed to Telegram once per key',a
  user={userId:'alice',email:'alice@example.test'};
  await telegramMod.exports.POST(request('POST',{action:'connect',chatId:'123456'}));
  const before=telegramSent.length;
- const events=[{key:'monitor:ABCUSDT:LONG:100:95:0:AT TRIGGER',lines:['🔔 ABCUSDT LONG · AT TRIGGER','📍 Price 100.5','<b>not html</b>']},{key:'bad key',lines:['x']}];
+ // Automatic monitor alerts for a pair the owner has not entered are refused by the quiet policy.
+ const blocked=await (await telegramMod.exports.POST(request('POST',{action:'events',events:[{key:'monitor:XYZUSDT:LONG:1:0.9:0:AT TRIGGER',symbol:'XYZUSDT',lines:['🔔 XYZUSDT LONG · AT TRIGGER']}]}))).json();
+ assert.equal(blocked.sent,0);assert.equal(blocked.blocked,1,JSON.stringify(blocked));
+ // Once the pair is entered (armed on the server), its alerts go through.
+ sqlite.prepare("INSERT INTO account_records(user_id,record_key,payload,revision,updated_at) VALUES(?,?,?,1,?)").run('alice','monitor-memory',JSON.stringify({symbols:{ABCUSDT:{armed:{symbol:'ABCUSDT',side:'LONG',planKey:'k',entry:100,stop:95,targets:[101],weights:[100],hit:0,armedAt:1}}}}),Date.now());
+ const events=[{key:'monitor:ABCUSDT:LONG:100:95:0:AT TRIGGER',symbol:'ABCUSDT',lines:['🔔 ABCUSDT LONG · AT TRIGGER','📍 Price 100.5','<b>not html</b>']},{key:'bad key',lines:['x']}];
  const first=await (await telegramMod.exports.POST(request('POST',{action:'events',events}))).json();
  assert.equal(first.sent,1,JSON.stringify(first));
  assert.equal(telegramSent.length,before+1);

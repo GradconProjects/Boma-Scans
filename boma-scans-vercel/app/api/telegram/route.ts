@@ -76,9 +76,22 @@ export async function POST(request:NextRequest) {
     if(body.action==="events") {
       if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});
       const events=Array.isArray(body.events)?body.events.slice(0,10):[];
-      let sent=0;
+      // Quiet policy, enforced here so no dashboard build (current or stale) can push monitoring noise:
+      // automatic monitor alerts, updates and the digest are accepted only for pairs the owner entered.
+      let entered=new Set<string>();
+      try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {symbols?:Record<string,{armed?:unknown}>};entered=new Set(Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s));}} catch { /* none */ }
+      const allowed=(key:string,symbol:unknown)=>{
+        if(/^trade:/.test(key))return true;                                     // paper / live trade follow-ups the owner opened
+        if(/^monitor:(whale-analysis|[A-Z0-9]+USDT):/.test(key) && /:start:\d+$/.test(key))return true; // explicit "send levels" / whale plan
+        if(/^monitor:whale-analysis:/.test(key))return true;
+        if(/^monitor:digest:/.test(key))return false;
+        const pair=typeof symbol==="string"?symbol:key.split(":")[1];
+        return typeof pair==="string" && entered.has(pair);
+      };
+      let sent=0, blocked=0;
       for(const event of events) {
         if(!event || typeof event.key!=="string" || !/^(monitor|trade):[\w:.\- ]{1,200}$/.test(event.key) || !Array.isArray(event.lines))continue;
+        if(!allowed(event.key,event.symbol)){blocked++;continue;}
         const lines=event.lines.filter((line:unknown):line is string=>typeof line==="string" && line.length<=600).slice(0,12);
         if(!lines.length)continue;
         const key="event:"+event.key;
@@ -97,7 +110,7 @@ export async function POST(request:NextRequest) {
           return reply({sent,error:error instanceof Error?error.message:"Telegram delivery could not be confirmed."},502);
         }
       }
-      return reply({sent,message:sent?"Follow-up delivered.":"Nothing new to send."});
+      return reply({sent,blocked,message:sent?"Follow-up delivered.":"Nothing new to send."});
     }
     if(body.action!=="signals")return reply({error:"Unknown Telegram action."},400);
     if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});

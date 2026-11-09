@@ -13,7 +13,7 @@ export type PushGate = { ok: boolean; reasons: string[]; event: string | null; s
 export const MIN_STOP_ATR = 2;          // ~ one 4-hour range on the 1H chart
 export const RECENT_HOURS = 4;          // the last four closed candles must not have traded through the stop
 
-export function majorEventGate(row: Pick<ScannerRow, "bias" | "setupType" | "stop" | "entry" | "executionPlan">, analysis: Pick<MarketAnalysis, "structure" | "metrics">, candles: Candle[]): PushGate {
+export function majorEventGate(row: Pick<ScannerRow, "bias" | "setupType" | "stop" | "entry" | "executionPlan"> & Partial<Pick<ScannerRow, "keyLevels">>, analysis: Pick<MarketAnalysis, "structure" | "metrics">, candles: Candle[]): PushGate {
   const side = row.bias; const sign = side === "LONG" ? 1 : -1;
   const want = side === "LONG" ? "BULLISH" : "BEARISH";
   const s = analysis.structure;
@@ -26,6 +26,8 @@ export function majorEventGate(row: Pick<ScannerRow, "bias" | "setupType" | "sto
   const recent = candles.slice(-RECENT_HOURS - 1, -1);
   const adverse = recent.length ? Math.max(...recent.map(c => sign * (entry - (sign > 0 ? c.low : c.high)))) : 0;
   if (recent.length && adverse >= risk * 0.8) reasons.push("price traded within 20% of the stop in the last four hours");
+  // The stop must sit beyond the nearest historic level, not inside it: a stop parked in a level is the first thing a wick takes.
+  if (row.keyLevels && row.keyLevels.stopProtected === false) reasons.push("stop sits inside a historic support/resistance zone");
   return { ok: reasons.length === 0, reasons, event, survivalHours };
 }
 
