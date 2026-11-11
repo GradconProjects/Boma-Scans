@@ -156,6 +156,7 @@ const AUTO_SCAN_INTERVALS = [
   { minutes: 15, label: "15 min" },
   { minutes: 30, label: "30 min" },
   { minutes: 60, label: "1 hour" },
+  { minutes: 180, label: "3 hours" },
 ] as const;
 type AutoScanMinutes = (typeof AUTO_SCAN_INTERVALS)[number]["minutes"];
 const AUTO_SCAN_INTERVAL_STORAGE_KEY = "boma-scans:auto-scan-minutes";
@@ -358,7 +359,7 @@ export default function Home() {
   const [scannerNow, setScannerNow] = useState(() => Date.now());
   const [autoScan, setAutoScan] = useState(true);
   const [autoScanMinutes, setAutoScanMinutes] =
-    useState<AutoScanMinutes>(15);
+    useState<AutoScanMinutes>(180);
   const [riskFilter, setRiskFilter] = useState<RiskFilter>("ALL");
   const [directionFilter, setDirectionFilter] =
     useState<DirectionFilter>("BOTH");

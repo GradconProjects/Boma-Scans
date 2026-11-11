@@ -19,6 +19,6 @@ export function botSetting(command:string,value:string):Record<string,unknown>|n
  if(command==="/equity"&&number>0&&number<=1e9)return {equity:number};
  if(command==="/fee"&&number>=0&&number<=0.3)return {fee:number};
  if(command==="/slippage"&&number>=0&&number<=1)return {slippage:number};
- if(command==="/interval"&&[15,30,60,120,240].includes(number))return {autoScanMinutes:number};
+ if(command==="/interval"&&[15,30,60,180].includes(number))return {autoScanMinutes:number};
  return null;
 }
