@@ -12,6 +12,7 @@ import type {FlexibilityMode} from "@/app/lib/entry-policy";
 import {aiSettings,explainSetup,saveAiSettings,type AiProvider} from "@/app/server/ai";
 import {reviewBeforePush} from "@/app/server/review-signal";
 import {reviewLines} from "@/app/lib/ai-review";
+import {saveWhaleSettings,whaleSettings} from "@/app/server/whale-tracker";
 type Workspace={symbol:string;interval:string;style:TradingStyle;flexibility:FlexibilityMode;equity:number;fee:number;slippage:number;autoScan:boolean;autoScanMinutes:number;targetStyle?:"TA"|"LADDER";[key:string]:unknown};
 const defaults:Workspace={symbol:"BTCUSDT",interval:"60",style:"DAY",flexibility:"STRICT",equity:10000,fee:.055,slippage:.02,autoScan:true,autoScanMinutes:180};
 export function menu(origin:string) {return {inline_keyboard:[
@@ -39,7 +40,7 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
  const send=async(message:string,keyboard:boolean|Record<string,unknown>=false,html=false)=>{const chunks=telegramChunks(message);for(const [index,chunk] of chunks.entries())await telegramCall(token,"sendMessage",{chat_id:chatId,text:chunk,...(html?{parse_mode:"HTML"}:{}),...(keyboard&&index===chunks.length-1?{reply_markup:keyboard===true?menu(origin):keyboard}:{})});};
  const {command,args}=parseBotCommand(text);const settings=await workspace(userId);
  if(["/start","/menu","/help"].includes(command)) {
-  await send("📡 BOMA SCANS — CONTROL CENTRE\n\nType a pair: BTCUSDT\n/analyse ETHUSDT 1h\n/timeframe 1h | 2h | 4h\n/style DAY | SCALP | SWING | POSITION\n/targets TA | LADDER\n/entered BTCUSDT [price] · /skip BTCUSDT · /status\n/monitor BTCUSDT · /unmonitor BTCUSDT\n/why BTCUSDT (plain-English read) · /review BTCUSDT\n/ai anthropic | openai | off\n/risk STRICT | BALANCED | FLEXIBLE\n/equity 10000\n/fee 0.055\n/slippage 0.02\n/interval 15 | 30 | 60 | 180\n/autoscan on | off\n/direction BOTH | LONG | SHORT\n/filter ALL | LOW | MEDIUM | HIGH\n/alerts on | off\n/settings · /scan · /trades\n\nTelegram commands sync with your website settings. Keep the website open on one device for command processing. Full dashboard opens all chart, journal and risk controls inside Telegram. No exchange orders are placed.",true);return;
+  await send("📡 BOMA SCANS — CONTROL CENTRE\n\nType a pair: BTCUSDT\n/analyse ETHUSDT 1h\n/timeframe 1h | 2h | 4h\n/style DAY | SCALP | SWING | POSITION\n/targets TA | LADDER\n/entered BTCUSDT [price] · /skip BTCUSDT · /status\n/monitor BTCUSDT · /unmonitor BTCUSDT\n/why BTCUSDT (plain-English read) · /review BTCUSDT\n/ai anthropic | openai | off\n/wentered SOL LONG 150.2 · /wexit SOL (whale early warning)\n/risk STRICT | BALANCED | FLEXIBLE\n/equity 10000\n/fee 0.055\n/slippage 0.02\n/interval 15 | 30 | 60 | 180\n/autoscan on | off\n/direction BOTH | LONG | SHORT\n/filter ALL | LOW | MEDIUM | HIGH\n/alerts on | off\n/settings · /scan · /trades\n\nTelegram commands sync with your website settings. Keep the website open on one device for command processing. Full dashboard opens all chart, journal and risk controls inside Telegram. No exchange orders are placed.",true);return;
  }
  if(command==="/settings") {
   await send("⚙️ CURRENT SETTINGS\nPair: "+settings.symbol+"\nCandle interval: "+settings.interval+"\nStyle: "+settings.style+"\nEntry flexibility: "+settings.flexibility+"\nEquity: "+settings.equity+" USDT\nFee: "+settings.fee+"% · slippage: "+settings.slippage+"%\nAuto-scan: "+(settings.autoScan?"on":"off")+" / "+settings.autoScanMinutes+" minutes\nDirection: "+(settings.directionFilter??"BOTH")+" · grade filter: "+(settings.riskFilter??"ALL")+"\n\nNew plans scale out at 1R/2R/3R/4R/5R (30/25/20/15/10%); entry signals are issued on the 1H chart. Existing trade levels stay fixed.",true);return;
@@ -90,6 +91,12 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   await persist(mem);
   const sign=armed.side==="LONG"?1:-1,risk=Math.max(Math.abs(armed.entry-armed.stop),armed.entry*0.0001);
   await send("✅ "+pair+" "+armed.side+" · entry "+formatPrice(armed.entry)+" recorded.\n🛑 Stop "+formatPrice(armed.stop)+"\n"+armed.targets.map((t,i)=>"🎯 Target "+(i+1)+": "+formatPrice(t)+"   "+(sign*(t-armed!.entry)/risk).toFixed(1)+"R · close "+armed!.weights[i]+"%").join("\n")+"\n\nYou will be told at each target, at the stop, on a structure change against the trade, and when the runner should be closed. The pair is prioritised in the app and on the server.",keyboardRows([{text:"✏️ Correct the fill price",data:"enterat:"+pair},{text:"❌ I did not enter",data:"skipped:"+pair}]),false);return;
+ }
+ if(command==="/wexit"||command==="/wentered") {
+  const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wentered SOL LONG 150.2 or /wexit SOL.");return;}
+  const current=await whaleSettings();const list=(current.entered??[]).filter(t=>t.coin!==coin);
+  if(command==="/wentered"){const side=(args[1]??"LONG").toUpperCase()==="SHORT"?"SHORT":"LONG";const entry=Number(args[2])||0;list.push({coin,side,entry,at:Date.now(),symbol:null});await saveWhaleSettings({entered:list.slice(-20),watch:Array.from(new Set([coin,...(current.watch??[])])).slice(0,20)});await send("✅ Whale early-warning armed for your "+side+" "+coin+(entry?" from "+formatPrice(entry):"")+". You will hear the moment ranked whales move against it, with instructions in figures.",true);return;}
+  await saveWhaleSettings({entered:list});await send("❌ "+coin+" removed from your whale trades.",true);return;
  }
  if(command==="/ai") {
   const current=await aiSettings();

@@ -62,3 +62,15 @@ test("Exit signals: the whales behind an issued entry leaving means LEAVE; one c
   const sol = exits.find(x => x.coin === "SOL"); assert.ok(sol); assert.equal(sol.urgency, "LEAVE"); assert.ok(sol.whales.some(w => w.wasLeader)); assert.equal(sol.whales.length, 2, "market makers never count"); assert.equal(sol.realizedPnl, 170_000);
   assert.ok(!exits.some(x => x.coin === "ETH"), "a single cut on a coin we never signalled is not an exit signal");
 });
+
+test("Early warning on entered trades: ranked whale closing my side is CRITICAL; backing is INFO", () => {
+  const { whaleTradeWarnings } = mod.exports;
+  const ranks = [{ trader: "A", label: "A", tier: "ELITE", marketMaker: false }, { trader: "B", label: "B", tier: "STRONG", marketMaker: false }, { trader: "M", label: "M", tier: "WATCH", marketMaker: true }];
+  const now = 300 * 3_600_000;
+  const ev = (trader, coin, side, kind, deltaUsd, pnl = 0) => ({ id: trader + coin + kind, at: now - 60_000, trader, coin, kind, side, sizeUsd: 0, deltaUsd, entry: 100, price: 100, pnl, heldMs: 5 * 3_600_000 });
+  const entered = [{ coin: "SOL", side: "LONG", entry: 100, at: now - 3_600_000 }, { coin: "ETH", side: "SHORT", entry: 100, at: now - 3_600_000 }, { coin: "BTC", side: "LONG", entry: 100, at: now - 3_600_000 }];
+  const warnings = whaleTradeWarnings(entered, [ev("A", "SOL", "LONG", "CLOSE", -3e6, 250_000), ev("M", "SOL", "LONG", "CLOSE", -9e6), ev("B", "ETH", "LONG", "OPEN", 4e5), ev("B", "BTC", "LONG", "ADD", 8e5)], ranks, now);
+  const sol = warnings.find(w => w.coin === "SOL"); assert.equal(sol.severity, "CRITICAL"); assert.equal(sol.against.length, 1, "market makers never count"); assert.match(sol.headline, /ranked whale closed or flipped/);
+  const eth = warnings.find(w => w.coin === "ETH"); assert.equal(eth.severity, "WARNING"); assert.equal(eth.against[0].kind, "OPEN");
+  const btc = warnings.find(w => w.coin === "BTC"); assert.equal(btc.severity, "INFO"); assert.equal(btc.withUsd, 8e5);
+});

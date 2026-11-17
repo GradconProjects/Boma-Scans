@@ -180,3 +180,51 @@ export function bybitSymbolFor(coin: string, symbols: Set<string>): string | nul
   const candidates = [coin + "USDT", coin.startsWith("k") ? "1000" + coin.slice(1) + "USDT" : "", coin.startsWith("k") ? "10000" + coin.slice(1) + "USDT" : ""].filter(Boolean);
   return candidates.find(s => symbols.has(s)) ?? null;
 }
+
+/** A trade the owner says they are in, followed by the whale early-warning system. */
+export type EnteredTrade = { coin: string; side: "LONG" | "SHORT"; entry: number; at: number; symbol?: string | null };
+
+export type WhaleWarning = {
+  coin: string; side: "LONG" | "SHORT"; at: number;
+  severity: "INFO" | "WARNING" | "CRITICAL";
+  /** Whale moves against the owner's side (closing / cutting the same side, opening / adding the other side). */
+  against: Array<{ label: string; tier: WhaleRank["tier"]; kind: WhaleEventKind; side: "LONG" | "SHORT"; deltaUsd: number; pnl: number; heldHours: number; at: number }>;
+  /** Whale moves that back the owner's side. */
+  withYou: Array<{ label: string; tier: WhaleRank["tier"]; kind: WhaleEventKind; deltaUsd: number; at: number }>;
+  againstUsd: number; withUsd: number; eventIds: string[]; headline: string;
+};
+
+/**
+ * Early warning for trades the owner is in: every directional whale move on
+ * the coin in the window is classed as against (whales leaving the owner's
+ * side or taking the other one) or with. CRITICAL when a ranked whale closes
+ * or flips the owner's side, or when against-money is at least double the
+ * with-money and above $1M; WARNING when against-money leads; INFO when the
+ * whales are on the owner's side.
+ */
+export function whaleTradeWarnings(entered: EnteredTrade[], events: WhaleEvent[], ranks: WhaleRank[], now = Date.now(), windowMs = 6 * 3_600_000): WhaleWarning[] {
+  const rankBy = new Map(ranks.map(r => [r.trader, r]));
+  const out: WhaleWarning[] = [];
+  for (const trade of entered) {
+    const recent = events.filter(e => e.coin === trade.coin && now - e.at <= windowMs && Math.abs(e.deltaUsd) >= 100_000 && rankBy.has(e.trader) && !rankBy.get(e.trader)!.marketMaker);
+    if (!recent.length) continue;
+    const against: WhaleWarning["against"] = []; const withYou: WhaleWarning["withYou"] = [];
+    for (const e of recent) {
+      const r = rankBy.get(e.trader)!;
+      const exitedSide = e.kind === "FLIP" ? (e.side === "LONG" ? "SHORT" : "LONG") : e.side;
+      const leavingMine = (e.kind === "CLOSE" || e.kind === "REDUCE") && e.side === trade.side || (e.kind === "FLIP" && exitedSide === trade.side);
+      const takingOther = (e.kind === "OPEN" || e.kind === "ADD" || e.kind === "FLIP") && e.side !== trade.side;
+      const backingMine = (e.kind === "OPEN" || e.kind === "ADD" || e.kind === "FLIP") && e.side === trade.side;
+      if (leavingMine || takingOther) against.push({ label: r.label, tier: r.tier, kind: e.kind, side: e.side, deltaUsd: e.deltaUsd, pnl: e.pnl, heldHours: Math.round(e.heldMs / 3_600_000), at: e.at });
+      else if (backingMine) withYou.push({ label: r.label, tier: r.tier, kind: e.kind, deltaUsd: e.deltaUsd, at: e.at });
+    }
+    const againstUsd = against.reduce((a, x) => a + Math.abs(x.deltaUsd), 0), withUsd = withYou.reduce((a, x) => a + Math.abs(x.deltaUsd), 0);
+    const rankedExit = against.some(x => x.tier !== "WATCH" && (x.kind === "CLOSE" || x.kind === "FLIP"));
+    const severity: WhaleWarning["severity"] = rankedExit || (againstUsd >= 1_000_000 && againstUsd >= 2 * withUsd) ? "CRITICAL" : againstUsd > withUsd ? "WARNING" : "INFO";
+    const headline = severity === "CRITICAL" ? "Whales are leaving your " + trade.side + " " + trade.coin + (rankedExit ? ": a ranked whale closed or flipped" : ": " + Math.round(againstUsd / 1e5) / 10 + "M against vs " + Math.round(withUsd / 1e5) / 10 + "M with you")
+      : severity === "WARNING" ? "Whale money is turning against your " + trade.side + " " + trade.coin + " (" + Math.round(againstUsd / 1e5) / 10 + "M against, " + Math.round(withUsd / 1e5) / 10 + "M with)"
+      : "Whales are still backing your " + trade.side + " " + trade.coin + " (" + Math.round(withUsd / 1e5) / 10 + "M with you)";
+    out.push({ coin: trade.coin, side: trade.side, at: Math.max(...recent.map(e => e.at)), severity, against, withYou, againstUsd, withUsd, eventIds: recent.map(e => e.id), headline });
+  }
+  return out.sort((a, b) => ["CRITICAL", "WARNING", "INFO"].indexOf(a.severity) - ["CRITICAL", "WARNING", "INFO"].indexOf(b.severity) || b.at - a.at);
+}

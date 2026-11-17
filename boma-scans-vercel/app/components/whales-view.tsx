@@ -4,12 +4,12 @@ import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/app/lib/market";
 import { formatUsd } from "@/app/lib/positioning";
-import type { WhaleEvent, WhaleExit, WhaleRank, WhaleSignal } from "@/app/lib/whale-logic";
+import type { EnteredTrade, WhaleEvent, WhaleExit, WhaleRank, WhaleSignal, WhaleWarning } from "@/app/lib/whale-logic";
 import { WhaleAnalysisPanel } from "@/app/components/whale-analysis-panel";
 
 type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
-type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; watch?: string[] };
-type Payload = { at: number; signals: Signal[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; error?: string };
+type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; watch?: string[]; entered?: EnteredTrade[] };
+type Payload = { at: number; signals: Signal[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; warnings?: WhaleWarning[]; prices?: Record<string, number>; error?: string };
 
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 const tierTone: Record<WhaleRank["tier"], string> = { ELITE: "bg-violet-300/20 text-violet-100", STRONG: "bg-cyan-300/20 text-cyan-100", WATCH: "bg-white/10 text-slate-300" };
@@ -45,6 +45,24 @@ export function WhalesView() {
     const d = await r.json() as { settings?: Settings };
     if (d.settings) setData(current => current ? { ...current, settings: d.settings! } : current);
   };
+  const entered = data?.settings.entered ?? [];
+  const enteredFor = (coin: string) => entered.find(t => t.coin === coin);
+  const markEntered = async (coin: string, side: "LONG" | "SHORT", symbol?: string | null) => {
+    const current = data?.prices?.[coin];
+    const typed = window.prompt("Your fill price for " + coin + " " + side + " (leave as is for the current price):", current ? String(current) : "");
+    if (typed === null) return;
+    const r = await fetch("/api/whales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "entered", coin, side, price: Number(typed) || undefined, symbol: symbol ?? undefined }) });
+    const d = await r.json() as { settings?: Settings };
+    if (d.settings) setData(cur => cur ? { ...cur, settings: d.settings! } : cur);
+  };
+  const markExited = async (coin: string) => {
+    const r = await fetch("/api/whales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "exited", coin }) });
+    const d = await r.json() as { settings?: Settings };
+    if (d.settings) setData(cur => cur ? { ...cur, settings: d.settings! } : cur);
+  };
+  const EnteredButton = ({ coin, side, symbol }: { coin: string; side: "LONG" | "SHORT"; symbol?: string | null }) => { const t = enteredFor(coin); return t
+    ? <Button type="button" size="sm" variant="default" onClick={() => void markExited(coin)} className="rounded-lg bg-emerald-300/30 text-emerald-50 hover:bg-emerald-300/40">✅ In {t.side} {coin} from {formatPrice(t.entry)} · tap when exited</Button>
+    : <Button type="button" size="sm" variant="outline" onClick={() => void markEntered(coin, side, symbol)} className="rounded-lg">✅ I entered this {side}</Button>; };
   const WatchButton = ({ coin }: { coin: string }) => <Button type="button" size="sm" variant={watched.has(coin) ? "default" : "outline"} onClick={() => void toggleWatch(coin)} className="rounded-lg">{watched.has(coin) ? "👁 Monitoring " + coin : "👁 Monitor " + coin + " alone"}</Button>;
   return <main className="mx-auto max-w-6xl px-4 py-6 text-slate-100">
     <div className="flex flex-wrap items-end justify-between gap-3">
@@ -58,6 +76,17 @@ export function WhalesView() {
     {error && <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{error}{error.includes("Sign in") && <> · <Link href="/login" className="underline">Sign in</Link></>}</p>}
     <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Entry & exit signals" + (data ? " · " + (data.signals.filter(s => s.status !== "WEAK").length + data.exits.length) : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
 
+    {tab === "signals" && data && <section className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-300/[0.05] p-3">
+      <p className="text-sm font-semibold text-white">✅ Your whale trades · early warning {entered.length ? "· " + entered.length : ""}</p>
+      <p className="mt-1 text-xs leading-5 text-slate-400">Tap &quot;I entered&quot; on any coin. From then on every directional whale move on it reaches Telegram within a minute, classed as with or against you, with instructions in figures (hold, tighten the stop to a price, reduce a percentage, exit), plus a check-in every six hours. Tap the green button when you exit.</p>
+      {entered.length === 0 ? <p className="mt-2 text-xs text-slate-500">No trade recorded yet.</p> : <ul className="mt-2 space-y-2">{entered.map(t => { const w = (data.warnings ?? []).find(x => x.coin === t.coin && x.side === t.side); const price = data.prices?.[t.coin]; const sign = t.side === "LONG" ? 1 : -1; const pnl = price && t.entry ? sign * (price - t.entry) / t.entry * 100 : null; return <li key={t.coin} className={"rounded-xl border p-3 text-xs " + (w?.severity === "CRITICAL" ? "border-rose-300/40 bg-rose-300/[0.07]" : w?.severity === "WARNING" ? "border-amber-300/30 bg-amber-300/[0.05]" : "border-white/[0.08] bg-slate-950/40")}>
+        <div className="flex flex-wrap items-center justify-between gap-2"><span className="text-sm font-semibold text-white">{t.side === "LONG" ? "🟢" : "🔴"} {t.coin} {t.side} · entry {formatPrice(t.entry)}{price ? " · now " + formatPrice(price) : ""}{pnl !== null ? <span className={pnl >= 0 ? " text-emerald-300" : " text-rose-300"}> {(pnl >= 0 ? "+" : "") + pnl.toFixed(2)}%</span> : null}</span><span className="text-slate-500">since {melbourne(t.at)}</span></div>
+        {w ? <><p className={"mt-1 font-semibold " + (w.severity === "CRITICAL" ? "text-rose-200" : w.severity === "WARNING" ? "text-amber-200" : "text-emerald-200")}>{w.severity === "CRITICAL" ? "🚨" : w.severity === "WARNING" ? "⚠️" : "ℹ️"} {w.headline}</p>
+          <ul className="mt-1 space-y-0.5 text-slate-300">{w.against.map(a => <li key={a.label + a.kind + a.at}>• AGAINST <span className="font-mono">{a.label}</span> {a.tier.toLowerCase()} {a.kind.toLowerCase()} {a.side} {formatUsd(Math.abs(a.deltaUsd))}{a.kind !== "OPEN" && a.kind !== "ADD" ? " · " + (a.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(a.pnl)) + " · held " + a.heldHours + "h" : ""}</li>)}{w.withYou.map(x => <li key={x.label + x.kind + x.at}>• WITH <span className="font-mono">{x.label}</span> {x.tier.toLowerCase()} {x.kind.toLowerCase()} {formatUsd(Math.abs(x.deltaUsd))}</li>)}</ul></> : <p className="mt-1 text-slate-400">No directional whale move on {t.coin} in the last 6 hours.</p>}
+        <div className="mt-2 flex flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => void markExited(t.coin)} className="rounded-lg">❌ I exited {t.coin}</Button></div>
+        <WhaleAnalysisPanel coin={t.coin} side={t.side}/>
+      </li>; })}</ul>}
+    </section>}
     {tab === "signals" && data && <section className="mt-4 rounded-2xl border border-violet-300/30 bg-violet-300/[0.05] p-3">
       <p className="text-sm font-semibold text-white">👁 Pairs you monitor in the whale system {watched.size ? "· " + watched.size : ""}</p>
       <p className="mt-1 text-xs leading-5 text-slate-400">Every directional whale move of $100K+ on these coins is sent to Telegram as it happens, and their entry and exit signals are sent without the confidence floor. Pick a coin from any signal, any activity row, or type one below.</p>
@@ -75,7 +104,7 @@ export function WhalesView() {
         <p className="mt-1 text-xs text-slate-300">Whales realised {(x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl))} on the way out</p>
         <ul className="mt-2 space-y-1 text-xs text-slate-300">{x.whales.map(w => <li key={w.label + w.kind}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span>{w.wasLeader && <span className="ml-1 rounded bg-rose-300/20 px-1 text-rose-100">led the entry</span>} {w.kind.toLowerCase()} {formatUsd(Math.abs(w.deltaUsd))} · {(w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl))} · held {w.heldHours}h</li>)}</ul>
         <p className="mt-2 text-xs leading-5 text-slate-400">{x.note}</p>
-        <div className="mt-3 flex flex-wrap gap-2"><WatchButton coin={x.coin}/></div>
+        <div className="mt-3 flex flex-wrap gap-2"><EnteredButton coin={x.coin} side={x.side}/><WatchButton coin={x.coin}/></div>
         <WhaleAnalysisPanel coin={x.coin} side={x.side}/>
       </article>)}</div>
     </section>}
@@ -94,7 +123,7 @@ export function WhalesView() {
             <p className="mt-1 font-mono text-slate-200">🛑 Stop idea {formatPrice(s.engine.stop)} (1.5 ATR beyond their entry) · 🎯 {s.engine.targets.map(t => formatPrice(t)).join(" / ")} (1R / 2R / 3R)</p>
           </div> : <p className="mt-3 text-xs text-slate-500">Not listed on Bybit; information only.</p>}
           <p className="mt-2 text-xs leading-5 text-slate-400">{s.note}</p>
-          <div className="mt-3 flex flex-wrap gap-2"><WatchButton coin={s.coin}/></div>
+          <div className="mt-3 flex flex-wrap gap-2"><EnteredButton coin={s.coin} side={s.side} symbol={s.symbol}/><WatchButton coin={s.coin}/></div>
           <WhaleAnalysisPanel coin={s.coin} side={s.side}/>
         </article>)}
     </section>}
@@ -116,7 +145,7 @@ export function WhalesView() {
           <td className="p-2 text-right">{formatPrice(e.entry)}</td>
           <td className={"p-2 text-right " + (e.pnl >= 0 ? "text-emerald-300" : "text-rose-300")}>{(e.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(e.pnl))}</td>
           <td className="p-2 text-right text-slate-400">{e.heldMs ? Math.round(e.heldMs / 3_600_000) + "h" : "new"}</td>
-          <td className="p-2 whitespace-nowrap"><button type="button" onClick={() => setAnalyseCoin(current => current?.coin === e.coin && current.side === e.side ? null : { coin: e.coin, side: e.side })} className="rounded-lg border border-white/10 px-2 py-1 font-sans text-[11px] text-cyan-100 hover:bg-white/5">Analyse</button> <button type="button" onClick={() => void toggleWatch(e.coin)} className={"rounded-lg border px-2 py-1 font-sans text-[11px] hover:bg-white/5 " + (watched.has(e.coin) ? "border-violet-300/40 text-violet-100" : "border-white/10 text-slate-300")}>{watched.has(e.coin) ? "👁 on" : "👁"}</button></td>
+          <td className="p-2 whitespace-nowrap"><button type="button" onClick={() => setAnalyseCoin(current => current?.coin === e.coin && current.side === e.side ? null : { coin: e.coin, side: e.side })} className="rounded-lg border border-white/10 px-2 py-1 font-sans text-[11px] text-cyan-100 hover:bg-white/5">Analyse</button> <button type="button" onClick={() => void toggleWatch(e.coin)} className={"rounded-lg border px-2 py-1 font-sans text-[11px] hover:bg-white/5 " + (watched.has(e.coin) ? "border-violet-300/40 text-violet-100" : "border-white/10 text-slate-300")}>{watched.has(e.coin) ? "👁 on" : "👁"}</button> <button type="button" onClick={() => enteredFor(e.coin) ? void markExited(e.coin) : void markEntered(e.coin, e.side)} className={"rounded-lg border px-2 py-1 font-sans text-[11px] hover:bg-white/5 " + (enteredFor(e.coin) ? "border-emerald-300/40 text-emerald-100" : "border-white/10 text-slate-300")} title={enteredFor(e.coin) ? "Tap when exited" : "I entered this trade"}>{enteredFor(e.coin) ? "✅ in" : "✅"}</button></td>
         </tr>; })}</tbody>
       </table>
       {data && data.events.length === 0 && <p className="p-4 text-sm text-slate-400">No events yet. The first snapshot records existing positions as the baseline; opens, adds, reductions, closes and flips appear from the next change on (snapshots every 3 minutes).</p>}

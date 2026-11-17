@@ -2,7 +2,8 @@ import { env } from "@/app/server/env";
 import { marketRead, analyzePair } from "@/app/server/market-analysis";
 import { whaleAddresses, whaleSnapshot } from "@/app/server/positioning";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
-import { bybitSymbolFor, confirmWhaleExits, confirmWhaleSignals, diffPositions, rankWhales, type IssuedSignal, type WatchState, type WhaleEvent, type WhaleExit, type WhalePerformance, type WhaleRank, type WhaleSignal } from "@/app/lib/whale-logic";
+import { bybitSymbolFor, confirmWhaleExits, confirmWhaleSignals, diffPositions, rankWhales, whaleTradeWarnings, type EnteredTrade, type IssuedSignal, type WatchState, type WhaleEvent, type WhaleExit, type WhalePerformance, type WhaleRank, type WhaleSignal, type WhaleWarning } from "@/app/lib/whale-logic";
+import { whaleTradeManagement } from "@/app/server/whale-management";
 import { formatUsd } from "@/app/lib/positioning";
 import { formatPrice, STYLE_CONFIG } from "@/app/lib/market";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
@@ -13,8 +14,8 @@ import type { TelegramEvent } from "@/app/lib/telegram-events";
  * the alerts. Runs inside the scheduled monitor; cheap when the snapshot has
  * not changed. Never places orders.
  */
-export type WhaleSettings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; /** Coins the owner chose to follow one by one: every directional whale move on them is reported. */ watch: string[] };
-const DEFAULT_SETTINGS: WhaleSettings = { alerts: true, minTier: "STRONG", coins: [], watch: [] };
+export type WhaleSettings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; /** Coins the owner chose to follow one by one: every directional whale move on them is reported. */ watch: string[]; /** Trades the owner is in; the early-warning system follows whale activity on them. */ entered: EnteredTrade[] };
+const DEFAULT_SETTINGS: WhaleSettings = { alerts: true, minTier: "STRONG", coins: [], watch: [], entered: [] };
 const memoryEvents: WhaleEvent[] = [];
 
 export async function whaleSettings(): Promise<WhaleSettings> {
@@ -110,8 +111,49 @@ export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSi
 }
 
 /** Telegram alerts: confirmed whale signals, plus elite opens / closes on coins the owner follows. */
-export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleExit[], events: WhaleEvent[], ranks: WhaleRank[], settings: WhaleSettings, now = Date.now()): Promise<TelegramEvent[]> {
+/** Warnings for the owner's entered trades from the recent whale events. */
+export function enteredWarnings(settings: WhaleSettings, events: WhaleEvent[], ranks: WhaleRank[], now = Date.now()): WhaleWarning[] {
+  return whaleTradeWarnings(settings.entered ?? [], events, ranks, now);
+}
+
+export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleExit[], events: WhaleEvent[], ranks: WhaleRank[], settings: WhaleSettings, now = Date.now(), prices: Record<string, number> = {}): Promise<TelegramEvent[]> {
   const out: TelegramEvent[] = [];
+  // Early warning on trades the owner is in: whale moves against the position in the last 15 minutes, with instructions in figures.
+  for (const trade of settings.entered ?? []) {
+    const fresh = whaleTradeWarnings([trade], events.filter(e => now - e.at < 15 * 60_000), ranks, now, 15 * 60_000)[0];
+    if (!fresh) continue;
+    const price = prices[trade.coin] ?? 0; const sign = trade.side === "LONG" ? 1 : -1;
+    const pnlPct = price && trade.entry ? sign * (price - trade.entry) / trade.entry * 100 : null;
+    const management = await whaleTradeManagement(trade, fresh, price).catch(() => null);
+    const icon = fresh.severity === "CRITICAL" ? "🚨" : fresh.severity === "WARNING" ? "⚠️" : "ℹ️";
+    out.push({ key: "whale:warn:" + trade.coin + ":" + trade.side + ":" + fresh.eventIds.slice().sort().join("|").slice(0, 120), symbol: trade.symbol ?? undefined, lines: [
+      icon + " WHALE " + fresh.severity + " · " + trade.coin + " " + trade.side + " (your trade)",
+      "📍 Price " + formatPrice(price) + " · your entry " + formatPrice(trade.entry) + (pnlPct !== null ? " · " + (pnlPct >= 0 ? "+" : "") + pnlPct.toFixed(2) + "%" : ""),
+      fresh.headline + ".",
+      "",
+      ...fresh.against.map(a => "• AGAINST " + a.label + " (" + a.tier.toLowerCase() + ") " + a.kind.toLowerCase() + " " + a.side + " " + formatUsd(Math.abs(a.deltaUsd)) + (a.kind === "CLOSE" || a.kind === "REDUCE" || a.kind === "FLIP" ? " · " + (a.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(a.pnl)) + " · held " + a.heldHours + " h" : "")),
+      ...fresh.withYou.map(w => "• WITH " + w.label + " (" + w.tier.toLowerCase() + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.abs(w.deltaUsd))),
+      "",
+      ...(management ? [
+        (management.action === "EXIT NOW" ? "⛔ " : management.action === "REDUCE" ? "✂️ " : management.action === "TIGHTEN STOP" ? "🛡 " : "✅ ") + management.action + (management.reduce_pct ? " · close " + management.reduce_pct + "%" : "") + (management.new_stop ? " · stop to " + formatPrice(management.new_stop) : ""),
+        management.reasoning,
+        ...(management.figures.length ? management.figures.map(f => "• " + f) : []),
+        "⏭ Next: " + management.next_check,
+        ...(management.guardrails.length ? ["📐 " + management.guardrails.join("; ")] : []),
+      ] : ["Instructions unavailable right now; re-run the analysis in the whale section."]),
+    ], buttons: [{ text: "🔎 Analyse " + trade.coin, data: "analyse:" + (trade.symbol ?? trade.coin + "USDT") }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] });
+  }
+  // Six-hourly check-in for each entered trade: where the whale book stands.
+  for (const trade of settings.entered ?? []) {
+    const bucket = Math.floor(now / (6 * 3_600_000));
+    const w = whaleTradeWarnings([trade], events, ranks, now, 6 * 3_600_000)[0];
+    const price = prices[trade.coin] ?? 0; const sign = trade.side === "LONG" ? 1 : -1;
+    out.push({ key: "whale:checkin:" + trade.coin + ":" + trade.side + ":" + bucket, lines: [
+      "🕐 Whale check-in · " + trade.coin + " " + trade.side + " (your trade)",
+      "📍 Price " + formatPrice(price) + " · entry " + formatPrice(trade.entry) + (price && trade.entry ? " · " + (sign * (price - trade.entry) >= 0 ? "+" : "") + (sign * (price - trade.entry) / trade.entry * 100).toFixed(2) + "%" : ""),
+      w ? w.headline + " over the last 6 h (" + w.against.length + " moves against, " + w.withYou.length + " with)." : "No directional whale moves on " + trade.coin + " in the last 6 h.",
+    ] });
+  }
   const bucket = Math.floor(now / (6 * 3_600_000));
   const rankBy0 = new Map(ranks.map(r => [r.trader, r]));
   // Pairs the owner monitors one by one always report, even with general whale alerts off.

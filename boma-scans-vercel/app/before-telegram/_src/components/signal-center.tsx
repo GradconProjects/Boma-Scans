@@ -11,6 +11,7 @@ import { formatPrice, type ScannerRow } from "@/app/before-telegram/_src/lib/mar
 import { notificationStatus, snapshotSignal, telegramSignalText, type SignalSnapshot } from "@/app/before-telegram/_src/lib/signal-alerts";
 import type { useSignalAlerts } from "@/app/before-telegram/_src/components/use-signal-alerts";
 import { EntryInstructions } from "@/app/before-telegram/_src/components/entry-instructions";
+import { WhaleStance } from "@/app/before-telegram/_src/components/whale-stance";
 
 export type SignalTab = "signals" | "notifications";
 type Alerts = ReturnType<typeof useSignalAlerts>;
@@ -39,6 +40,7 @@ function SignalCard({signal, historical = false, now, onReview, onPaper}: {
       <p className="mt-1 text-xs text-slate-500">{signal.flexibility} · TA {signal.score} · entry {signal.entryGrade} {signal.entryQuality} · {utc(signal.createdAt)}</p>
     </div>
     <div className="space-y-4 p-4 sm:p-5">
+      {!historical && <WhaleStance symbol={signal.symbol} side={signal.side}/>}
       {signal.executionPlan && <EntryInstructions plan={signal.executionPlan} ready={false} compact
         reason={historical ? "Saved instructions from this alert. Open the live chart for a current entry decision." : "Confirmed at scan time. Open the chart; enter only if READY and the current quote remains inside this range."}/>}
       <div className="grid grid-cols-2 gap-3"><div className="rounded-xl bg-white/[0.035] p-3"><p className="text-sm text-slate-400">📍 Entry</p><p className="mt-1 break-all font-mono text-lg font-semibold text-white">{formatPrice(signal.entry)}</p></div><div className="rounded-xl bg-rose-300/[0.045] p-3"><p className="text-sm text-rose-200/80">🛑 Stop loss</p><p className="mt-1 break-all font-mono text-lg font-semibold text-rose-200">{formatPrice(signal.stop)}</p></div></div>
