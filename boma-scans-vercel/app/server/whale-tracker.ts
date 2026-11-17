@@ -4,6 +4,9 @@ import { whaleAddresses, whaleSnapshot } from "@/app/server/positioning";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { bybitSymbolFor, confirmWhaleExits, confirmWhaleSignals, diffPositions, rankWhales, whaleTradeWarnings, type EnteredTrade, type IssuedSignal, type WatchState, type WhaleEvent, type WhaleExit, type WhalePerformance, type WhaleRank, type WhaleSignal, type WhaleWarning } from "@/app/lib/whale-logic";
 import { whaleTradeManagement } from "@/app/server/whale-management";
+import { checkExits, type ArmedPlan } from "@/app/lib/trigger-monitor";
+import { structureAdvice } from "@/app/server/trade-watch";
+import { formatExitEvent } from "@/app/lib/telegram-events";
 import { formatUsd } from "@/app/lib/positioning";
 import { formatPrice, STYLE_CONFIG } from "@/app/lib/market";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
@@ -206,4 +209,60 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
     ] });
   }
   return out;
+}
+
+/** Levels for a trade the owner just entered: the planner's if it produced them, else 1.5 ATR(1H) stop and 1R / 2R / 3R targets. */
+export async function levelsForEntered(trade: EnteredTrade): Promise<{ stop: number; targets: number[]; source: string; call?: string; chart?: string }> {
+  const sign = trade.side === "LONG" ? 1 : -1;
+  if (!trade.symbol) return { stop: trade.entry * (1 - sign * 0.03), targets: [1, 2, 3].map(k => trade.entry * (1 + sign * 0.03 * k)), source: "3% fallback (not on Bybit)" };
+  const { row, analysis } = await analyzePair(trade.symbol, STYLE_CONFIG.DAY.interval, "DAY", "STRICT");
+  const atr = analysis.metrics.atr; const stop = trade.entry - sign * 1.5 * atr; const risk = Math.abs(trade.entry - stop);
+  const engineAgrees = row.bias === trade.side;
+  const targets = engineAgrees && row.takeProfits.length >= 3 && row.takeProfits.every(t => sign * (t.price - trade.entry) > 0) ? row.takeProfits.slice(0, 3).map(t => t.price) : [1, 2, 3].map(k => trade.entry + sign * k * risk);
+  return { stop: engineAgrees && sign * (trade.entry - row.stop) > 0 && sign * (trade.entry - row.stop) <= 2.5 * atr ? row.stop : stop, targets, source: engineAgrees ? "1H engine levels (chart agrees with the whales)" : "1.5 ATR stop and 1R / 2R / 3R targets (chart does not confirm the side yet)", chart: row.bias + " · " + row.regime + " · " + row.trendFrames + "/3 frames" };
+}
+
+/** Confirmation card when the owner records a whale trade. */
+export function enteredCard(trade: EnteredTrade, levels: { stop: number; targets: number[]; source: string; chart?: string }, stance: { stance: string; detail: string }): TelegramEvent {
+  const sign = trade.side === "LONG" ? 1 : -1; const risk = Math.max(Math.abs(trade.entry - levels.stop), trade.entry * 1e-4);
+  return { key: "whale:entered:" + trade.coin + ":" + trade.at, symbol: trade.symbol ?? undefined, lines: [
+    "✅ WHALE TRADE RECORDED · " + trade.coin + " " + trade.side + (trade.symbol ? " · " + trade.symbol : ""),
+    "👉 Entry: " + formatPrice(trade.entry),
+    "❌ StopLoss: " + formatPrice(levels.stop) + "   −" + (Math.abs(trade.entry - levels.stop) / trade.entry * 100).toFixed(2) + "%",
+    ...levels.targets.map((t, i) => "🎯 Target " + (i + 1) + ": " + formatPrice(t) + "   +" + (sign * (t - trade.entry) / trade.entry * 100).toFixed(2) + "%  ·  " + (sign * (t - trade.entry) / risk).toFixed(1) + "R"),
+    "",
+    "🐋 Whales " + (stance.stance === "WITH" ? "with you: " : stance.stance === "AGAINST" ? "AGAINST you: " : "neutral: ") + stance.detail,
+    ...(levels.chart ? ["📈 Chart (1h): " + levels.chart] : []),
+    "📐 Levels: " + levels.source,
+    "",
+    "From now until you tap \"I exited\": every whale move on " + trade.coin + " with instructions in figures, each target and the stop as price reaches them, structure changes against the trade, and a check-in every 6 h.",
+  ], buttons: [{ text: "🔎 Analyse " + trade.coin, data: "analyse:" + (trade.symbol ?? trade.coin + "USDT") }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] };
+}
+
+export function exitedCard(trade: EnteredTrade, price: number): TelegramEvent {
+  const sign = trade.side === "LONG" ? 1 : -1; const pnl = price && trade.entry ? sign * (price - trade.entry) / trade.entry * 100 : null;
+  return { key: "whale:exited:" + trade.coin + ":" + Date.now(), lines: ["❌ WHALE TRADE CLOSED · " + trade.coin + " " + trade.side, "👉 Entry " + formatPrice(trade.entry) + (price ? " · exit around " + formatPrice(price) : "") + (pnl !== null ? " · " + (pnl >= 0 ? "+" : "") + pnl.toFixed(2) + "%" : "") + " · held " + Math.round((Date.now() - trade.at) / 3_600_000) + " h", "Whale monitoring of this pair has stopped; " + trade.coin + " stays on the watch list."] };
+}
+
+/**
+ * Every minute, for each trade the owner is in: price against the stop and
+ * targets (exits in order), and the engine's structure read (leave / protect).
+ * Returns the alerts and the trades with their hit counters advanced.
+ */
+export async function followEnteredTrades(settings: WhaleSettings, now = Date.now()): Promise<{ events: TelegramEvent[]; entered: EnteredTrade[]; changed: boolean }> {
+  const events: TelegramEvent[] = []; const next: EnteredTrade[] = []; let changed = false;
+  for (const trade of settings.entered ?? []) {
+    if (!trade.symbol || !trade.stop || !trade.targets?.length) { next.push(trade); continue; }
+    try {
+      const { row, analysis } = await analyzePair(trade.symbol, STYLE_CONFIG.DAY.interval, "DAY", "STRICT");
+      const plan: ArmedPlan = { symbol: trade.symbol, side: trade.side, planKey: "whale:" + trade.coin + ":" + trade.at, entry: trade.entry, stop: trade.stop, targets: trade.targets, weights: [40, 30, 30].slice(0, trade.targets.length), hit: trade.hit ?? 0, armedAt: trade.at, tp2At: trade.tp2At, confirmed: true, style: "DAY" };
+      const result = checkExits(plan, row.price, now);
+      for (const exit of result.events) events.push({ ...formatExitEvent(exit), lines: ["🐋 " + formatExitEvent(exit).lines[0], ...formatExitEvent(exit).lines.slice(1)] });
+      if (result.next) events.push(...structureAdvice(result.next, analysis, row, now));
+      const updated: EnteredTrade = result.next ? { ...trade, hit: result.next.hit, tp2At: result.next.tp2At } : { ...trade, hit: trade.targets.length };
+      if (updated.hit !== trade.hit || updated.tp2At !== trade.tp2At) changed = true;
+      next.push(updated);
+    } catch { next.push(trade); }
+  }
+  return { events, entered: next, changed };
 }

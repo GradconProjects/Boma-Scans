@@ -12,7 +12,10 @@ import type {FlexibilityMode} from "@/app/lib/entry-policy";
 import {aiSettings,explainSetup,saveAiSettings,type AiProvider} from "@/app/server/ai";
 import {reviewBeforePush} from "@/app/server/review-signal";
 import {reviewLines} from "@/app/lib/ai-review";
-import {saveWhaleSettings,whaleSettings} from "@/app/server/whale-tracker";
+import {enteredCard,levelsForEntered,saveWhaleSettings,whaleSettings} from "@/app/server/whale-tracker";
+import {whaleAlignment} from "@/app/server/whale-align";
+import {bybitSymbolFor} from "@/app/lib/whale-logic";
+import {marketRead} from "@/app/server/market-analysis";
 type Workspace={symbol:string;interval:string;style:TradingStyle;flexibility:FlexibilityMode;equity:number;fee:number;slippage:number;autoScan:boolean;autoScanMinutes:number;targetStyle?:"TA"|"LADDER";[key:string]:unknown};
 const defaults:Workspace={symbol:"BTCUSDT",interval:"60",style:"DAY",flexibility:"STRICT",equity:10000,fee:.055,slippage:.02,autoScan:true,autoScanMinutes:180};
 export function menu(origin:string) {return {inline_keyboard:[
@@ -95,7 +98,17 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
  if(command==="/wexit"||command==="/wentered") {
   const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wentered SOL LONG 150.2 or /wexit SOL.");return;}
   const current=await whaleSettings();const list=(current.entered??[]).filter(t=>t.coin!==coin);
-  if(command==="/wentered"){const side=(args[1]??"LONG").toUpperCase()==="SHORT"?"SHORT":"LONG";const entry=Number(args[2])||0;list.push({coin,side,entry,at:Date.now(),symbol:null});await saveWhaleSettings({entered:list.slice(-20),watch:Array.from(new Set([coin,...(current.watch??[])])).slice(0,20)});await send("✅ Whale early-warning armed for your "+side+" "+coin+(entry?" from "+formatPrice(entry):"")+". You will hear the moment ranked whales move against it, with instructions in figures.",true);return;}
+  if(command==="/wentered"){
+   const side=(args[1]??"LONG").toUpperCase()==="SHORT"?"SHORT":"LONG";let symbol:string|null=null;
+   try{const tickers=await marketRead({kind:"tickers"});symbol=bybitSymbolFor(coin,new Set((tickers.result!.list as Array<{symbol?:string;lastPrice?:string}>).map(t=>t.symbol??"")));}catch{symbol=null;}
+   let entry=Number(args[2])||0;
+   if(!entry&&symbol){try{const q=await marketRead({kind:"ticker",symbol});entry=Number((q.result!.list[0] as {lastPrice?:string}).lastPrice)||0;}catch{/* unknown */}}
+   const trade={coin,side,entry,at:Date.now(),symbol,hit:0} as import("@/app/lib/whale-logic").EnteredTrade;
+   const levels=await levelsForEntered(trade).catch(()=>({stop:entry*(side==="LONG"?0.97:1.03),targets:[1,2,3].map(k=>entry*(1+(side==="LONG"?1:-1)*0.03*k)),source:"3% fallback"}));
+   trade.stop=levels.stop;trade.targets=levels.targets;list.push(trade);
+   await saveWhaleSettings({entered:list.slice(-20),watch:Array.from(new Set([coin,...(current.watch??[])])).slice(0,20)});
+   const stance=symbol?await whaleAlignment(symbol,side).catch(()=>({stance:"NEUTRAL",detail:"whale data unavailable"})):{stance:"NEUTRAL",detail:"not listed on Bybit"};
+   await send(renderTelegramHtml(enteredCard(trade,levels,stance).lines),keyboardRows(enteredCard(trade,levels,stance).buttons??[]),true);return;}
   await saveWhaleSettings({entered:list});await send("❌ "+coin+" removed from your whale trades.",true);return;
  }
  if(command==="/ai") {

@@ -182,7 +182,7 @@ export function bybitSymbolFor(coin: string, symbols: Set<string>): string | nul
 }
 
 /** A trade the owner says they are in, followed by the whale early-warning system. */
-export type EnteredTrade = { coin: string; side: "LONG" | "SHORT"; entry: number; at: number; symbol?: string | null };
+export type EnteredTrade = { coin: string; side: "LONG" | "SHORT"; entry: number; at: number; symbol?: string | null; /** Levels the trade is managed against (planner's or 1.5 ATR / 1R-2R-3R fallback). */ stop?: number; targets?: number[]; hit?: number; tp2At?: number };
 
 export type WhaleWarning = {
   coin: string; side: "LONG" | "SHORT"; at: number;

@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOwnerUser } from "@/app/server/owner-auth";
-import { enteredWarnings, purgeBaselineOpens, recentEvents, saveWhaleSettings, trackWhales, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
+import { enteredCard, enteredWarnings, exitedCard, levelsForEntered, purgeBaselineOpens, recentEvents, saveWhaleSettings, trackWhales, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
+import { deliverEvents, telegramConfig } from "@/app/server/telegram-delivery";
+import { whaleAlignment } from "@/app/server/whale-align";
+import { marketRead } from "@/app/server/market-analysis";
+import { bybitSymbolFor } from "@/app/lib/whale-logic";
 import { whaleSnapshot } from "@/app/server/positioning";
 import { whaleEntryAnalysis } from "@/app/server/whale-analysis";
 export const dynamic = "force-dynamic";
@@ -30,13 +34,26 @@ export async function POST(request: NextRequest) {
   if (body.action === "entered" || body.action === "exited") {
     const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);
     const current = await whaleSettings(); const list = (current.entered ?? []).filter(t => t.coin !== coin);
+    const config = await telegramConfig().catch(() => null);
     if (body.action === "entered") {
       const side = body.side === "SHORT" ? "SHORT" : "LONG"; const price = Number((body as { price?: unknown }).price);
       let entry = Number.isFinite(price) && price > 0 ? price : 0;
       if (!entry) { try { const snapshot = await whaleSnapshot(); entry = snapshot.ctx[coin]?.markPx ?? 0; } catch { /* unknown */ } }
-      list.push({ coin, side, entry, at: Date.now(), symbol: typeof (body as { symbol?: unknown }).symbol === "string" ? String((body as { symbol?: unknown }).symbol) : null });
+      let symbol = typeof (body as { symbol?: unknown }).symbol === "string" ? String((body as { symbol?: unknown }).symbol) : null;
+      if (!symbol) { try { const tickers = await marketRead({ kind: "tickers" }); symbol = bybitSymbolFor(coin, new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? ""))); } catch { symbol = null; } }
+      const trade = { coin, side, entry, at: Date.now(), symbol } as import("@/app/lib/whale-logic").EnteredTrade;
+      const levels = await levelsForEntered(trade).catch(() => ({ stop: entry * (side === "LONG" ? 0.97 : 1.03), targets: [1, 2, 3].map(k => entry * (1 + (side === "LONG" ? 1 : -1) * 0.03 * k)), source: "3% fallback" }));
+      trade.stop = levels.stop; trade.targets = levels.targets; trade.hit = 0;
+      list.push(trade);
+      const settings = await saveWhaleSettings({ entered: list.slice(-20), watch: Array.from(new Set([coin, ...(current.watch ?? [])])).slice(0, 20) });
+      // Confirmation card with the levels and the whales' stance, so the plan is on the phone from minute one.
+      if (config?.enabled) { const stance = symbol ? await whaleAlignment(symbol, side).catch(() => ({ stance: "NEUTRAL", detail: "whale data unavailable" })) : { stance: "NEUTRAL", detail: "not listed on Bybit" }; await deliverEvents(config, [enteredCard(trade, levels, stance)], request.nextUrl.origin).catch(() => undefined); }
+      return reply({ settings, levels });
     }
-    return reply({ settings: await saveWhaleSettings({ entered: list.slice(-20), watch: body.action === "entered" ? Array.from(new Set([coin, ...(current.watch ?? [])])).slice(0, 20) : current.watch }) });
+    const leaving = (current.entered ?? []).find(t => t.coin === coin);
+    const settings = await saveWhaleSettings({ entered: list });
+    if (leaving && config?.enabled) { let price = 0; try { const snapshot = await whaleSnapshot(); price = snapshot.ctx[coin]?.markPx ?? 0; } catch { /* unknown */ } await deliverEvents(config, [exitedCard(leaving, price)], request.nextUrl.origin).catch(() => undefined); }
+    return reply({ settings });
   }
   if (body.action === "watch" || body.action === "unwatch") {
     const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);

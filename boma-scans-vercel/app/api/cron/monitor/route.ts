@@ -17,7 +17,7 @@ import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai-review";
 import { storedReviews } from "@/app/server/ai";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
-import { trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
+import { followEnteredTrades, saveWhaleSettings, trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
 import { majorEventGate } from "@/app/lib/push-policy";
 import { whaleAlignment } from "@/app/server/whale-align";
 import { OWNER_ID } from "@/app/server/owner-auth";
@@ -115,6 +115,8 @@ export async function GET(request: NextRequest) {
   try {
     const tracked = await trackWhales(now);
     const whaleSettingsNow = await whaleSettings();
+    // Trades the owner is in: stop, targets and structure every minute, whatever the whales do.
+    if ((whaleSettingsNow.entered ?? []).length) { const followed = await followEnteredTrades(whaleSettingsNow, now); events.push(...followed.events); if (followed.changed) { await saveWhaleSettings({ entered: followed.entered }).catch(() => undefined); whaleSettingsNow.entered = followed.entered; } }
     if (tracked.events.length || now % (10 * 60_000) < 60_000 || (whaleSettingsNow.entered ?? []).length || (whaleSettingsNow.watch ?? []).length) { const [{ signals, exits, ranks, events: recent }, settings] = await Promise.all([whaleSignals(now), whaleSettings()]); events.push(...await whaleAlerts(signals, exits, recent, ranks, settings, now, tracked.prices)); }
   } catch (error) { problems.push("whales: " + (error instanceof Error ? error.message : "failed")); }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
