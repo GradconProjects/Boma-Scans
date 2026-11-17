@@ -29,6 +29,23 @@ export function WhaleAnalysisPanel({ coin, side, compact = false }: { coin: stri
   const [error, setError] = useState("");
   const [analysis, setAnalysis] = useState<WhaleAnalysis | null>(null);
   const [sent, setSent] = useState("");
+  const [tracked, setTracked] = useState("");
+  /** Record the trade from this analysis and start whale monitoring + management of the pair. */
+  const enterTrade = async () => {
+    if (!analysis) return;
+    const side = analysis.plan?.side ?? analysis.side;
+    const typed = window.prompt("Your fill price for " + coin + " " + side + " (leave as is for the current price):", analysis.price ? String(analysis.price) : "");
+    if (typed === null) return;
+    const r = await fetch("/api/whales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "entered", coin, side, price: Number(typed) || undefined, symbol: analysis.symbol ?? undefined }) });
+    const d = await r.json() as { settings?: { entered?: Array<{ coin: string; side: string; entry: number }> }; error?: string };
+    const t = d.settings?.entered?.find(x => x.coin === coin);
+    setTracked(t ? "✅ Tracking your " + t.side + " " + coin + " from " + formatPrice(t.entry) + ": whale moves against it, instructions in figures, and a 6-hourly check-in now go to Telegram." : (d.error ?? "Could not record the trade."));
+  };
+  const watchPair = async () => {
+    const r = await fetch("/api/whales", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "watch", coin }) });
+    const d = await r.json() as { settings?: { watch?: string[] }; error?: string };
+    setTracked(d.settings?.watch?.includes(coin) ? "👁 Monitoring " + coin + " alone: every $100K+ directional whale move on it is reported." : (d.error ?? "Could not start monitoring."));
+  };
   const run = async () => {
     setBusy(true); setError(""); setOpen(true);
     try {
@@ -52,6 +69,11 @@ export function WhaleAnalysisPanel({ coin, side, compact = false }: { coin: stri
       {analysis && open && <Button type="button" size="sm" variant="ghost" onClick={() => void send()} className="rounded-lg">Send to Telegram</Button>}
       {sent && <span className="text-xs text-slate-400">{sent}</span>}
     </div>
+    {open && analysis && <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-emerald-300/30 bg-emerald-300/[0.06] p-2">
+      <Button type="button" size="sm" onClick={() => void enterTrade()} className="rounded-lg bg-emerald-300 text-slate-950 hover:bg-emerald-200">✅ I entered this {analysis.plan?.side ?? analysis.side} · start whale monitoring &amp; management</Button>
+      <Button type="button" size="sm" variant="outline" onClick={() => void watchPair()} className="rounded-lg">👁 Monitor {coin} alone</Button>
+      {tracked && <span className="text-xs text-emerald-100">{tracked}</span>}
+    </div>}
     {open && error && <p className="mt-2 text-sm text-amber-200">{error}</p>}
     {open && analysis && <div className="mt-3 space-y-3 rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm">
       <p className="text-xs text-slate-500">Analysed {melbourne(analysis.at)} · price {formatPrice(analysis.price)}{analysis.symbol ? " · " + analysis.symbol : " · not on Bybit"}</p>
