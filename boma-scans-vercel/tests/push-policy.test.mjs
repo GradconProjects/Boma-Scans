@@ -30,3 +30,16 @@ test("Whale stance: fresh flow decides first, then the open book; small or split
   assert.equal(whaleStance("SHORT", { longUsd: 1e6, shortUsd: 8e6 }, { longUsd: 0, shortUsd: 0 }).stance, "WITH");
   assert.equal(whaleStance("SHORT", { longUsd: 1e5, shortUsd: 1e5 }, { longUsd: 0, shortUsd: 0 }).stance, "NEUTRAL");
 });
+
+test("Trading window gate: Monday/Tuesday and 03:00-10:00 Melbourne are closed; ALL mode opens everything", () => {
+  const { tradingWindowGate, melbourneClock } = mod.exports;
+  // 2026-11-18 is a Wednesday. 21:00 Melbourne (AEDT, UTC+11) = 10:00 UTC the same day.
+  const wedEvening = Date.UTC(2026, 10, 18, 10, 0);
+  assert.equal(melbourneClock(wedEvening).label, "Wed 21:00 Melbourne");
+  assert.equal(tradingWindowGate(wedEvening).ok, true);
+  const wedDeadZone = Date.UTC(2026, 10, 17, 19, 0); // 06:00 Wed Melbourne
+  assert.equal(tradingWindowGate(wedDeadZone).ok, false); assert.match(tradingWindowGate(wedDeadZone).reason, /03:00–10:00/);
+  const monday = Date.UTC(2026, 10, 16, 10, 0); // Mon 21:00 Melbourne
+  assert.equal(tradingWindowGate(monday).ok, false); assert.match(tradingWindowGate(monday).reason, /Monday and Tuesday/);
+  assert.equal(tradingWindowGate(monday, "ALL").ok, true);
+});

@@ -97,6 +97,20 @@ Same 2 years, 23 pairs, 1H, Strict, TA targets, limit fees. "Info" computes the 
 
 The gate removed 76 Day trades that averaged **+0.43R** (59% winners) and kept trades averaging +0.12R: in a trending regime the signals that break through a historic level are the better ones. So the engine uses the levels for targets and shows them on every signal, with the honest note that a level inside the first target's path means "expect a reaction, take the partial", not "do not trade".
 
+## Trading windows (Melbourne time) and other session parameters
+
+Same 2 years, READY signals of the adopted engine (TA targets), limit fees, measured by the Melbourne time of the confirming 1H close (DST-aware). Both styles share most candidates, so treat them as one sample of about 170–200 trades.
+
+| Filter (Day rules) | Signals | Win % | Avg R | Total R | PF | Max DD | Year 1 avg R | Year 2 avg R |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| none | 168 | 51 | +0.19 | 31.5 | 1.44 | 9.1R | +0.36 | +0.09 |
+| skip Monday + Tuesday | 117 | 59 | +0.40 | 46.5 | 2.09 | 6.7R | +0.53 | +0.31 |
+| skip 03:00–10:00 | 104 | 59 | +0.33 | 33.9 | 1.90 | 5.7R | +0.47 | +0.24 |
+| **skip both (adopted for pushes)** | 71 | **69** | **+0.60** | 42.7 | **3.12** | **3.3R** | +0.62 | +0.58 |
+| only 18:00–03:00 | 84 | 58 | +0.33 | 27.5 | 1.86 | 5.7R | +0.51 | +0.23 |
+
+Swing rules give the same picture (skip both: 96 signals, 69% winners, +0.66R, PF 3.29, max DD 3.7R, +0.60 / +0.70 by year). Monday and Tuesday were net losers in both years and both styles (Day: −0.17 / −0.34 and −0.09 / −0.39). Other session facts from the same data: signals confirming within an hour of a funding reset (00:00, 08:00, 16:00 UTC) did better in both years (+0.65 / +0.23 against +0.24 / +0.05); the 00:00–03:00 Melbourne block (US open) and 18:00–24:00 (London) were the strongest hours; 10:00–14:00 (daily close / Asia) was good per trade but rare; stops of 1.5–2.5% of price had no edge in either year while tighter stops did; Day signals with a TA score under 75 lost in both years. The windows are applied to Telegram entry calls only (`/windows all` turns them off); the app still shows every graded setup, and entered trades are managed in every hour.
+
 ## Additional filters tested (my own candidates)
 
 Tested on the 186 READY 1H signals of the finished engine, checked separately on each year. Only rules that held in both years were adopted.

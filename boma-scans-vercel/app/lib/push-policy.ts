@@ -50,3 +50,32 @@ export function whaleStance(side: "LONG" | "SHORT", book: { longUsd: number; sho
   }
   return { stance: "NEUTRAL", detail: "ranked whales are split or absent on this coin" };
 }
+
+/**
+ * Backtested trading windows (Melbourne time, DST-aware). In two years of 1H
+ * signals, Monday and Tuesday were net losers in both years and both styles,
+ * and 03:00–10:00 (after the US close, before the Asian session gets going)
+ * was flat to negative. Skipping both roughly doubled the average R, lifted
+ * the win rate from the low 50s to about 69% and cut the maximum drawdown
+ * from 9R to under 4R, on about 40% of the trades. Entered trades are always
+ * managed regardless of the window.
+ */
+export type WindowMode = "BACKTESTED" | "ALL";
+export const DEAD_ZONE = { from: 3, to: 10 } as const;      // Melbourne hours, inclusive of 03:00, exclusive of 10:00
+export const SKIP_WEEKDAYS = new Set([1, 2]);              // Monday, Tuesday (Melbourne)
+
+export function melbourneClock(now = Date.now()): { hour: number; weekday: number; label: string } {
+  const parts = new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Melbourne", hour: "2-digit", hour12: false, weekday: "short" }).formatToParts(now);
+  const hour = Number(parts.find(p => p.type === "hour")?.value ?? 0) % 24;
+  const weekdayName = parts.find(p => p.type === "weekday")?.value ?? "";
+  const weekday = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"].indexOf(weekdayName.slice(0, 3));
+  return { hour, weekday, label: weekdayName.slice(0, 3) + " " + String(hour).padStart(2, "0") + ":00 Melbourne" };
+}
+
+export function tradingWindowGate(now = Date.now(), mode: WindowMode = "BACKTESTED"): { ok: boolean; reason: string | null; label: string } {
+  const clock = melbourneClock(now);
+  if (mode === "ALL") return { ok: true, reason: null, label: clock.label };
+  if (SKIP_WEEKDAYS.has(clock.weekday)) return { ok: false, reason: "outside the backtested windows: Monday and Tuesday (Melbourne) lost money in both years", label: clock.label };
+  if (clock.hour >= DEAD_ZONE.from && clock.hour < DEAD_ZONE.to) return { ok: false, reason: "outside the backtested windows: 03:00–10:00 Melbourne was flat to negative in both years", label: clock.label };
+  return { ok: true, reason: null, label: clock.label };
+}

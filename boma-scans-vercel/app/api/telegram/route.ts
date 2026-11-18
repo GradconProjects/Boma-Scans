@@ -8,7 +8,8 @@ import { analyzeMarket, analyzeBtcRelationship, normalizeTicker, contextInterval
 import { restoreEntryExecutionPlan, entryExecutionBlocker } from "@/app/lib/entry-execution";
 import { appLink, parseSignalLedger, renderTelegramHtml, telegramSignalHtml } from "@/app/lib/signal-alerts";
 import { keyboardRows, signalButtons, type TelegramButton } from "@/app/lib/telegram-events";
-import { majorEventGate } from "@/app/lib/push-policy";
+import { majorEventGate, tradingWindowGate } from "@/app/lib/push-policy";
+import { pushSettings, savePushSettings } from "@/app/server/push-settings";
 import { whaleAlignment } from "@/app/server/whale-align";
 import { scannerRowFromAnalysis } from "@/app/lib/market";
 import { telegramCall, telegramChunks } from "@/app/server/telegram";
@@ -50,7 +51,7 @@ export async function GET(request:NextRequest) {
   // What actually went out: the last deliveries, newest first (keys name the source).
   let deliveries:Array<{key:string;status:string;at:number}>=[];
   try { if(env.DB) deliveries=(await env.DB.prepare("SELECT signal_key AS key,status,created_at AS at FROM telegram_deliveries WHERE user_id=? ORDER BY created_at DESC LIMIT 60").bind(user.userId).all<{key:string;status:string;at:number}>()).results; } catch { /* diagnostics only */ }
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null,deliveries});
+  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null,deliveries,push:{...await pushSettings(),window:tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows)}});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
@@ -73,6 +74,10 @@ export async function POST(request:NextRequest) {
       return reply({message:"Telegram alerts disabled."});
     }
     if(body.action==="menu" && config) {await handleCommand(user.userId,config.chatId,"/menu",request.nextUrl.origin);return reply({message:"Telegram controls sent."});}
+    if(body.action==="windows") {
+      const mode=body.mode==="ALL"?"ALL":"BACKTESTED";
+      return reply({push:await savePushSettings({tradingWindows:mode}),window:tradingWindowGate(Date.now(),mode)});
+    }
     if(body.action==="events") {
       if(!config?.enabled)return reply({sent:0,message:"Telegram is not connected."});
       const events=Array.isArray(body.events)?body.events.slice(0,10):[];
@@ -131,7 +136,7 @@ export async function POST(request:NextRequest) {
       const gateRow=scannerRowFromAnalysis(ticker,analysis,false,undefined,signal.style,btcContext);
       const gate=majorEventGate(gateRow,analysis,fast);
       const whales=await whaleAlignment(signal.symbol,analysis.bias).catch(()=>({stance:"NEUTRAL" as const,detail:"",coin:null}));
-      if(!gate.ok || whales.stance==="AGAINST")continue;
+      if(!gate.ok || !tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows).ok || whales.stance==="AGAINST")continue;
       // Same plan = same side and the trigger/stop within 15% of a normal candle
       // range. Exact float equality silently dropped valid alerts whenever the
       // server saw one more candle or a slightly different history window.

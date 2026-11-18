@@ -69,8 +69,11 @@ telegramMod.require=spec=>{
  if(spec==='@/app/server/owner-auth')return {getOwnerUser:async()=>user};
  if(spec==='@/app/server/telegram')return {telegramCall:async(...args)=>{telegramSent.push(args);return {};},telegramChunks:text=>[text]};
  if(spec==='@/app/lib/signal-alerts')return loadReal('app/lib/signal-alerts.ts');
+ if(spec==='@/app/lib/push-policy')return loadReal('app/lib/push-policy.ts');
+ if(spec==='@/app/server/whale-align')return {whaleAlignment:async()=>({stance:'NEUTRAL',detail:'',coin:null})};
  if(spec==='@/app/server/cron-auth')return {cronKey:async()=>"",cronAuthorized:async()=>false};
  if(spec==='@/app/server/cron-schedule')return {ensureSchedule:async()=>null};
+ if(spec==='@/app/server/push-settings')return {pushSettings:async()=>({tradingWindows:'ALL'}),savePushSettings:async()=>({tradingWindows:'ALL'})};
  if(spec.startsWith('@/')) return {};
  return require(spec);
 };

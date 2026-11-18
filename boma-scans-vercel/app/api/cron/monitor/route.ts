@@ -18,7 +18,8 @@ import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai
 import { storedReviews } from "@/app/server/ai";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
 import { followEnteredTrades, saveWhaleSettings, trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
-import { majorEventGate } from "@/app/lib/push-policy";
+import { majorEventGate, tradingWindowGate } from "@/app/lib/push-policy";
+import { pushSettings } from "@/app/server/push-settings";
 import { whaleAlignment } from "@/app/server/whale-align";
 import { OWNER_ID } from "@/app/server/owner-auth";
 
@@ -100,8 +101,9 @@ export async function GET(request: NextRequest) {
     if (row && analysis && isMediumRiskTake(row, true, now)) {
       const pick = getMediumRiskShortlist([row], equity, true, 1, now)[0];
       const gate = majorEventGate(row, analysis, candles);
+      const window = tradingWindowGate(now, (await pushSettings()).tradingWindows);
       const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
-      if (pick && (!gate.ok || whales.stance === "AGAINST")) memory.held = [{ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10);
+      if (pick && (!gate.ok || !window.ok || whales.stance === "AGAINST")) memory.held = [{ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(window.reason ? [window.reason] : []), ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10);
       else if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), buttons: signalButtons(symbol) })); if (event) events.push(event); }
     }
   });
