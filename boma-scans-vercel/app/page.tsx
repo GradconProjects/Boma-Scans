@@ -513,9 +513,12 @@ export default function Home() {
     window.addEventListener("beforeinstallprompt", handleInstallPrompt);
     window.addEventListener("appinstalled", handleInstalled);
     if ("serviceWorker" in navigator) {
-      void navigator.serviceWorker.register("/sw.js", { scope: "/" }).catch(() => {
+      void navigator.serviceWorker.register("/sw.js", { scope: "/" }).then(registration => { void registration.update(); }).catch(() => {
         // The live website remains fully usable if installation is unsupported.
       });
+      // A new worker taking control means a new deploy: reload once so the page matches it.
+      let reloaded = false;
+      navigator.serviceWorker.addEventListener("controllerchange", () => { if (!reloaded) { reloaded = true; window.location.reload(); } });
     }
     return () => {
       window.clearTimeout(timer);

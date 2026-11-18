@@ -1,4 +1,5 @@
 import { OwnerBar } from "@/app/components/owner-bar";
+import { getOwnerUser } from "@/app/server/owner-auth";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
 
@@ -29,14 +30,15 @@ export const viewport: Viewport = {
   themeColor: "#080c13",
 };
 
-export default function RootLayout({
+export default async function RootLayout({
   children,
 }: Readonly<{
   children: React.ReactNode;
 }>) {
+  const owner = await getOwnerUser().catch(() => null);
   return (
     <html lang="en" className="dark">
-      <body className="antialiased"><OwnerBar />{children}</body>
+      <body className="antialiased"><OwnerBar initialSignedIn={!!owner} />{children}</body>
     </html>
   );
 }
