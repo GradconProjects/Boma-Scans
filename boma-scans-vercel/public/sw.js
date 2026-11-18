@@ -1,4 +1,4 @@
-const CACHE_NAME = "boma-scans-shell-telegram-switcher";
+const CACHE_NAME = "boma-scans-shell-v3-network-first";
 const APP_SHELL = ["/", "/favicon.svg", "/manifest.webmanifest"];
 
 self.addEventListener("install", (event) => {
@@ -51,18 +51,16 @@ self.addEventListener("fetch", (event) => {
     return;
   }
 
+  // Network first for every asset; the cache is only an offline fallback, so a new deploy is never masked.
   event.respondWith(
-    caches.match(request).then((cached) => {
-      const refreshed = fetch(request)
-        .then((response) => {
-          if (response.ok) {
-            const copy = response.clone();
-            void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
-          }
-          return response;
-        })
-        .catch(() => cached || Response.error());
-      return cached || refreshed;
-    }),
+    fetch(request)
+      .then((response) => {
+        if (response.ok) {
+          const copy = response.clone();
+          void caches.open(CACHE_NAME).then((cache) => cache.put(request, copy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(request).then((cached) => cached || Response.error())),
   );
 });
