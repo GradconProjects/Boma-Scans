@@ -141,7 +141,7 @@ The phone is for decisions, not noise. The scanner pushes an **entry call** only
 
 ### Trading windows
 
-Entry calls are pushed only inside the backtested Melbourne windows by default: Wednesday to Sunday, outside 03:00–10:00. In two years of this engine's signals those windows held 69% winners at +0.6R a trade with a maximum drawdown under 4R, against 51% and +0.2R for all hours (details in the policy document). Switch with the Trading windows box in the Telegram panel or `/windows all` / `/windows backtested`. Entered trades are managed in every hour regardless.
+Every page and every entry call states the Melbourne time in bold with **GOOD TIME TO TRADE** or **NOT A GOOD TIME TO TRADE** and the next good window. The good windows are Wednesday to Sunday, outside 03:00–10:00. By default every entry call is still pushed (flagged when outside); the Trading windows box in the Telegram panel or `/windows backtested` holds calls outside the windows, `/windows all` releases them. In two years of this engine's signals those windows held 69% winners at +0.6R a trade with a maximum drawdown under 4R, against 51% and +0.2R for all hours (details in the policy document). Switch with the Trading windows box in the Telegram panel or `/windows all` / `/windows backtested`. Entered trades are managed in every hour regardless.
 
 ### Signals mirror the whales
 

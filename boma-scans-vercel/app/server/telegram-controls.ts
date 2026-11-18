@@ -16,7 +16,7 @@ import {enteredCard,levelsForEntered,saveWhaleSettings,whaleSettings} from "@/ap
 import {whaleAlignment} from "@/app/server/whale-align";
 import {bybitSymbolFor} from "@/app/lib/whale-logic";
 import {pushSettings,savePushSettings} from "@/app/server/push-settings";
-import {tradingWindowGate} from "@/app/lib/push-policy";
+import {tradingWindowGate,windowVerdict} from "@/app/lib/push-policy";
 import {marketRead} from "@/app/server/market-analysis";
 type Workspace={symbol:string;interval:string;style:TradingStyle;flexibility:FlexibilityMode;equity:number;fee:number;slippage:number;autoScan:boolean;autoScanMinutes:number;targetStyle?:"TA"|"LADDER";[key:string]:unknown};
 const defaults:Workspace={symbol:"BTCUSDT",interval:"60",style:"DAY",flexibility:"STRICT",equity:10000,fee:.055,slippage:.02,autoScan:true,autoScanMinutes:180};
@@ -101,7 +101,8 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   const choice=(args[0]??"").toUpperCase();
   if(choice==="ALL"||choice==="BACKTESTED"){await savePushSettings({tradingWindows:choice});}
   const current=await pushSettings();const w=tradingWindowGate(Date.now(),current.tradingWindows);
-  await send("🕰 Trading windows: "+current.tradingWindows+"\nNow: "+w.label+" · "+(w.ok?"window OPEN, entry calls can be pushed":"window CLOSED: "+w.reason)+"\n\nBACKTESTED = Wednesday to Sunday, outside 03:00–10:00 Melbourne (both years: avg +0.6R, 69% winners, max drawdown under 4R). ALL = every hour.\n/windows all · /windows backtested",true);return;
+  const v=windowVerdict(Date.now());
+  await send("🕰 "+v.label+"\n"+(v.good?"✅ GOOD TIME TO TRADE":"⛔ NOT A GOOD TIME TO TRADE")+"\n"+v.detail+"\n\nSetting: "+(current.tradingWindows==="ALL"?"ALL HOURS, every entry call is pushed and flagged with this statement.":"GOOD WINDOWS ONLY, entry calls outside them are held.")+(w.ok?"":"")+"\n/windows all · /windows backtested",true);return;
  }
  if(command==="/wexit"||command==="/wentered") {
   const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wentered SOL LONG 150.2 or /wexit SOL.");return;}

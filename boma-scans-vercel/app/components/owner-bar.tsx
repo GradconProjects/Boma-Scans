@@ -2,6 +2,7 @@ import Link from "next/link";
 import { getOwnerUser } from "@/app/server/owner-auth";
 import { SignOutButton } from "@/app/components/sign-out-button";
 import { SystemSwitch } from "@/app/components/system-switch";
+import { WindowBanner } from "@/app/components/window-banner";
 
 /** Server component: shows the owner session state at the top of every page. */
 export async function OwnerBar() {
@@ -9,6 +10,7 @@ export async function OwnerBar() {
   return (
     <nav aria-label="Owner session" className="flex flex-wrap items-center justify-between gap-2 border-b border-cyan-300/20 bg-[#07131c] px-4 py-2 text-sm">
       <span className="flex items-center gap-3"><span className="font-semibold text-cyan-100">Boma Scans</span>{owner && <SystemSwitch/>}</span>
+      {owner && <WindowBanner compact/>}
       {owner ? (
         <span className="flex items-center gap-3 text-slate-300">
           Signed in · journal and Telegram sync active

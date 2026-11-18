@@ -79,3 +79,15 @@ export function tradingWindowGate(now = Date.now(), mode: WindowMode = "BACKTEST
   if (clock.hour >= DEAD_ZONE.from && clock.hour < DEAD_ZONE.to) return { ok: false, reason: "outside the backtested windows: 03:00–10:00 Melbourne was flat to negative in both years", label: clock.label };
   return { ok: true, reason: null, label: clock.label };
 }
+
+/** Plain statement for the trader: is now a good time, and when is the next good window (Melbourne). */
+export function windowVerdict(now = Date.now()): { good: boolean; title: string; detail: string; label: string } {
+  const gate = tradingWindowGate(now, "BACKTESTED");
+  if (gate.ok) return { good: true, label: gate.label, title: "GOOD TIME TO TRADE", detail: "Inside the backtested windows (Wednesday to Sunday, outside 03:00–10:00 Melbourne): 69% winners and +0.6R a trade over two years." };
+  // Find the next good hour.
+  let t = now; for (let i = 0; i < 24 * 8; i++) { t += 3_600_000; if (tradingWindowGate(t, "BACKTESTED").ok) break; }
+  const next = melbourneClock(t);
+  const clock = melbourneClock(now);
+  const reason = SKIP_WEEKDAYS.has(clock.weekday) ? "Monday and Tuesday lost money in both backtest years." : "03:00–10:00 Melbourne was flat to negative in both backtest years.";
+  return { good: false, label: gate.label, title: "NOT A GOOD TIME TO TRADE", detail: reason + " Next good window: " + next.label + ". Trades you are already in are still managed.", };
+}
