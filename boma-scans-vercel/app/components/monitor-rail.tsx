@@ -50,15 +50,15 @@ function Row({item, onToggleMonitor, onSelect, focused = false}: {item: RailItem
 }
 
 /** Right-hand panel: every signal, monitored and watched pair as a collapsed row; expand to see the signal. */
-export function MonitorRail({items, updatedAt, now, onOpen, onToggleMonitor, onSelect, focus}: {
+export function MonitorRail({items, updatedAt, now, onOpen, onToggleMonitor, onSelect, focus, onClearMonitored}: {
   items: RailItem[]; updatedAt: number; now: number; focus?: string;
-  onOpen: () => void; onToggleMonitor: (symbol: string) => void; onSelect: (symbol: string) => void;
+  onOpen: () => void; onToggleMonitor: (symbol: string) => void; onSelect: (symbol: string) => void; onClearMonitored?: () => void;
 }) {
   const hits = items.filter(item => item.hit).length;
   return <aside aria-label="Monitored pairs" className={"mb-5 rounded-3xl border p-3 xl:sticky xl:top-24 xl:mb-0 xl:max-h-[calc(100vh-7rem)] xl:overflow-y-auto " + (hits ? "border-emerald-300/40 bg-emerald-300/[0.04]" : "border-white/[0.08] bg-[#08111b]/88")}>
     <div className="flex items-center justify-between gap-2">
       <button type="button" onClick={onOpen} className="flex items-center gap-2 text-sm font-semibold text-white"><Target className="h-4 w-4 text-cyan-200"/>Signals & pairs <span className="font-mono text-slate-400">{items.length}</span>{hits > 0 && <span className="rounded-full bg-emerald-300/20 px-2 py-0.5 text-xs text-emerald-100">🔔 {hits}</span>}</button>
-      <span className="text-[11px] text-slate-500">{updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) + "s" : ""}</span>
+      <span className="flex items-center gap-2 text-[11px] text-slate-500">{onClearMonitored && items.some(item => item.monitored) && <button type="button" onClick={() => { if (window.confirm("Stop monitoring all pairs? Trades you entered keep their exit tracking.")) onClearMonitored(); }} className="rounded-lg border border-white/10 px-2 py-0.5 text-rose-200 hover:bg-white/5">Clear all</button>}{updatedAt ? Math.max(0, Math.round((now - updatedAt) / 1000)) + "s" : ""}</span>
     </div>
     {items.length === 0
       ? <p className="mt-2 text-xs leading-5 text-slate-400">Signals, monitored pairs and the closest-to-ready setups appear here. Tap a row to see the signal.</p>

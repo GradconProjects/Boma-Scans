@@ -83,13 +83,19 @@ export async function GET(request: NextRequest) {
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.
   forming.sort((a, b) => b.ratingScore - a.ratingScore || b.score - a.score);
-  const followed = forming.slice(0, 6).map(row => row.symbol);
+  const followed: string[] = []; // forming setups are listed, never auto-monitored (monitoring persisted too much)
   {
     // Forming setups are listed in the hourly monitor list rather than pushed one by one.
-    let memory: { autoMonitored?: string[]; ignored?: string[]; forming?: unknown; held?: Array<{ symbol: string; planKey: string; reason: string; at: number }> } = {};
+    let memory: { autoMonitored?: string[]; autoMonitoredAt?: Record<string, number>; ignored?: string[]; forming?: unknown; held?: Array<{ symbol: string; planKey: string; reason: string; at: number }> } = {};
     try { memory = JSON.parse((await readOwnerRecord("monitor-memory")) ?? "{}"); } catch { /* fresh */ }
     const ignored = new Set(memory.ignored ?? []);
-    const next = Array.from(new Set([...qualified, ...parseMonitoredSymbols(memory.autoMonitored), ...followed.filter(symbol => !ignored.has(symbol))])).slice(0, 12);
+    // Auto-monitoring is for qualified signals only, expires after 48 h unless the pair qualifies again, and never re-adds a pair the owner removed.
+    const at: Record<string, number> = { ...(memory.autoMonitoredAt ?? {}) };
+    for (const symbol of qualified) { at[symbol] = now; ignored.delete(symbol); }
+    const kept = parseMonitoredSymbols(memory.autoMonitored).filter(symbol => now - (at[symbol] ?? 0) < 48 * 3_600_000 && !ignored.has(symbol));
+    const next = Array.from(new Set([...qualified.filter(s => !ignored.has(s) || qualified.includes(s)), ...kept, ...followed])).slice(0, 12);
+    for (const symbol of Object.keys(at)) if (!next.includes(symbol)) delete at[symbol];
+    memory.ignored = Array.from(ignored); memory.autoMonitoredAt = at;
     const formingList = forming.slice(0, 8).map(row => ({ symbol: row.symbol, side: row.bias, trigger: row.executionPlan.trigger, status: row.executionPlan.status, at: now }));
     const heldList = [...held, ...(memory.held ?? []).filter(h => !held.some(x => x.symbol === h.symbol) && now - h.at < 12 * 3_600_000)].slice(0, 10);
     try { await writeOwnerRecord("monitor-memory", JSON.stringify({ ...memory, autoMonitored: next, forming: formingList, held: heldList })); } catch { /* best effort */ }

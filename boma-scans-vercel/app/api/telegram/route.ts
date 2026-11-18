@@ -74,6 +74,17 @@ export async function POST(request:NextRequest) {
       return reply({message:"Telegram alerts disabled."});
     }
     if(body.action==="menu" && config) {await handleCommand(user.userId,config.chatId,"/menu",request.nextUrl.origin);return reply({message:"Telegram controls sent."});}
+    if(body.action==="monitor-set"||body.action==="clear-monitored") {
+      let memoryRec:{symbols?:Record<string,{armed?:unknown}>;autoMonitored?:string[];autoMonitoredAt?:Record<string,number>;ignored?:string[]}={};
+      try{const raw=await readRecord(user.userId,"monitor-memory");if(raw)memoryRec=JSON.parse(raw.payload);}catch{/* fresh */}
+      const auto=new Set(memoryRec.autoMonitored??[]);const ignored=new Set(memoryRec.ignored??[]);const symbols=memoryRec.symbols??{};
+      if(body.action==="clear-monitored"){for(const s of auto)ignored.add(s);auto.clear();for(const s of Object.keys(symbols))if(!symbols[s].armed)delete symbols[s];memoryRec.autoMonitoredAt={};}
+      else {const symbol=String(body.symbol??"").toUpperCase();if(!/^[A-Z0-9]{2,24}USDT$/.test(symbol))return reply({error:"Invalid symbol."},400);
+        if(body.on){auto.add(symbol);ignored.delete(symbol);memoryRec.autoMonitoredAt={...(memoryRec.autoMonitoredAt??{}),[symbol]:Date.now()};}
+        else {auto.delete(symbol);ignored.add(symbol);if(symbols[symbol]&&!symbols[symbol].armed)delete symbols[symbol];if(memoryRec.autoMonitoredAt)delete memoryRec.autoMonitoredAt[symbol];}}
+      await writeRecord(user.userId,"monitor-memory",JSON.stringify({...memoryRec,symbols,autoMonitored:Array.from(auto).slice(0,12),ignored:Array.from(ignored).slice(-60)}));
+      return reply({autoMonitored:Array.from(auto),ignored:Array.from(ignored)});
+    }
     if(body.action==="windows") {
       const mode=body.mode==="ALL"?"ALL":"BACKTESTED";
       return reply({push:await savePushSettings({tradingWindows:mode}),window:tradingWindowGate(Date.now(),mode)});

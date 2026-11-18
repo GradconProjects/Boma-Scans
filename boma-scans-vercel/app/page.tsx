@@ -430,7 +430,7 @@ export default function Home() {
         const data = await (await fetch("/api/telegram", {cache: "no-store"})).json() as {server?: {autoMonitored?: string[]; armed?: unknown; skipped?: string[]}};
         const auto = parseMonitoredSymbols(data.server?.autoMonitored);
         if (stopped) return;
-        if (auto.length) setMonitored(current => parseMonitoredSymbols([...auto, ...current.filter(symbol => !auto.includes(symbol))]));
+        if (auto.length) setMonitored(current => { const merged = parseMonitoredSymbols([...auto, ...current.filter(symbol => !auto.includes(symbol))]); return merged.length === current.length && merged.every(s => current.includes(s)) ? current : merged; });
         // Trades confirmed or skipped from Telegram become the app's in-trade list too.
         const serverArmed = parseArmedPlans(data.server?.armed);
         const skipped = new Set(data.server?.skipped ?? []);
@@ -444,7 +444,16 @@ export default function Home() {
     return () => { stopped = true; window.clearInterval(timer); };
   }, [monitoredReady]);
   const toggleMonitor = useCallback((pair: string) => {
-    setMonitored(current => current.includes(pair) ? current.filter(item => item !== pair) : parseMonitoredSymbols([...current, pair]));
+    setMonitored(current => {
+      const on = !current.includes(pair);
+      // Tell the server too, so a removed pair is not re-added by the scan or the sync.
+      void fetch("/api/telegram", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "monitor-set", symbol: pair, on }) }).catch(() => undefined);
+      return on ? parseMonitoredSymbols([...current, pair]) : current.filter(item => item !== pair);
+    });
+  }, []);
+  const clearMonitored = useCallback(() => {
+    setMonitored([]);
+    void fetch("/api/telegram", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "clear-monitored" }) }).catch(() => undefined);
   }, []);
   const handledCloudScan = useRef(0);
   const scanController = useRef<AbortController | null>(null);
@@ -1876,13 +1885,13 @@ export default function Home() {
       ) : null}
 
       <div className="mx-auto max-w-[1680px] px-4 py-5 lg:px-8 lg:py-7 xl:grid xl:grid-cols-[minmax(0,1fr)_300px] xl:items-start xl:gap-5">
-        <MonitorRail items={railItems} updatedAt={monitor.updatedAt} now={scannerNow} focus={focusPair}
+        <MonitorRail items={railItems} updatedAt={monitor.updatedAt} now={scannerNow} focus={focusPair} onClearMonitored={clearMonitored}
           onOpen={() => { setSignalTab("signals"); document.getElementById("signals-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}
           onToggleMonitor={toggleMonitor} onSelect={pair => { const row = scannerRows.find(item => item.symbol === pair); if (row) selectScannerRecommendation(row); else { setSymbol(pair); setSymbolInput(pair); } document.getElementById("chart-section")?.scrollIntoView({behavior: "smooth", block: "start"}); }}/>
         <div className="min-w-0 xl:order-first">
         <TelegramPanel signals={signalAlerts.picks.map(pick=>snapshotSignal(pick))} deliveryStatus={signalAlerts.telegramStatus}/>
         <Section id="signals-section" storageKey="signals" title="Signals & monitoring" subtitle="Qualified plans, closest-to-ready setups and your monitored pairs" icon={<Radar className="h-5 w-5"/>} badge={signalAlerts.picks.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">{signalAlerts.picks.length} ready</span> : monitor.hits.length > 0 ? <span className="rounded-full bg-emerald-300/10 px-2 py-0.5 text-xs font-semibold text-emerald-200">🔔 {monitor.hits.length} at level</span> : undefined}>
-        <SignalCenter alerts={signalAlerts} monitor={monitor} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} tab={signalTab} onTabChange={setSignalTab}
+        <SignalCenter alerts={signalAlerts} monitor={monitor} rows={scannerRows} monitored={monitored} onToggleMonitor={toggleMonitor} onClearMonitored={clearMonitored} tab={signalTab} onTabChange={setSignalTab}
           now={scannerNow} scanning={scannerRunning} live={scannerLive}
           onReview={reviewSignal} onPaper={row => requestTrade(row, "PAPER")} positioning={positioning.data} reviews={reviews} onReviewed={review => setReviews(current => ({ ...current, [review.planKey]: review }))}/>
         </Section>
