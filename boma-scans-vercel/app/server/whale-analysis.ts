@@ -29,12 +29,21 @@ const PlanSchema = z.object({
   invalidation: z.string(),
   risks: z.array(z.string()),
   management: z.string(),
+  /** How the plan relates to what the whales and other smart money are doing right now. */
+  alignment: z.enum(["WITH WHALES", "AGAINST WHALES", "MIXED"]),
+  whale_read: z.string(),
 });
 export type WhalePlan = z.infer<typeof PlanSchema> & { provider: string; guardrails: string[] };
 
 export type WhaleAnalysis = {
   coin: string; symbol: string | null; side: "LONG" | "SHORT"; at: number; price: number;
-  whales: { signal: WhaleSignal | null; recent: WhaleEvent[]; longUsd: number; shortUsd: number; ranked: number };
+  whales: { signal: WhaleSignal | null; recent: WhaleEvent[]; longUsd: number; shortUsd: number; ranked: number;
+    /** Every ranked (non market-maker) whale's open position on the coin. */
+    book: Array<{ label: string; tier: string; rank: number; side: "LONG" | "SHORT"; sizeUsd: number; entry: number; pnl: number; leverage: number }>;
+    /** New money by side in the last 6 h and 24 h, ranked directional whales only. */
+    flows: { h6: { longUsd: number; shortUsd: number }; h24: { longUsd: number; shortUsd: number } };
+    /** Plain reading of what the whales are doing now. */
+    read: string };
   chart: { call: string; lines: string[]; bias: string; regime: string; trendFrames: number; status: string; checks: Array<{ label: string; status: string }>; keyLevels?: string; atr: number; atrPct: number } | null;
   positioning: { verdict: string; summary: string; notes: string[] } | null;
   plan: WhalePlan | null;
@@ -43,6 +52,8 @@ export type WhaleAnalysis = {
 
 const SYSTEM = `You are the entry planner of a crypto perpetual-futures desk that follows consistently successful Hyperliquid whales (Bybit USDT perps, 1H chart, Melbourne trader). Rule: follow what ranked whales are doing NOW, not what their old positions say.
 You receive: the whales' fresh opens / adds / closes on this coin with their entries and sizes, who is against them, the rule engine's own 1H plan (window, trigger, stop, targets, checks), historic levels, crowd positioning and the last 24 1H candles.
+Be explicit about sides. The "requestedSide" is the side the trader asked about (often the whale signal's side); your plan's side may differ, but then say so plainly in whale_read ("the whale signal is SHORT; I am NOT following it because…"). alignment: WITH WHALES when your plan follows the fresh whale money and the ranked book; AGAINST WHALES when you fade them; MIXED when whales are split or the book and the fresh flow disagree. whale_read: two or three sentences on what the ranked whales and other smart money (Binance / OKX top traders, Bybit crowd, funding) are doing right now and how that drove your decision, with sizes and prices.
+
 Produce one actionable plan in the required JSON shape. decision: ENTER NOW only when the whales' thesis and the chart agree and price is inside a sensible entry window now; WAIT with the exact trigger to wait for; NO TRADE when whales are split, the move has run away (price more than 2% past their average entry without a pullback) or the chart contradicts them. Entry window: a tight price range near the whales' average entry or the chart's zone, never chasing. Stop: at a structural level beyond the whales' entries, between 0.8 and 2.5 ATR(1H) from the window. Targets: three to five prices in the trade's direction between 1R and 5R of the risk, at visible levels. Quote prices exactly as given. Keep thesis under 300 characters, risks at most three short items, management one sentence (partials, moving the stop, what cancels the idea).`;
 
 export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | "SHORT", now = Date.now()): Promise<WhaleAnalysis> {
@@ -57,10 +68,20 @@ export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | 
   const ranked = positions.filter(p => (rankBy.get(p.trader)?.tier ?? "WATCH") !== "WATCH").length;
   const signal = (requestedSide ? signals.find(s => s.side === requestedSide) : signals[0]) ?? null;
   const side: "LONG" | "SHORT" = requestedSide ?? signal?.side ?? (longUsd >= shortUsd ? "LONG" : "SHORT");
+  const book = positions.filter(p => { const r = rankBy.get(p.trader); return r && !r.marketMaker && r.tier !== "WATCH"; }).map(p => { const r = rankBy.get(p.trader)!; return { label: r.label, tier: r.tier, rank: r.rank, side: p.side, sizeUsd: p.sizeUsd, entry: p.entry, pnl: p.pnl, leverage: p.leverage }; }).sort((a, b) => b.sizeUsd - a.sizeUsd);
+  const flow = (hours: number) => { const f = { longUsd: 0, shortUsd: 0 }; for (const e of events) { const r = rankBy.get(e.trader); if (!r || r.marketMaker || now - e.at > hours * 3_600_000 || !(e.kind === "OPEN" || e.kind === "ADD" || e.kind === "FLIP")) continue; (e.side === "LONG" ? f.longUsd += Math.max(0, e.deltaUsd) : f.shortUsd += Math.max(0, e.deltaUsd)); } return f; };
+  const flows = { h6: flow(6), h24: flow(24) };
+  const bookLong = book.filter(p => p.side === "LONG").reduce((a, p) => a + p.sizeUsd, 0), bookShort = book.filter(p => p.side === "SHORT").reduce((a, p) => a + p.sizeUsd, 0);
+  const fmtM = (v: number) => (v / 1e6).toFixed(1) + "M";
+  const read = (flows.h24.longUsd + flows.h24.shortUsd >= 250_000
+    ? "Fresh money in the last 24 h: " + fmtM(flows.h24.longUsd) + " long vs " + fmtM(flows.h24.shortUsd) + " short (last 6 h: " + fmtM(flows.h6.longUsd) + " / " + fmtM(flows.h6.shortUsd) + "). "
+    : "No meaningful new whale money on " + coin + " in the last 24 h. ")
+    + (book.length ? "Ranked whales hold " + fmtM(bookLong) + " long and " + fmtM(bookShort) + " short across " + book.length + " position" + (book.length === 1 ? "" : "s") + "; " + (bookLong > bookShort * 1.5 ? "the book leans LONG." : bookShort > bookLong * 1.5 ? "the book leans SHORT." : "the book is balanced.") : "No ranked whale holds this coin right now.")
+    + (signal ? " Confirmed whale signal: " + signal.side + " (" + signal.status + ", " + signal.confidence + "%)." : "");
   let symbols = new Set<string>();
   try { const tickers = await marketRead({ kind: "tickers" }); symbols = new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? "")); } catch { /* no mapping */ }
   const symbol = bybitSymbolFor(coin, symbols);
-  const result: WhaleAnalysis = { coin, symbol, side, at: now, price: prices[coin] ?? 0, whales: { signal, recent: events.slice(0, 20), longUsd, shortUsd, ranked }, chart: null, positioning: null, plan: null };
+  const result: WhaleAnalysis = { coin, symbol, side, at: now, price: prices[coin] ?? 0, whales: { signal, recent: events.slice(0, 20), longUsd, shortUsd, ranked, book: book.slice(0, 12), flows, read }, chart: null, positioning: null, plan: null };
   if (!symbol) { result.planError = "Not listed on Bybit; whale flow is information only."; return result; }
   const analysed = await analyzePair(symbol, STYLE_CONFIG.DAY.interval, "DAY", "STRICT");
   const { row, analysis, candles } = analysed;
@@ -78,7 +99,7 @@ export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | 
     coin, symbol, requestedSide: requestedSide ?? null, price: row.price, atr1h: Number(analysis.metrics.atr.toPrecision(6)),
     whaleSignal: signal ? { side: signal.side, status: signal.status, confidence: signal.confidence, avgEntry: signal.avgEntry, distancePct: Number(signal.distancePct.toFixed(2)), flowUsd: Math.round(signal.flowUsd), whales: signal.whales.map(w => ({ tier: w.tier, kind: w.kind, deltaUsd: Math.round(w.deltaUsd), entry: w.entry, hoursAgo: Number(((now - w.at) / 3_600_000).toFixed(1)) })), opposed: signal.opposed } : null,
     recentWhaleEvents: events.slice(0, 15).map(e => ({ tier: rankBy.get(e.trader)?.tier ?? "WATCH", kind: e.kind, side: e.side, deltaUsd: Math.round(e.deltaUsd), entry: e.entry, pnl: Math.round(e.pnl), hoursAgo: Number(((now - e.at) / 3_600_000).toFixed(1)) })),
-    openWhaleBook: { longUsd: Math.round(longUsd), shortUsd: Math.round(shortUsd), rankedTraders: ranked },
+    openWhaleBook: { longUsd: Math.round(longUsd), shortUsd: Math.round(shortUsd), rankedTraders: ranked, rankedPositions: book.slice(0, 12).map(p => ({ tier: p.tier, rank: p.rank, side: p.side, sizeUsd: Math.round(p.sizeUsd), entry: p.entry, pnl: Math.round(p.pnl), leverage: p.leverage })), freshFlow: { last6h: flows.h6, last24h: flows.h24 }, read },
     enginePlan: { bias: row.bias, status: plan.status, regime: row.regime, trendFrames: row.trendFrames, call: result.chart.call, window: [plan.zoneLow, plan.zoneHigh], entry: plan.entry, trigger: plan.trigger, stop: row.stop, targets: row.takeProfits.map(t => t.price), checks: result.chart.checks, historicLevels: row.keyLevels ? { summary: row.keyLevels.summary, detail: row.keyLevels.detail } : null },
     positioning: result.positioning, structure: { bos: analysis.structure.bos, choch: analysis.structure.choch, sweep: analysis.structure.sweep },
     metrics: { rsi: Math.round(analysis.metrics.rsi), adx: Math.round(analysis.metrics.adx), atrPct: Number(analysis.metrics.atrPct.toFixed(2)), volumeRatio: Number(analysis.metrics.volumeRatio.toFixed(2)), fundingPct: Number((analysis.metrics.fundingRate * 100).toFixed(4)) },
