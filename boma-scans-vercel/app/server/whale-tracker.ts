@@ -77,7 +77,7 @@ export async function whaleRankings(): Promise<WhaleRank[]> {
   return rankWhales(performances, closes);
 }
 
-export type WhaleSignalWithPlan = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
+export type WhaleSignalWithPlan = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; opposes: boolean; stop: number; targets: number[]; atrPct: number } | null };
 
 export async function issuedSignals(): Promise<IssuedSignal[]> { try { return JSON.parse((await readOwnerRecord("whale-issued")) ?? "[]"); } catch { return []; } }
 async function rememberIssued(signals: WhaleSignalWithPlan[], now: number) {
@@ -104,8 +104,12 @@ export async function whaleSignals(now = Date.now()): Promise<{ signals: WhaleSi
         const { row, analysis } = await analyzePair(symbol, STYLE_CONFIG.DAY.interval, "DAY", "STRICT");
         const atr = analysis.metrics.atr; const sign = s.side === "LONG" ? 1 : -1;
         // Own logic: the whales give the direction and the entry area; the chart gives the risk. Stop 1.5 ATR(1H) beyond the whales' average entry, targets at 1R / 2R / 3R from the current price.
-        const stop = s.avgEntry - sign * 1.5 * atr; const risk = Math.abs(s.price - stop);
-        engine = { bias: row.bias, regime: row.regime, trendFrames: row.trendFrames, agrees: row.bias === s.side && row.trendFrames >= 2, stop, targets: [1, 2, 3].map(k => s.price + sign * k * risk), atrPct: analysis.metrics.atrPct };
+        // The stop sits 1.5 ATR beyond the worse of their entry and the current price, so it is always on the protective side.
+        const whaleStop = s.avgEntry - sign * 1.5 * atr;
+        if (sign * (s.price - whaleStop) <= 0) { s.status = "UNDERWATER"; s.note = "Price " + formatPrice(s.price) + " is already through the whales' 1.5 ATR stop " + formatPrice(whaleStop) + "; this " + s.side + " call has failed. Not an entry."; }
+        const anchor = s.side === "LONG" ? Math.min(s.avgEntry, s.price) : Math.max(s.avgEntry, s.price);
+        const stop = anchor - sign * 1.5 * atr; const risk = Math.abs(s.price - stop);
+        engine = { bias: row.bias, regime: row.regime, trendFrames: row.trendFrames, agrees: row.bias === s.side && row.trendFrames >= 2, opposes: row.bias !== s.side && row.trendFrames >= 2, stop, targets: [1, 2, 3].map(k => s.price + sign * k * risk), atrPct: analysis.metrics.atrPct };
       } catch { engine = null; }
     }
     signals.push({ ...s, symbol, engine });
@@ -144,7 +148,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
         "⏭ Next: " + management.next_check,
         ...(management.guardrails.length ? ["📐 " + management.guardrails.join("; ")] : []),
       ] : ["Instructions unavailable right now; re-run the analysis in the whale section."]),
-    ], buttons: [{ text: "🔎 Analyse " + trade.coin, data: "analyse:" + (trade.symbol ?? trade.coin + "USDT") }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] });
+    ], buttons: [{ text: "🐋 Whale read " + trade.coin, data: "wread:" + trade.coin + ":" + trade.side }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] });
   }
   // Six-hourly check-in for each entered trade: where the whale book stands.
   for (const trade of settings.entered ?? []) {
@@ -160,14 +164,16 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
   const bucket = Math.floor(now / (6 * 3_600_000));
   const rankBy0 = new Map(ranks.map(r => [r.trader, r]));
   // Pairs the owner monitors one by one always report, even with general whale alerts off.
-  const entrySignals = settings.alerts ? signals.filter(s => s.status !== "RAN AWAY" && s.status !== "WEAK" && s.confidence >= 50) : [];
+  // Entry calls only when the whales are not losing on the call and the 1H chart does not trend the other way.
+  const pushable = (s: WhaleSignalWithPlan) => s.status !== "RAN AWAY" && s.status !== "WEAK" && s.status !== "UNDERWATER" && !s.engine?.opposes;
+  const entrySignals = settings.alerts ? signals.filter(s => pushable(s) && s.confidence >= 50) : [];
   const watched = new Set(settings.watch ?? []);
   // Watched coins: every directional whale move of $100K+, any tier, and entry / exit signals without the confidence floor.
   for (const e of events.filter(e => watched.has(e.coin) && now - e.at < 15 * 60_000 && Math.abs(e.deltaUsd) >= 100_000)) {
     const r = rankBy0.get(e.trader); if (!r || r.marketMaker) continue;
     out.push({ key: "whale:watch:" + e.id, lines: ["👁 " + e.coin + " watch · " + r.label + " (" + r.tier.toLowerCase() + ", #" + r.rank + ") " + e.kind + " " + e.side, "📍 " + formatUsd(Math.abs(e.deltaUsd)) + (e.kind === "CLOSE" ? " closed · P&L " + (e.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(e.pnl)) + " · held " + Math.round(e.heldMs / 3_600_000) + " h" : " at " + formatPrice(e.entry) + " · price " + formatPrice(e.price))] });
   }
-  for (const s of signals.filter(s => watched.has(s.coin) && s.status !== "WEAK" && !entrySignals.includes(s))) entrySignals.push(s);
+  for (const s of signals.filter(s => watched.has(s.coin) && pushable(s) && !entrySignals.includes(s))) entrySignals.push(s);
   for (const x of settings.alerts ? exits : exits.filter(x => watched.has(x.coin))) {
     out.push({ key: "whale:exit:" + x.coin + ":" + x.side + ":" + Math.floor(x.at / (3 * 3_600_000)), lines: [
       "🐋 WHALE EXIT · " + x.coin + " " + x.side + " · " + (x.urgency === "LEAVE" ? "LEAVE THE TRADE" : "REDUCE"),
@@ -183,18 +189,19 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
   for (const s of entrySignals) {
     const lines = [
       "🐋 WHALE SIGNAL · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%",
+      "🧭 " + (s.engine?.agrees ? "Call: " + s.side + " " + s.coin + ". Whales and the 1h chart agree." : s.engine ? "Call: " + s.side + " " + s.coin + " with half size. Whales are " + s.side + "; the 1h chart is neutral (" + s.engine.bias + ", " + s.engine.trendFrames + "/3 frames), not against." : "Information only: not listed on Bybit."),
       "📍 Price " + formatPrice(s.price) + " · whales' avg entry " + formatPrice(s.avgEntry) + " (" + (s.distancePct >= 0 ? "+" : "") + s.distancePct.toFixed(2) + "%)",
       "",
       ...s.whales.map(w => "• " + w.label + " (" + w.tier.toLowerCase() + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.max(0, w.deltaUsd)) + " @ " + formatPrice(w.entry)),
       ...(s.opposed.length ? ["", "⚠️ Against: " + s.opposed.map(o => o.label + " " + o.kind.toLowerCase() + " " + formatUsd(Math.abs(o.deltaUsd))).join(", ")] : []),
       "",
-      ...(s.engine ? ["📈 Chart (1h): bias " + s.engine.bias + " · " + s.engine.regime + " · " + s.engine.trendFrames + "/3 frames " + (s.engine.agrees ? "· agrees with the whales" : "· does not confirm yet"), "🛑 Stop idea " + formatPrice(s.engine.stop) + " (1.5 ATR beyond their entry)", "🎯 Targets " + s.engine.targets.map(t => formatPrice(t)).join(" / ") + " (1R / 2R / 3R)"] : ["📈 Not listed on Bybit; information only."]),
+      ...(s.engine ? ["📈 Chart (1h): bias " + s.engine.bias + " · " + s.engine.regime + " · " + s.engine.trendFrames + "/3 frames " + (s.engine.agrees ? "· agrees with the whales" : "· neutral, not against"), "🛑 Stop " + formatPrice(s.engine.stop) + " (1.5 ATR beyond their entry or price, whichever is worse)", "🎯 Targets " + s.engine.targets.map(t => formatPrice(t)).join(" / ") + " (1R / 2R / 3R)"] : ["📈 Not listed on Bybit; information only."]),
       "",
       s.note,
       "No order is placed. Follow what ranked whales do now, not what their old positions say.",
     ];
     lines[0] = "🐋 WHALE ENTRY · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%";
-    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ Entered at plan price", data: "entered:" + s.symbol }, { text: "✏️ Entered at…", data: "enterat:" + s.symbol }, { text: "👀 Monitor " + s.coin, data: "monitor:" + s.symbol }, { text: "📊 Analyse " + s.coin, data: "analyse:" + s.symbol }] : undefined });
+    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ I entered this " + s.side, data: "went:" + s.coin + ":" + s.side }, { text: "✏️ Entered " + s.side + " at…", data: "wenterat:" + s.coin + ":" + s.side }, { text: "👁 Watch " + s.coin + " whales", data: "wwatch:" + s.coin }, { text: "🐋 Whale read " + s.coin, data: "wread:" + s.coin + ":" + s.side }] : undefined });
   }
   if (!settings.alerts) return out;
   const minTier = settings.minTier === "ELITE" ? ["ELITE"] : ["ELITE", "STRONG"];
@@ -236,7 +243,7 @@ export function enteredCard(trade: EnteredTrade, levels: { stop: number; targets
     "📐 Levels: " + levels.source,
     "",
     "From now until you tap \"I exited\": every whale move on " + trade.coin + " with instructions in figures, each target and the stop as price reaches them, structure changes against the trade, and a check-in every 6 h.",
-  ], buttons: [{ text: "🔎 Analyse " + trade.coin, data: "analyse:" + (trade.symbol ?? trade.coin + "USDT") }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] };
+  ], buttons: [{ text: "🐋 Whale read " + trade.coin, data: "wread:" + trade.coin + ":" + trade.side }, { text: "❌ I exited " + trade.coin, data: "wexit:" + trade.coin }] };
 }
 
 export function exitedCard(trade: EnteredTrade, price: number): TelegramEvent {

@@ -74,3 +74,17 @@ test("Early warning on entered trades: ranked whale closing my side is CRITICAL;
   const eth = warnings.find(w => w.coin === "ETH"); assert.equal(eth.severity, "WARNING"); assert.equal(eth.against[0].kind, "OPEN");
   const btc = warnings.find(w => w.coin === "BTC"); assert.equal(btc.severity, "INFO"); assert.equal(btc.withUsd, 8e5);
 });
+
+test("Whale entries: price against the whales is UNDERWATER, and whales who already left drop out", () => {
+  const ranks = [{ trader: "A", label: "A", tier: "ELITE" }, { trader: "B", label: "B", tier: "ELITE" }, { trader: "C", label: "C", tier: "STRONG" }];
+  const now = 100 * 3_600_000;
+  const ev = (trader, coin, side, kind, deltaUsd, entry, ago = 3_600_000) => ({ id: trader + coin + kind, at: now - ago, trader, coin, kind, side, sizeUsd: deltaUsd, deltaUsd, entry, price: entry, pnl: 0, heldMs: 0 });
+  const signals = confirmWhaleSignals([
+    // ZEC-like: two elite shorts around 925, price now 955 (3.2% against them).
+    ev("A", "ZEC", "SHORT", "ADD", 1.4e6, 942), ev("B", "ZEC", "SHORT", "OPEN", 1.4e6, 913),
+    // BTC: C added short, then closed it; only A remains.
+    ev("C", "BTC", "SHORT", "ADD", 4e6, 100, 5 * 3_600_000), ev("C", "BTC", "SHORT", "CLOSE", -4e6, 100, 600_000), ev("A", "BTC", "SHORT", "ADD", 5e5, 100),
+  ], ranks, { ZEC: 955, BTC: 100 }, now);
+  const zec = signals.find(s => s.coin === "ZEC"); assert.equal(zec.status, "UNDERWATER"); assert.match(zec.note, /Not an entry/);
+  const btc = signals.find(s => s.coin === "BTC"); assert.ok(btc); assert.deepEqual(btc.whales.map(w => w.trader), ["A"], "a whale who closed is no longer part of the call"); assert.equal(btc.status, "WEAK");
+});

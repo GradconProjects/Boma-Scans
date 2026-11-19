@@ -48,13 +48,16 @@ export async function pollTelegram(userId: string, chatId: string, origin: strin
       const date = message?.date ?? 0; if (message && Date.now() - date * 1000 > 30 * 60000) continue;
       let text = message?.text ?? "";
       // A reply to the "fill price" prompt becomes /entered SYMBOL price.
+      const whalePrompt = message?.reply_to_message?.text?.match(/fill price for your ([A-Z0-9]{1,24}) (LONG|SHORT) whale trade/);
       const prompt = message?.reply_to_message?.text?.match(/fill price for ([A-Z0-9]{2,24}USDT)/);
-      if (prompt && text && !text.startsWith("/")) text = "/entered " + prompt[1] + " " + text.trim();
+      if (whalePrompt && text && !text.startsWith("/")) text = "/wentered " + whalePrompt[1] + " " + whalePrompt[2] + " " + text.trim();
+      else if (prompt && text && !text.startsWith("/")) text = "/entered " + prompt[1] + " " + text.trim();
       if (callback) {
         await telegramCall(token, "answerCallbackQuery", { callback_query_id: callback.id });
-        const [action, value] = String(callback.data ?? "").split(":");
+        const [action, value, extra] = String(callback.data ?? "").split(":");
+        if (action === "wenterat" && value) { await telegramCall(token, "sendMessage", { chat_id: chatId, text: "✏️ Reply to this message with your fill price for your " + value + " " + (extra === "SHORT" ? "SHORT" : "LONG") + " whale trade (numbers only).", reply_markup: { force_reply: true, input_field_placeholder: "fill price" } }); continue; }
         if (action === "enterat" && value) { await telegramCall(token, "sendMessage", { chat_id: chatId, text: "✏️ Reply to this message with your fill price for " + value + " (numbers only, e.g. 1.2335).", reply_markup: { force_reply: true, input_field_placeholder: "fill price" } }); continue; }
-        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : action === "monitor" ? "/monitor " + value : action === "unmonitor" ? "/unmonitor " + value : action === "wexit" ? "/wexit " + value : "/" + action;
+        text = action === "tf" ? "/timeframe " + value : action === "risk" ? "/risk " + value : action === "analyse" ? "/analyse " + value : action === "entered" ? "/entered " + value : action === "skipped" ? "/skip " + value : action === "monitor" ? "/monitor " + value : action === "unmonitor" ? "/unmonitor " + value : action === "wexit" ? "/wexit " + value : action === "went" ? "/wentered " + value + " " + (extra ?? "") : action === "wwatch" ? "/wwatch " + value : action === "wread" ? "/wread " + value + " " + (extra ?? "") : "/" + action;
       }
       if (!text) continue;
       try { await handleCommand(userId, String(chatId), text, origin); processed++; }

@@ -7,7 +7,7 @@ import { formatUsd } from "@/app/lib/positioning";
 import type { EnteredTrade, WhaleEvent, WhaleExit, WhaleRank, WhaleSignal, WhaleWarning } from "@/app/lib/whale-logic";
 import { WhaleAnalysisPanel } from "@/app/components/whale-analysis-panel";
 
-type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; stop: number; targets: number[]; atrPct: number } | null };
+type Signal = WhaleSignal & { symbol: string | null; engine?: { bias: string; regime: string; trendFrames: number; agrees: boolean; opposes?: boolean; stop: number; targets: number[]; atrPct: number } | null };
 type Settings = { alerts: boolean; minTier: "ELITE" | "STRONG"; coins: string[]; watch?: string[]; entered?: EnteredTrade[] };
 type Payload = { at: number; signals: Signal[]; exits: WhaleExit[]; ranks: WhaleRank[]; events: WhaleEvent[]; settings: Settings; warnings?: WhaleWarning[]; prices?: Record<string, number>; error?: string };
 
@@ -110,7 +110,7 @@ export function WhalesView() {
     </section>}
     {tab === "signals" && <section className="mt-4 grid gap-4 lg:grid-cols-2">
       {!data ? <p className="text-sm text-slate-400">Loading…</p> : data.signals.filter(s => s.status !== "WEAK").length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm leading-6 text-slate-400 lg:col-span-2">No confirmed whale entry right now. An entry needs a cluster of directional whales (two or more, score 1.8+), one ranked whale with $1M+ of new money, or any directional whale with $3M+ within 24 hours, with price still near their average entry. What is building is listed below; the live activity tab shows every move.</p>
-        : data.signals.filter(s => s.status !== "WEAK").map(s => <article key={s.coin + s.side} className={"rounded-2xl border p-4 " + (s.status === "RAN AWAY" ? "border-white/[0.08] bg-slate-950/40" : s.side === "LONG" ? "border-emerald-300/30 bg-emerald-300/[0.05]" : "border-rose-300/30 bg-rose-300/[0.05]")}>
+        : data.signals.filter(s => s.status !== "WEAK").map(s => <article key={s.coin + s.side} className={"rounded-2xl border p-4 " + (s.status === "RAN AWAY" || s.status === "UNDERWATER" || s.engine?.opposes ? "border-white/[0.08] bg-slate-950/40" : s.side === "LONG" ? "border-emerald-300/30 bg-emerald-300/[0.05]" : "border-rose-300/30 bg-rose-300/[0.05]")}>
           <div className="flex flex-wrap items-center justify-between gap-2">
             <h2 className="text-lg font-bold text-white">{s.side === "LONG" ? "🟢" : "🔴"} {s.coin} {s.side}</h2>
             <span className="flex items-center gap-2 text-xs"><span className={"rounded-full px-2 py-0.5 font-semibold " + (s.status === "NEW ENTRY" ? "bg-emerald-300/20 text-emerald-100" : s.status === "ENTRY AVAILABLE" ? "bg-cyan-300/20 text-cyan-100" : "bg-white/10 text-slate-300")}>{s.status}</span><span className="font-mono text-slate-300">{s.confidence}%</span></span>
@@ -119,8 +119,8 @@ export function WhalesView() {
           <ul className="mt-2 space-y-1 text-xs text-slate-300">{s.whales.map(w => <li key={w.trader + w.at}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span> {w.kind.toLowerCase()} {formatUsd(Math.max(0, w.deltaUsd))} @ {formatPrice(w.entry)} · {melbourne(w.at)}</li>)}</ul>
           {s.opposed.length > 0 && <p className="mt-2 text-xs text-amber-200">⚠️ Against: {s.opposed.map(o => o.label + " " + o.kind.toLowerCase() + " " + formatUsd(Math.abs(o.deltaUsd))).join(", ")}</p>}
           {s.engine ? <div className="mt-3 rounded-xl border border-white/[0.08] bg-slate-950/40 p-3 text-xs leading-5">
-            <p className={s.engine.agrees ? "text-emerald-200" : "text-slate-300"}>📈 Chart (1h, {s.symbol}): bias {s.engine.bias} · {s.engine.regime} · {s.engine.trendFrames}/3 frames · {s.engine.agrees ? "agrees with the whales" : "does not confirm yet"}</p>
-            <p className="mt-1 font-mono text-slate-200">🛑 Stop idea {formatPrice(s.engine.stop)} (1.5 ATR beyond their entry) · 🎯 {s.engine.targets.map(t => formatPrice(t)).join(" / ")} (1R / 2R / 3R)</p>
+            <p className={s.engine.agrees ? "text-emerald-200" : "text-slate-300"}>📈 Chart (1h, {s.symbol}): bias {s.engine.bias} · {s.engine.regime} · {s.engine.trendFrames}/3 frames · {s.engine.agrees ? "agrees with the whales" : s.engine.opposes ? "trends AGAINST the whales: no entry until they agree" : "neutral, not against"}</p>
+            <p className="mt-1 font-mono text-slate-200">🛑 Stop {formatPrice(s.engine.stop)} (1.5 ATR beyond their entry or price, whichever is worse) · 🎯 {s.engine.targets.map(t => formatPrice(t)).join(" / ")} (1R / 2R / 3R)</p>
           </div> : <p className="mt-3 text-xs text-slate-500">Not listed on Bybit; information only.</p>}
           <p className="mt-2 text-xs leading-5 text-slate-400">{s.note}</p>
           <div className="mt-3 flex flex-wrap gap-2"><EnteredButton coin={s.coin} side={s.side} symbol={s.symbol}/><WatchButton coin={s.coin}/></div>

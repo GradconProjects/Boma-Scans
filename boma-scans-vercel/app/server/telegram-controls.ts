@@ -13,6 +13,8 @@ import {aiSettings,explainSetup,saveAiSettings,type AiProvider} from "@/app/serv
 import {reviewBeforePush} from "@/app/server/review-signal";
 import {reviewLines} from "@/app/lib/ai-review";
 import {enteredCard,levelsForEntered,saveWhaleSettings,whaleSettings} from "@/app/server/whale-tracker";
+import {whaleEntryAnalysis} from "@/app/server/whale-analysis";
+import {whaleAnalysisLines} from "@/app/lib/whale-analysis-lines";
 import {whaleAlignment} from "@/app/server/whale-align";
 import {bybitSymbolFor} from "@/app/lib/whale-logic";
 import {pushSettings,savePushSettings} from "@/app/server/push-settings";
@@ -40,6 +42,13 @@ async function workspace(userId:string) {
  return {...defaults,...(record?JSON.parse(record.payload):{})} as Workspace;
 }
 async function save(userId:string,value:Workspace) {await write(userId,"workspace",JSON.stringify(value));}
+/** One or two lines saying whether the whales agree with the chart's side, so a chart call never contradicts a whale card silently. */
+async function whaleCheck(pair:string,side:string):Promise<string[]>{
+ if(side!=="LONG"&&side!=="SHORT")return [];
+ try{const w=await whaleAlignment(pair,side);if(!w.coin)return [];
+  return w.stance==="AGAINST"?["⚠️ Whales are AGAINST this "+side+": "+w.detail+". This is the chart's read only; the whale card is the opposite side. Do not take both, and prefer standing aside until they agree."]:w.stance==="WITH"?["🐋 Whales agree with this "+side+": "+w.detail+"."]:["🐋 Whales: no clear side on "+w.coin+" right now ("+w.detail+")."];
+ }catch{return [];}
+}
 export async function handleCommand(userId:string,chatId:string,text:string,origin:string) {
  const token=env.TELEGRAM_BOT_TOKEN!;
  const send=async(message:string,keyboard:boolean|Record<string,unknown>=false,html=false)=>{const chunks=telegramChunks(message);for(const [index,chunk] of chunks.entries())await telegramCall(token,"sendMessage",{chat_id:chatId,text:chunk,...(html?{parse_mode:"HTML"}:{}),...(keyboard&&index===chunks.length-1?{reply_markup:keyboard===true?menu(origin):keyboard}:{})});};
@@ -113,6 +122,18 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   const v=windowVerdict(Date.now());
   await send("🕰 "+v.label+"\n"+(v.good?"✅ GOOD TIME TO TRADE":"⛔ NOT A GOOD TIME TO TRADE")+"\n"+v.detail+"\n\nSetting: "+(current.tradingWindows==="ALL"?"ALL HOURS, every entry call is pushed and flagged with this statement.":"GOOD WINDOWS ONLY, entry calls outside them are held.")+(w.ok?"":"")+"\n/windows all · /windows backtested",true);return;
  }
+ if(command==="/wwatch") {
+  const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wwatch SOL.");return;}
+  const current=await whaleSettings();await saveWhaleSettings({watch:Array.from(new Set([coin,...(current.watch??[])])).slice(0,20)});
+  await send("👁 Watching "+coin+" whales: every $100K+ directional whale move on it is reported. /clearwatch stops all.",true);return;
+ }
+ if(command==="/wread") {
+  const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wread SOL SHORT.");return;}
+  const side=(args[1]??"").toUpperCase()==="SHORT"?"SHORT":(args[1]??"").toUpperCase()==="LONG"?"LONG":undefined;
+  await send("🐋 Reading the whale book, flows and chart for "+coin+"…");
+  const a=await whaleEntryAnalysis(coin,side,Date.now(),{plan:false});
+  await send(renderTelegramHtml([...whaleAnalysisLines(a),"🔗 Open in app: "+origin+"/?view=whales"]),true,true);return;
+ }
  if(command==="/wexit"||command==="/wentered") {
   const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wentered SOL LONG 150.2 or /wexit SOL.");return;}
   const current=await whaleSettings();const list=(current.entered??[]).filter(t=>t.coin!==coin);
@@ -169,11 +190,11 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   await send("🔎 Checking fresh Bybit candles for "+pair+"…");
   const {analysis,row,relationship}=await analyzePair(pair,interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
   const pick=getMediumRiskShortlist([row],settings.equity,true,1)[0];
-  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);}
+  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);const w=await whaleCheck(pair,pick.row.bias==="SHORT"?"SHORT":"LONG");if(w.length)await send(renderTelegramHtml(w),true,true);}
   else {
    const plan=analysis.executionPlan;
    const card=compactSignalLines({symbol:pair,side:analysis.bias,entryLow:plan.entryLow,entryHigh:plan.entryHigh,entry:analysis.entry,trigger:plan.trigger,timeframe:plan.timeframe,stop:analysis.stop,targets:analysis.takeProfits,expiresAt:plan.expiresAt,zoneLow:plan.zoneLow,zoneHigh:plan.zoneHigh});
-   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,"🔗 Open in app: "+appLink(origin,pair)]),true,true);
+   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await whaleCheck(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
   }
   return;
  }

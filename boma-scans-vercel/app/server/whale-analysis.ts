@@ -56,7 +56,7 @@ Be explicit about sides. The "requestedSide" is the side the trader asked about 
 
 Produce one actionable plan in the required JSON shape. decision: ENTER NOW only when the whales' thesis and the chart agree and price is inside a sensible entry window now; WAIT with the exact trigger to wait for; NO TRADE when whales are split, the move has run away (price more than 2% past their average entry without a pullback) or the chart contradicts them. Entry window: a tight price range near the whales' average entry or the chart's zone, never chasing. Stop: at a structural level beyond the whales' entries, between 0.8 and 2.5 ATR(1H) from the window. Targets: three to five prices in the trade's direction between 1R and 5R of the risk, at visible levels. Quote prices exactly as given. Keep thesis under 300 characters, risks at most three short items, management one sentence (partials, moving the stop, what cancels the idea).`;
 
-export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | "SHORT", now = Date.now()): Promise<WhaleAnalysis> {
+export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | "SHORT", now = Date.now(), opts: { plan?: boolean } = {}): Promise<WhaleAnalysis> {
   const snapshot = await whaleSnapshot();
   const prices: Record<string, number> = Object.fromEntries(Object.entries(snapshot.ctx).map(([c, x]) => [c, x.markPx]));
   const ranks: WhaleRank[] = await whaleRankings();
@@ -93,6 +93,7 @@ export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | 
     bias: row.bias, regime: row.regime, trendFrames: row.trendFrames, status: plan.status, checks: row.entryChecks.filter(c => c.required).map(c => ({ label: c.label, status: c.status })), keyLevels: row.keyLevels?.summary, atr: analysis.metrics.atr, atrPct: analysis.metrics.atrPct,
   };
   try { const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, side, row.price, row.stop); result.positioning = { verdict: verdict.headline, summary: positioningSummary(data, side), notes: verdict.notes.slice(0, 4) }; } catch { /* optional */ }
+  if (opts.plan === false) { result.planError = "Quick whale read. Open the whale section in the app for the full AI entry plan."; return result; }
   const settings = await aiSettings();
   if (settings.provider === "off") { result.planError = "No AI provider configured; chart and whale context only."; return result; }
   const prompt = JSON.stringify({
