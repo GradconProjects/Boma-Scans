@@ -3,6 +3,8 @@ import { cronAuthorized } from "@/app/server/cron-auth";
 import { deliverEvents, readOwnerRecord, telegramConfig, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
+import { positioningMatrixFor } from "@/app/server/positioning-matrix";
+import { matrixLines } from "@/app/lib/positioning-matrix";
 import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines } from "@/app/lib/ai-review";
@@ -68,6 +70,7 @@ export async function GET(request: NextRequest) {
       qualified.push(symbol);
       let positioning: string[] = [];
       try { const snapshot = await whaleSnapshot(); const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, positioningSummary(data, row.bias), ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
+      try { positioning = ["", ...matrixLines(await positioningMatrixFor(symbol, row.bias === "SHORT" ? "SHORT" : "LONG", now))]; } catch { /* keep the short form */ }
       // Push policy: a major structural event, a stop that can hold four hours, and no ranked whales against it.
       const gate = majorEventGate(row, result.analysis, result.candles);
       const window = tradingWindowGate(now, (await pushSettings()).tradingWindows);

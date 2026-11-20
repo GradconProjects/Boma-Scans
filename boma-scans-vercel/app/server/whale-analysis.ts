@@ -5,6 +5,8 @@ import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { recentEvents, whaleRankings } from "@/app/server/whale-tracker";
 import { bybitSymbolFor, confirmWhaleSignals, type WhaleEvent, type WhaleRank, type WhaleSignal } from "@/app/lib/whale-logic";
 import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
+import { positioningMatrixFor } from "@/app/server/positioning-matrix";
+import type { PositioningMatrix } from "@/app/lib/positioning-matrix";
 import { compactSignalLines } from "@/app/lib/signal-alerts";
 import { entryCall } from "@/app/lib/trigger-monitor";
 import { formatPrice, STYLE_CONFIG } from "@/app/lib/market";
@@ -48,6 +50,8 @@ export type WhaleAnalysis = {
     read: string };
   chart: { call: string; lines: string[]; bias: string; regime: string; trendFrames: number; status: string; checks: Array<{ label: string; status: string }>; keyLevels?: string; atr: number; atrPct: number } | null;
   positioning: { verdict: string; summary: string; notes: string[] } | null;
+  /** Whales vs smart money vs Bybit crowd, how they line up, and the positioning advice. */
+  matrix?: PositioningMatrix | null;
   plan: WhalePlan | null;
   planError?: string;
 };
@@ -55,6 +59,8 @@ export type WhaleAnalysis = {
 const SYSTEM = `You are the entry planner of a crypto perpetual-futures desk that follows consistently successful Hyperliquid whales (Bybit USDT perps, 1H chart, Melbourne trader). Rule: follow what ranked whales are doing NOW, not what their old positions say.
 You receive: the whales' fresh opens / adds / closes on this coin with their entries and sizes, who is against them, the rule engine's own 1H plan (window, trigger, stop, targets, checks), historic levels, crowd positioning and the last 24 1H candles.
 Be explicit about sides. The "requestedSide" is the side the trader asked about (often the whale signal's side); your plan's side may differ, but then say so plainly in whale_read ("the whale signal is SHORT; I am NOT following it because…"). alignment: WITH WHALES when your plan follows the fresh whale money and the ranked book; AGAINST WHALES when you fade them; MIXED when whales are split or the book and the fresh flow disagree. whale_read: two or three sentences on what the ranked whales and other smart money (Binance / OKX top traders, Bybit crowd, funding) are doing right now and how that drove your decision, with sizes and prices.
+
+Positioning carries heavy weight. positioningMatrix compares three groups: WHALES (ranked Hyperliquid traders, followed), SMART MONEY (Binance / OKX top traders, followed) and the BYBIT CROWD (ordinary accounts, read contrarian). Your whale_read must name each group's side with its figures, say how they line up (the pattern) and how that changes your decision and size. Do not plan against a pattern where whales and smart money agree unless the chart gives a very strong reason, and say so.
 
 simple: two or three short sentences in everyday words for a beginner: what to do now (buy, sell or wait), at what price, and why. No jargon: no CHoCH, BOS, ATR, R, liquidity, confluence or order block.
 
@@ -97,6 +103,7 @@ export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | 
     bias: row.bias, regime: row.regime, trendFrames: row.trendFrames, status: plan.status, checks: row.entryChecks.filter(c => c.required).map(c => ({ label: c.label, status: c.status })), keyLevels: row.keyLevels?.summary, atr: analysis.metrics.atr, atrPct: analysis.metrics.atrPct,
   };
   try { const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, side, row.price, row.stop); result.positioning = { verdict: verdict.headline, summary: positioningSummary(data, side), notes: verdict.notes.slice(0, 4) }; } catch { /* optional */ }
+  try { result.matrix = await positioningMatrixFor(symbol, side, now); } catch { result.matrix = null; }
   if (opts.plan === false) { result.planError = "Quick whale read. Open the whale section in the app for the full AI entry plan."; return result; }
   const settings = await aiSettings();
   if (settings.provider === "off") { result.planError = "No AI provider configured; chart and whale context only."; return result; }
@@ -106,7 +113,9 @@ export async function whaleEntryAnalysis(coin: string, requestedSide?: "LONG" | 
     recentWhaleEvents: events.slice(0, 15).map(e => ({ tier: rankBy.get(e.trader)?.tier ?? "WATCH", kind: e.kind, side: e.side, deltaUsd: Math.round(e.deltaUsd), entry: e.entry, pnl: Math.round(e.pnl), hoursAgo: Number(((now - e.at) / 3_600_000).toFixed(1)) })),
     openWhaleBook: { longUsd: Math.round(longUsd), shortUsd: Math.round(shortUsd), rankedTraders: ranked, rankedPositions: book.slice(0, 12).map(p => ({ tier: p.tier, rank: p.rank, side: p.side, sizeUsd: Math.round(p.sizeUsd), entry: p.entry, pnl: Math.round(p.pnl), leverage: p.leverage })), freshFlow: { last6h: flows.h6, last24h: flows.h24 }, read },
     enginePlan: { bias: row.bias, status: plan.status, regime: row.regime, trendFrames: row.trendFrames, call: result.chart.call, window: [plan.zoneLow, plan.zoneHigh], entry: plan.entry, trigger: plan.trigger, stop: row.stop, targets: row.takeProfits.map(t => t.price), checks: result.chart.checks, historicLevels: row.keyLevels ? { summary: row.keyLevels.summary, detail: row.keyLevels.detail } : null },
-    positioning: result.positioning, structure: { bos: analysis.structure.bos, choch: analysis.structure.choch, sweep: analysis.structure.sweep },
+    positioning: result.positioning,
+    positioningMatrix: result.matrix ? { lineUp: result.matrix.lineUp, pattern: result.matrix.pattern, meaning: result.matrix.meaning, scores: result.matrix.scores, bestSide: result.matrix.bestSide, groups: result.matrix.groups.map(g => ({ group: g.key, lean: g.lean, strength: g.strength, longPct: g.longPct === null ? null : Math.round(g.longPct), facts: g.facts })), checklist: result.matrix.checklist } : null,
+    structure: { bos: analysis.structure.bos, choch: analysis.structure.choch, sweep: analysis.structure.sweep },
     metrics: { rsi: Math.round(analysis.metrics.rsi), adx: Math.round(analysis.metrics.adx), atrPct: Number(analysis.metrics.atrPct.toFixed(2)), volumeRatio: Number(analysis.metrics.volumeRatio.toFixed(2)), fundingPct: Number((analysis.metrics.fundingRate * 100).toFixed(4)) },
     last24Candles1h: candles.slice(-24).map(c => [new Date(c.time).toISOString().slice(5, 16), c.open, c.high, c.low, c.close, Math.round(c.volume)]),
   });

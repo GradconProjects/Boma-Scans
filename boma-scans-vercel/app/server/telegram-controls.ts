@@ -15,6 +15,8 @@ import {reviewLines} from "@/app/lib/ai-review";
 import {enteredCard,levelsForEntered,saveWhaleSettings,whaleSettings} from "@/app/server/whale-tracker";
 import {whaleEntryAnalysis} from "@/app/server/whale-analysis";
 import {whaleAnalysisLines} from "@/app/lib/whale-analysis-lines";
+import {positioningMatrixFor} from "@/app/server/positioning-matrix";
+import {matrixLines} from "@/app/lib/positioning-matrix";
 import {whaleAlignment} from "@/app/server/whale-align";
 import {bybitSymbolFor} from "@/app/lib/whale-logic";
 import {pushSettings,savePushSettings} from "@/app/server/push-settings";
@@ -43,6 +45,10 @@ async function workspace(userId:string) {
 }
 async function save(userId:string,value:Workspace) {await write(userId,"workspace",JSON.stringify(value));}
 /** One or two lines saying whether the whales agree with the chart's side, so a chart call never contradicts a whale card silently. */
+async function positioningBlock(pair:string,side:string):Promise<string[]>{
+ if(side!=="LONG"&&side!=="SHORT")return [];
+ try{return ["",...matrixLines(await positioningMatrixFor(pair,side))];}catch{return whaleCheck(pair,side);}
+}
 async function whaleCheck(pair:string,side:string):Promise<string[]>{
  if(side!=="LONG"&&side!=="SHORT")return [];
  try{const w=await whaleAlignment(pair,side);if(!w.coin)return [];
@@ -54,7 +60,7 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
  const send=async(message:string,keyboard:boolean|Record<string,unknown>=false,html=false)=>{const chunks=telegramChunks(message);for(const [index,chunk] of chunks.entries())await telegramCall(token,"sendMessage",{chat_id:chatId,text:chunk,...(html?{parse_mode:"HTML"}:{}),...(keyboard&&index===chunks.length-1?{reply_markup:keyboard===true?menu(origin):keyboard}:{})});};
  const {command,args}=parseBotCommand(text);const settings=await workspace(userId);
  if(["/start","/menu","/help"].includes(command)) {
-  await send("📡 BOMA SCANS — CONTROL CENTRE\n\nType a pair: BTCUSDT\n/analyse ETHUSDT 1h\n/timeframe 1h | 2h | 4h\n/style DAY | SCALP | SWING | POSITION\n/targets TA | LADDER\n/entered BTCUSDT [price] · /skip BTCUSDT · /status\n/monitor BTCUSDT · /unmonitor BTCUSDT · /unmonitor all · /clearwatch\n/why BTCUSDT (plain-English read) · /review BTCUSDT\n/ai anthropic | openai | off\n/wentered SOL LONG 150.2 · /wexit SOL (whale early warning)\n/windows backtested | all (when entry calls may be pushed)\n/risk STRICT | BALANCED | FLEXIBLE\n/equity 10000\n/fee 0.055\n/slippage 0.02\n/interval 15 | 30 | 60 | 180\n/autoscan on | off\n/direction BOTH | LONG | SHORT\n/filter ALL | LOW | MEDIUM | HIGH\n/alerts on | off\n/settings · /scan · /trades\n\nTelegram commands sync with your website settings. Keep the website open on one device for command processing. Full dashboard opens all chart, journal and risk controls inside Telegram. No exchange orders are placed.",true);return;
+  await send("📡 BOMA SCANS — CONTROL CENTRE\n\nType a pair: BTCUSDT\n/analyse ETHUSDT 1h\n/timeframe 1h | 2h | 4h\n/style DAY | SCALP | SWING | POSITION\n/targets TA | LADDER\n/entered BTCUSDT [price] · /skip BTCUSDT · /status\n/monitor BTCUSDT · /unmonitor BTCUSDT · /unmonitor all · /clearwatch\n/why BTCUSDT (plain-English read) · /review BTCUSDT\n/ai anthropic | openai | off\n/wentered SOL LONG 150.2 · /wexit SOL (whale early warning)\n/positioning SOL [LONG|SHORT] (whales vs smart money vs Bybit crowd)\n/windows backtested | all (when entry calls may be pushed)\n/risk STRICT | BALANCED | FLEXIBLE\n/equity 10000\n/fee 0.055\n/slippage 0.02\n/interval 15 | 30 | 60 | 180\n/autoscan on | off\n/direction BOTH | LONG | SHORT\n/filter ALL | LOW | MEDIUM | HIGH\n/alerts on | off\n/settings · /scan · /trades\n\nTelegram commands sync with your website settings. Keep the website open on one device for command processing. Full dashboard opens all chart, journal and risk controls inside Telegram. No exchange orders are placed.",true);return;
  }
  if(command==="/settings") {
   await send("⚙️ CURRENT SETTINGS\nPair: "+settings.symbol+"\nCandle interval: "+settings.interval+"\nStyle: "+settings.style+"\nEntry flexibility: "+settings.flexibility+"\nEquity: "+settings.equity+" USDT\nFee: "+settings.fee+"% · slippage: "+settings.slippage+"%\nAuto-scan: "+(settings.autoScan?"on":"off")+" / "+settings.autoScanMinutes+" minutes\nDirection: "+(settings.directionFilter??"BOTH")+" · grade filter: "+(settings.riskFilter??"ALL")+"\n\nNew plans scale out at 1R/2R/3R/4R/5R (30/25/20/15/10%); entry signals are issued on the 1H chart. Existing trade levels stay fixed.",true);return;
@@ -121,6 +127,13 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   const current=await pushSettings();const w=tradingWindowGate(Date.now(),current.tradingWindows);
   const v=windowVerdict(Date.now());
   await send("🕰 "+v.label+"\n"+(v.good?"✅ GOOD TIME TO TRADE":"⛔ NOT A GOOD TIME TO TRADE")+"\n"+v.detail+"\n\nSetting: "+(current.tradingWindows==="ALL"?"ALL HOURS, every entry call is pushed and flagged with this statement.":"GOOD WINDOWS ONLY, entry calls outside them are held.")+(w.ok?"":"")+"\n/windows all · /windows backtested",true);return;
+ }
+ if(command==="/positioning"||command==="/pos") {
+  const coin=(args[0]??"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/USDT$/,"");if(!coin){await send("Use /positioning SOL or /positioning SOL SHORT.");return;}
+  const side=(args[1]??"").toUpperCase()==="SHORT"?"SHORT":(args[1]??"").toUpperCase()==="LONG"?"LONG":undefined;
+  let symbol=coin+"USDT";try{const tickers=await marketRead({kind:"tickers"});symbol=bybitSymbolFor(coin,new Set((tickers.result!.list as Array<{symbol?:string}>).map(t=>t.symbol??"")))??symbol;}catch{/* default */}
+  const mx=await positioningMatrixFor(symbol,side);
+  await send(renderTelegramHtml([...matrixLines(mx),"🔗 Open in app: "+origin+"/?view=whales"]),true,true);return;
  }
  if(command==="/wwatch") {
   const coin=(args[0]??"").replace(/[^A-Za-z0-9]/g,"");if(!coin){await send("Use /wwatch SOL.");return;}
@@ -190,12 +203,12 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   await send("🔎 Checking fresh Bybit candles for "+pair+"…");
   const {analysis,row,relationship}=await analyzePair(pair,interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
   const pick=getMediumRiskShortlist([row],settings.equity,true,1)[0];
-  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);const w=await whaleCheck(pair,pick.row.bias==="SHORT"?"SHORT":"LONG");if(w.length)await send(renderTelegramHtml(w),true,true);}
+  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);const w=await positioningBlock(pair,pick.row.bias);if(w.length)await send(renderTelegramHtml(w),true,true);}
   else {
    const plan=analysis.executionPlan;
    const card=compactSignalLines({symbol:pair,side:analysis.bias,entryLow:plan.entryLow,entryHigh:plan.entryHigh,entry:analysis.entry,trigger:plan.trigger,timeframe:plan.timeframe,stop:analysis.stop,targets:analysis.takeProfits,expiresAt:plan.expiresAt,zoneLow:plan.zoneLow,zoneHigh:plan.zoneHigh});
    const dir=analysis.bias==="SHORT"?"SELL (short)":"BUY (long)";
-   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"","✅ WHAT TO DO: Do not enter yet. "+(analysis.bias==="LONG"||analysis.bias==="SHORT"?dir+" only if a 1-hour candle closes "+(analysis.bias==="SHORT"?"below ":"above ")+formatPrice(plan.trigger)+" and price is between "+formatPrice(Math.min(plan.entryLow,plan.entryHigh))+" and "+formatPrice(Math.max(plan.entryLow,plan.entryHigh))+". Otherwise skip it.":"There is no clear direction on this chart."),"","🔬 DETAILS","📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await whaleCheck(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
+   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"","✅ WHAT TO DO: Do not enter yet. "+(analysis.bias==="LONG"||analysis.bias==="SHORT"?dir+" only if a 1-hour candle closes "+(analysis.bias==="SHORT"?"below ":"above ")+formatPrice(plan.trigger)+" and price is between "+formatPrice(Math.min(plan.entryLow,plan.entryHigh))+" and "+formatPrice(Math.max(plan.entryLow,plan.entryHigh))+". Otherwise skip it.":"There is no clear direction on this chart."),"","🔬 DETAILS","📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await positioningBlock(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
   }
   return;
  }

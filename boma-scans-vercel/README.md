@@ -179,3 +179,23 @@ Every Telegram card and app panel now starts with **What to do** in everyday wor
 - The Whales section, Rules tab, has a "How to read the whale cards" guide (LONG, SHORT, stop-loss, targets, R, ATR, tiers and each signal status).
 
 Shared wording lives in `app/lib/plain-words.ts`.
+
+## Positioning: whales vs smart money vs Bybit crowd
+
+Every signal, whale card, whale analysis and chart card now carries a detailed positioning section that compares three groups:
+
+| Group | Who | How it is read |
+|---|---|---|
+| 🐋 Whales | Ranked, consistently profitable Hyperliquid traders: their open book and their new money in the last 24 h and 6 h | Followed. New money counts more than old positions. |
+| 🏦 Smart money | Binance and OKX top traders | Followed. |
+| 👥 Bybit crowd | Ordinary Bybit accounts, plus Binance and OKX all-account ratios, funding and open interest | Read the opposite way. A crowded side is fuel for the other side. |
+
+The section shows each group's side and strength with figures, then how they line up (the pattern), a LONG and SHORT positioning score out of 100, a four-point checklist, and plain advice for the side you are considering.
+
+Patterns, best first: strong hands vs crowd, strong hands aligned, whales vs crowd, whales lead, everyone on one side (crowded and late), whales vs smart money (conflict), smart money leads, only the crowd is one-sided, no edge.
+
+- Telegram: `/positioning SOL` or `/positioning SOL SHORT`, plus a 🧭 Positioning button on whale entry cards.
+- App: Whales section, 🧭 Positioning tab, for any coin and side.
+- The AI planner must name each group's side and explain how the pattern changed its decision and size.
+
+Code: `app/lib/positioning-matrix.ts` (logic and wording) and `app/server/positioning-matrix.ts` (live data).

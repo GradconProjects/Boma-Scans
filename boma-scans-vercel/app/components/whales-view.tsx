@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { PositioningChecker } from "@/app/components/positioning-matrix-view";
 import { STATUS_WORDS, sideWords, whaleSignalPlain, whaleExitPlain } from "@/app/lib/plain-words";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
@@ -25,7 +26,7 @@ export function WhalesView() {
   const [data, setData] = useState<Payload | null>(null);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
-  const [tab, setTab] = useState<"signals" | "feed" | "ranks" | "rules">("signals");
+  const [tab, setTab] = useState<"signals" | "positioning" | "feed" | "ranks" | "rules">("signals");
   const [analyseCoin, setAnalyseCoin] = useState<{ coin: string; side: "LONG" | "SHORT" } | null>(null);
   const load = async () => {
     setLoading(true);
@@ -75,7 +76,7 @@ export function WhalesView() {
       <div className="flex items-center gap-2 text-xs text-slate-400">{data && <span>Updated {melbourne(data.at)}</span>}<Button type="button" size="sm" variant="outline" onClick={() => void load()} disabled={loading} className="rounded-lg">{loading ? "Refreshing…" : "Refresh"}</Button></div>
     </div>
     {error && <p className="mt-4 rounded-xl border border-amber-300/30 bg-amber-300/10 p-3 text-sm text-amber-100">{error}{error.includes("Sign in") && <> · <Link href="/login" className="underline">Sign in</Link></>}</p>}
-    <div className="mt-5 flex flex-wrap gap-2">{(["signals", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Entry & exit signals" + (data ? " · " + (data.signals.filter(s => s.status !== "WEAK").length + data.exits.length) : "") : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
+    <div className="mt-5 flex flex-wrap gap-2">{(["signals", "positioning", "feed", "ranks", "rules"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "signals" ? "Entry & exit signals" + (data ? " · " + (data.signals.filter(s => s.status !== "WEAK").length + data.exits.length) : "") : t === "positioning" ? "🧭 Positioning" : t === "feed" ? "Live activity" : t === "ranks" ? "Whale rankings" : "Rules & alerts"}</Button>)}</div>
 
     {tab === "signals" && data && <section className="mt-4 rounded-2xl border border-emerald-300/30 bg-emerald-300/[0.05] p-3">
       <p className="text-sm font-semibold text-white">✅ Your whale trades · early warning {entered.length ? "· " + entered.length : ""}</p>
@@ -98,6 +99,7 @@ export function WhalesView() {
       </form>
     </section>}
     {tab === "signals" && <AnalyseAnyCoin/>}
+    {tab === "positioning" && <div className="mt-4"><PositioningChecker/></div>}
     {tab === "signals" && data && data.exits.length > 0 && <section className="mt-4">
       <h2 className="text-sm font-bold uppercase tracking-widest text-rose-200">🚪 Whale exit signals</h2>
       <div className="mt-2 grid gap-3 lg:grid-cols-2">{data.exits.map(x => <article key={x.coin + x.side + x.at} className={"rounded-2xl border p-4 " + (x.urgency === "LEAVE" ? "border-rose-300/40 bg-rose-300/[0.07]" : "border-amber-300/30 bg-amber-300/[0.05]")}>

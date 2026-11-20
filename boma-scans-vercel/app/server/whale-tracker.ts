@@ -196,8 +196,11 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
     ] });
   }
   await rememberIssued(entrySignals, now);
+  const { positioningMatrixFor } = await import("@/app/server/positioning-matrix");
+  const { matrixLines } = await import("@/app/lib/positioning-matrix");
   for (const s of entrySignals) {
     const plain = whaleSignalPlain(s, s.engine);
+    const matrix = s.symbol ? await positioningMatrixFor(s.symbol, s.side, now).catch(() => null) : null;
     const lines = [
       "🐋 WHALE SIGNAL · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%",
       "(" + sideWords(s.side) + ")",
@@ -208,6 +211,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
       "💡 WHY",
       ...plain.why.map(t => "• " + t),
       "",
+      ...(matrix ? [...matrixLines(matrix), ""] : []),
       "🔬 DETAILS",
       "📍 Price " + formatPrice(s.price) + " · whales' avg entry " + formatPrice(s.avgEntry) + " (" + (s.distancePct >= 0 ? "+" : "") + s.distancePct.toFixed(2) + "%)",
       "",
@@ -219,7 +223,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
       "No order is placed. Tap ✅ when you enter and I will watch the whales for you until you tap I exited.",
     ];
     lines[0] = "🐋 WHALE ENTRY · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%";
-    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ I entered this " + s.side, data: "went:" + s.coin + ":" + s.side }, { text: "✏️ Entered " + s.side + " at…", data: "wenterat:" + s.coin + ":" + s.side }, { text: "👁 Watch " + s.coin + " whales", data: "wwatch:" + s.coin }, { text: "🐋 Whale read " + s.coin, data: "wread:" + s.coin + ":" + s.side }] : undefined });
+    out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ I entered this " + s.side, data: "went:" + s.coin + ":" + s.side }, { text: "✏️ Entered " + s.side + " at…", data: "wenterat:" + s.coin + ":" + s.side }, { text: "👁 Watch " + s.coin + " whales", data: "wwatch:" + s.coin }, { text: "🐋 Whale read " + s.coin, data: "wread:" + s.coin + ":" + s.side }, { text: "🧭 Positioning " + s.coin, data: "pos:" + s.coin + ":" + s.side }] : undefined });
   }
   if (!settings.alerts) return out;
   const minTier = settings.minTier === "ELITE" ? ["ELITE"] : ["ELITE", "STRONG"];

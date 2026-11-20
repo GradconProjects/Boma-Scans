@@ -7,6 +7,7 @@ import { marketRead } from "@/app/server/market-analysis";
 import { bybitSymbolFor } from "@/app/lib/whale-logic";
 import { whaleSnapshot } from "@/app/server/positioning";
 import { whaleEntryAnalysis } from "@/app/server/whale-analysis";
+import { positioningMatrixFor } from "@/app/server/positioning-matrix";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -61,6 +62,14 @@ export async function POST(request: NextRequest) {
     return reply({ settings: await saveWhaleSettings({ watch }) });
   }
   if (body.action === "purge-baseline") { const since = Number((body as { since?: number }).since) || Date.now() - 3_600_000; return reply({ removed: await purgeBaselineOpens(since) }); }
+  if (body.action === "positioning") {
+    const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, "").toUpperCase(); if (!coin) return reply({ error: "Which coin?" }, 400);
+    try {
+      let symbol = coin + "USDT";
+      try { const tickers = await marketRead({ kind: "tickers" }); symbol = bybitSymbolFor(coin, new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? ""))) ?? symbol; } catch { /* default */ }
+      return reply({ matrix: await positioningMatrixFor(symbol, body.side === "LONG" || body.side === "SHORT" ? body.side : undefined) });
+    } catch (error) { return reply({ error: error instanceof Error ? error.message : "Positioning unavailable." }, 502); }
+  }
   if (body.action === "analyse") {
     const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, "");
     if (!coin) return reply({ error: "Which coin?" }, 400);

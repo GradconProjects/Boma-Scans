@@ -12,6 +12,8 @@ import { pollTelegram } from "@/app/server/telegram-poll";
 import { structureAdvice } from "@/app/server/trade-watch";
 import { positioningFor, whaleSnapshot } from "@/app/server/positioning";
 import { judgePositioning, positioningSummary } from "@/app/lib/positioning";
+import { positioningMatrixFor } from "@/app/server/positioning-matrix";
+import { matrixLines } from "@/app/lib/positioning-matrix";
 import { signalButtons } from "@/app/lib/telegram-events";
 import { reviewBeforePush } from "@/app/server/review-signal";
 import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai-review";
@@ -78,6 +80,7 @@ export async function GET(request: NextRequest) {
     // Entry-time alerts carry how whales, top traders and the crowd stack up against the plan.
     const withPositioning = async (event: TelegramEvent | null): Promise<TelegramEvent | null> => {
       if (!event || !row || !entry.side) return event;
+      try { return { ...event, lines: [...event.lines, "", ...matrixLines(await positioningMatrixFor(symbol, entry.side === "SHORT" ? "SHORT" : "LONG"))] }; } catch { /* fall back to the short form */ }
       try { const data = await positioningFor(symbol, await whaleSnapshot()); const verdict = judgePositioning(data, entry.side, row.price, row.stop); return { ...event, lines: [...event.lines, "", "🐋 " + verdict.headline, positioningSummary(data, entry.side), ...verdict.notes.slice(0, 3)] }; }
       catch { return event; }
     };

@@ -7,6 +7,7 @@ import { pushTelegramEvents } from "@/app/lib/telegram-events";
 import type { WhaleAnalysis } from "@/app/server/whale-analysis";
 import { whaleAnalysisLines } from "@/app/lib/whale-analysis-lines";
 import { planPlain, sideWords } from "@/app/lib/plain-words";
+import { PositioningMatrixView } from "@/app/components/positioning-matrix-view";
 
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -73,6 +74,7 @@ export function WhaleAnalysisPanel({ coin, side, compact = false }: { coin: stri
         {p.simple && <p className="mt-1 leading-6 text-slate-200">{p.simple}</p>}
         {p.decision !== "NO TRADE" && <p className="mt-1 text-xs text-slate-400">{sideWords(p.side)}</p>}
       </div>}
+      {analysis.matrix && <PositioningMatrixView matrix={analysis.matrix}/>}
       <div className="grid gap-2 rounded-xl border border-white/[0.08] bg-slate-950/60 p-3 text-xs sm:grid-cols-3">
         <p><span className="text-slate-500">🐋 Whale signal</span><br/><b className={analysis.whales.signal ? (analysis.whales.signal.side === "LONG" ? "text-emerald-200" : "text-rose-200") : "text-slate-400"}>{analysis.whales.signal ? analysis.whales.signal.side + " · " + analysis.whales.signal.status + " · " + analysis.whales.signal.confidence + "%" : "none confirmed (asked about " + analysis.side + ")"}</b></p>
         <p><span className="text-slate-500">📈 Chart engine (1h)</span><br/><b className={analysis.chart ? (analysis.chart.bias === "LONG" ? "text-emerald-200" : "text-rose-200") : "text-slate-400"}>{analysis.chart ? analysis.chart.bias + " · " + analysis.chart.regime + " · plan " + analysis.chart.status.replaceAll("_", " ").toLowerCase() : "not on Bybit"}</b></p>

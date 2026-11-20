@@ -1,6 +1,7 @@
 import { formatPrice } from "@/app/lib/market";
 import { formatUsd } from "@/app/lib/positioning";
 import { planPlain, sideWords } from "@/app/lib/plain-words";
+import { matrixLines } from "@/app/lib/positioning-matrix";
 import type { WhaleAnalysis } from "@/app/server/whale-analysis";
 
 /** Lines for Telegram: the plan exactly as shown here. */
@@ -9,6 +10,7 @@ export function whaleAnalysisLines(a: WhaleAnalysis): string[] {
   return [
     "🐋 WHALE ENTRY ANALYSIS · " + a.coin + " " + a.side + (a.symbol ? " · " + a.symbol : ""),
     ...(p ? ["", "✅ WHAT TO DO: " + planPlain(a.coin, p), ...(p.simple ? ["💬 " + p.simple] : []), p.decision !== "NO TRADE" ? "(" + sideWords(p.side) + ")" : ""] : []),
+    ...(a.matrix ? ["", ...matrixLines(a.matrix)] : []),
     "", "🔬 DETAILS",
     "📍 Price " + formatPrice(a.price) + " · whale book long " + formatUsd(a.whales.longUsd) + " / short " + formatUsd(a.whales.shortUsd) + " · " + a.whales.ranked + " ranked",
     "", "🐋 " + a.whales.read,
