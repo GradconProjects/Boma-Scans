@@ -31,3 +31,10 @@ test("Everyone on one side is flagged as crowded; no data is handled", () => {
   const none = positioningMatrix({ coin: "XYZ", whales: null, venues: [], crowd: null });
   assert.equal(none.pattern, "NO EDGE"); assert.equal(none.bestSide, null);
 });
+
+test("Small new money cannot flip a huge whale book, but the turn is flagged", () => {
+  const x = positioningMatrix({ coin: "ETH", whales: whales(9e5, 9.77e7, 1.4e6, 0), venues: [], crowd: null });
+  const w = x.groups[0];
+  assert.equal(w.lean, "SHORT"); assert.equal(w.strength, "MILD", "book and new money disagree, so never STRONG");
+  assert.match(w.plain, /starting to turn/);
+});

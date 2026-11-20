@@ -26,7 +26,7 @@ export type PositioningMatrix = {
   todo: string; checklist: string[];
 };
 
-const m = (v: number) => v >= 1e9 ? "$" + (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M" : "$" + Math.round(v / 1e3) + "K";
+const m = (v: number) => v < 1_000 ? "$0" : v >= 1e9 ? "$" + (v / 1e9).toFixed(2) + "B" : v >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M" : "$" + Math.round(v / 1e3) + "K";
 const other = (s: Side): Side => s === "LONG" ? "SHORT" : "LONG";
 const dirWord = (s: Side) => s === "LONG" ? "a rise" : "a fall";
 
@@ -36,7 +36,10 @@ function whalesGroup(w: MatrixInput["whales"], coin: string): MatrixGroup {
   const book = w.bookLong + w.bookShort, flow = w.flow24.longUsd + w.flow24.shortUsd;
   const bookPct = book >= 1_000_000 ? w.bookLong / book * 100 : null;
   const flowPct = flow >= 500_000 ? w.flow24.longUsd / flow * 100 : null;
-  const longPct = bookPct !== null && flowPct !== null ? 0.6 * flowPct + 0.4 * bookPct : flowPct ?? bookPct;
+  // New money counts more, but only in proportion to its size against the book: $1M of adds cannot outweigh a $100M book.
+  const flowWeight = bookPct === null ? 1 : flowPct === null ? 0 : Math.min(0.6, flow / book * 10);
+  const longPct = bookPct !== null && flowPct !== null ? flowWeight * flowPct + (1 - flowWeight) * bookPct : flowPct ?? bookPct;
+  const disagree = bookPct !== null && flowPct !== null && ((bookPct >= 60 && flowPct <= 40) || (bookPct <= 40 && flowPct >= 60));
   const facts = [
     book > 0 ? "Open book: " + m(w.bookShort) + " short vs " + m(w.bookLong) + " long" + (bookPct !== null ? " (" + Math.round(100 - bookPct) + "% short)" : "") + " across " + w.positions + " position" + (w.positions === 1 ? "" : "s") + "." : "No ranked whale holds " + coin + " right now.",
     "New money in 24 h: " + m(w.flow24.shortUsd) + " short vs " + m(w.flow24.longUsd) + " long · last 6 h: " + m(w.flow6.shortUsd) + " short vs " + m(w.flow6.longUsd) + " long.",
@@ -44,9 +47,9 @@ function whalesGroup(w: MatrixInput["whales"], coin: string): MatrixGroup {
   ];
   if (longPct === null) return { ...base, lean: "NO DATA", strength: "—", longPct: null, facts, plain: "Too little whale money on " + coin + " to read a side." };
   const lean: Lean = longPct >= 60 ? "LONG" : longPct <= 40 ? "SHORT" : "SPLIT";
-  const strength: Strength = lean === "SPLIT" ? "—" : (longPct >= 70 || longPct <= 30) ? "STRONG" : "MILD";
+  const strength: Strength = lean === "SPLIT" ? "—" : (longPct >= 70 || longPct <= 30) && !disagree ? "STRONG" : "MILD";
   const fresh = flowPct === null ? "" : flowPct >= 60 ? " Their new money is going LONG." : flowPct <= 40 ? " Their new money is going SHORT." : " Their new money is split.";
-  const conflict = bookPct !== null && flowPct !== null && ((bookPct >= 60 && flowPct <= 40) || (bookPct <= 40 && flowPct >= 60)) ? " Careful: what they hold and what they are adding now point opposite ways; the new money counts more." : "";
+  const conflict = disagree ? " Careful: they still hold mostly " + (bookPct! >= 60 ? "LONG" : "SHORT") + " but are now adding " + (flowPct! >= 60 ? "LONG" : "SHORT") + " (" + m(flow) + " of new money against a " + m(book) + " book). They may be starting to turn; treat the side as MILD until the new money grows." : "";
   return { ...base, lean, strength, longPct, facts, plain: (lean === "SPLIT" ? "The best traders are split on " + coin + "." : "The best traders are betting on " + dirWord(lean) + " (" + strength.toLowerCase() + ").") + fresh + conflict };
 }
 
