@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { STATUS_WORDS, sideWords, whaleSignalPlain, whaleExitPlain } from "@/app/lib/plain-words";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { formatPrice } from "@/app/lib/market";
@@ -103,6 +104,7 @@ export function WhalesView() {
         <div className="flex flex-wrap items-center justify-between gap-2"><h3 className="text-lg font-bold text-white">{x.coin} {x.side} · {x.urgency === "LEAVE" ? "LEAVE" : "REDUCE"}</h3><span className="font-mono text-xs text-slate-300">{melbourne(x.at)}</span></div>
         <p className="mt-1 text-xs text-slate-300">Whales realised {(x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl))} on the way out</p>
         <ul className="mt-2 space-y-1 text-xs text-slate-300">{x.whales.map(w => <li key={w.label + w.kind}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span>{w.wasLeader && <span className="ml-1 rounded bg-rose-300/20 px-1 text-rose-100">led the entry</span>} {w.kind.toLowerCase()} {formatUsd(Math.abs(w.deltaUsd))} · {(w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl))} · held {w.heldHours}h</li>)}</ul>
+        <p className="mt-2 rounded-lg border border-cyan-300/30 bg-cyan-300/[0.06] p-2 text-sm leading-6 text-slate-100"><b className="text-cyan-200">✅ What to do:</b> {whaleExitPlain(x.coin, x.side, x.urgency === "LEAVE")}</p>
         <p className="mt-2 text-xs leading-5 text-slate-400">{x.note}</p>
         <div className="mt-3 flex flex-wrap gap-2"><EnteredButton coin={x.coin} side={x.side}/><WatchButton coin={x.coin}/></div>
         <WhaleAnalysisPanel coin={x.coin} side={x.side}/>
@@ -115,6 +117,13 @@ export function WhalesView() {
             <h2 className="text-lg font-bold text-white">{s.side === "LONG" ? "🟢" : "🔴"} {s.coin} {s.side}</h2>
             <span className="flex items-center gap-2 text-xs"><span className={"rounded-full px-2 py-0.5 font-semibold " + (s.status === "NEW ENTRY" ? "bg-emerald-300/20 text-emerald-100" : s.status === "ENTRY AVAILABLE" ? "bg-cyan-300/20 text-cyan-100" : "bg-white/10 text-slate-300")}>{s.status}</span><span className="font-mono text-slate-300">{s.confidence}%</span></span>
           </div>
+          {(() => { const plain = whaleSignalPlain(s, s.engine); return <div className="mt-2 rounded-xl border border-cyan-300/30 bg-cyan-300/[0.06] p-3 text-sm leading-6">
+            <p className="text-xs font-bold uppercase tracking-widest text-cyan-200">✅ What to do</p>
+            <ul className="mt-1 space-y-0.5 text-slate-100">{plain.todo.map(t => <li key={t}>• {t}</li>)}</ul>
+            <p className="mt-2 text-xs font-bold uppercase tracking-widest text-slate-400">💡 Why</p>
+            <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{plain.why.map(t => <li key={t}>• {t}</li>)}</ul>
+            <p className="mt-1 text-[11px] text-slate-500">{sideWords(s.side)}</p>
+          </div>; })()}
           <p className="mt-1 font-mono text-sm text-slate-200">Price {formatPrice(s.price)} · whales&apos; avg entry {formatPrice(s.avgEntry)} ({s.distancePct >= 0 ? "+" : ""}{s.distancePct.toFixed(2)}%) · new money {formatUsd(s.flowUsd)}</p>
           <ul className="mt-2 space-y-1 text-xs text-slate-300">{s.whales.map(w => <li key={w.trader + w.at}>• <span className="font-mono">{w.label}</span> <span className={"rounded px-1 " + tierTone[w.tier]}>{w.tier}</span> {w.kind.toLowerCase()} {formatUsd(Math.max(0, w.deltaUsd))} @ {formatPrice(w.entry)} · {melbourne(w.at)}</li>)}</ul>
           {s.opposed.length > 0 && <p className="mt-2 text-xs text-amber-200">⚠️ Against: {s.opposed.map(o => o.label + " " + o.kind.toLowerCase() + " " + formatUsd(Math.abs(o.deltaUsd))).join(", ")}</p>}
@@ -167,6 +176,24 @@ export function WhalesView() {
     </section>}
 
     {tab === "rules" && data && <section className="mt-4 grid gap-4 lg:grid-cols-2">
+      <div className="rounded-2xl border border-cyan-300/30 bg-cyan-300/[0.05] p-4 text-sm leading-6 text-slate-200 lg:col-span-2">
+        <h2 className="font-semibold text-white">📖 How to read the whale cards</h2>
+        <div className="mt-2 grid gap-x-6 gap-y-1 sm:grid-cols-2">
+          <p><b>LONG</b>: buy. You make money if the price goes up.</p>
+          <p><b>SHORT</b>: sell. You make money if the price goes down.</p>
+          <p><b>Whale</b>: a trader on Hyperliquid with $1M+ who has been consistently profitable.</p>
+          <p><b>Elite / Strong</b>: the top 15 / next 25 whales by steady profit. <b>Watch</b> and <b>MM</b> (market makers) never trigger a signal.</p>
+          <p><b>Stop-loss</b>: the price where you get out with a small loss if the trade is wrong. Set it as soon as you enter.</p>
+          <p><b>Targets</b>: prices where you take some profit. Close about a third at each.</p>
+          <p><b>1R, 2R, 3R</b>: profit equal to 1, 2 or 3 times what you risk to the stop-loss.</p>
+          <p><b>ATR</b>: how far price normally moves in one hour. Stops are 1.5 ATR away so normal wiggles do not stop you out.</p>
+          <p><b>Confidence</b>: how strong the whale evidence is, 0 to 100%. Telegram only sends 50%+.</p>
+          <p><b>Chart (1h)</b>: our own read of the 1-hour chart. When it trends against the whales, no entry is sent.</p>
+        </div>
+        <h3 className="mt-3 font-semibold text-white">Signal status</h3>
+        <ul className="mt-1 space-y-0.5">{Object.entries(STATUS_WORDS).map(([k, v]) => <li key={k}><b>{k}</b>: {v}</li>)}</ul>
+        <p className="mt-2 text-xs text-slate-400">Every card starts with <b>What to do</b>, then <b>Why</b>, then the technical details. If you are not in a trade, exit and warning messages do not apply to you.</p>
+      </div>
       <div className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm leading-6 text-slate-300">
         <h2 className="font-semibold text-white">How the engine decides</h2>
         <ul className="mt-2 list-disc space-y-1 pl-5">
@@ -175,7 +202,7 @@ export function WhalesView() {
           <li><b>Market makers:</b> accounts holding more than 15 positions at once are hedging books; they are listed (MM) but never confirm a direction. Changes under $50K are not recorded.</li>
           <li><b>Ranking:</b> consistency first: a point per profitable window (day, week, month, all time), 30-day ROI capped, and our own tracked closes once a whale has five or more. Elite = top 10, Strong = next 15.</li>
           <li><b>Confirmation:</b> a signal needs ranked whales opening or adding the same side of a coin within 12 hours (two whales, or one elite with $1M+ of new money). Adds to positions already over 5% in profit and older than a day count at 40%: that is yesterday&apos;s call. Ranked whales on the other side subtract. Price more than 2% past their average entry is &quot;ran away&quot;: wait for a pullback.</li>
-          <li><b>Own logic:</b> the whales give direction and entry area; the Bybit 1H chart gives the risk. Stop 1.5 ATR beyond their average entry, targets at 1R, 2R and 3R, and the scanner&apos;s trend read says whether the chart agrees.</li>
+          <li><b>Own logic:</b> the whales give direction and entry area; the Bybit 1H chart gives the risk. Stop 1.5 ATR beyond their average entry or the current price (whichever is worse), targets at 1R, 2R and 3R. No entry is sent when the whales are already losing or the chart trends the other way, and the scanner&apos;s trend read says whether the chart agrees.</li>
           <li><b>No execution.</b> Copy trading is not introduced until API accuracy, historical profitability and live signal performance are verified from this history.</li>
         </ul>
       </div>

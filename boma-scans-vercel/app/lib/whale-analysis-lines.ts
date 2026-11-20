@@ -1,5 +1,6 @@
 import { formatPrice } from "@/app/lib/market";
 import { formatUsd } from "@/app/lib/positioning";
+import { planPlain, sideWords } from "@/app/lib/plain-words";
 import type { WhaleAnalysis } from "@/app/server/whale-analysis";
 
 /** Lines for Telegram: the plan exactly as shown here. */
@@ -7,6 +8,8 @@ export function whaleAnalysisLines(a: WhaleAnalysis): string[] {
   const p = a.plan;
   return [
     "🐋 WHALE ENTRY ANALYSIS · " + a.coin + " " + a.side + (a.symbol ? " · " + a.symbol : ""),
+    ...(p ? ["", "✅ WHAT TO DO: " + planPlain(a.coin, p), ...(p.simple ? ["💬 " + p.simple] : []), p.decision !== "NO TRADE" ? "(" + sideWords(p.side) + ")" : ""] : []),
+    "", "🔬 DETAILS",
     "📍 Price " + formatPrice(a.price) + " · whale book long " + formatUsd(a.whales.longUsd) + " / short " + formatUsd(a.whales.shortUsd) + " · " + a.whales.ranked + " ranked",
     "", "🐋 " + a.whales.read,
     ...(a.whales.signal ? ["🐋 Whale signal " + a.whales.signal.side + ": " + a.whales.signal.status + " · " + a.whales.signal.confidence + "% · avg entry " + formatPrice(a.whales.signal.avgEntry) + " (" + (a.whales.signal.distancePct >= 0 ? "+" : "") + a.whales.signal.distancePct.toFixed(2) + "%)", ...a.whales.signal.whales.map(w => "• " + w.label + " (" + w.tier.toLowerCase() + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.max(0, w.deltaUsd)) + " @ " + formatPrice(w.entry))] : []),

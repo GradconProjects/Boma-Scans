@@ -88,3 +88,18 @@ test("Whale entries: price against the whales is UNDERWATER, and whales who alre
   const zec = signals.find(s => s.coin === "ZEC"); assert.equal(zec.status, "UNDERWATER"); assert.match(zec.note, /Not an entry/);
   const btc = signals.find(s => s.coin === "BTC"); assert.ok(btc); assert.deepEqual(btc.whales.map(w => w.trader), ["A"], "a whale who closed is no longer part of the call"); assert.equal(btc.status, "WEAK");
 });
+
+test("Plain words: every whale card says what to do first, in everyday language", () => {
+  const pw = new URL("../app/lib/plain-words.ts", import.meta.url).pathname;
+  const m = new Module(pw); m.require = (id) => id === "@/app/lib/market" ? { formatPrice: (v) => String(Math.round(v * 100) / 100) } : require(id);
+  m._compile(ts.transpileModule(readFileSync(pw, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, pw);
+  const { whaleSignalPlain, whaleExitPlain, managementPlain, planPlain } = m.exports;
+  const s = { coin: "SOL", side: "SHORT", status: "ENTRY AVAILABLE", distinct: 2, flowUsd: 2.4e6, avgEntry: 100, price: 99, opposed: [], whales: [{ tier: "ELITE" }, { tier: "STRONG" }] };
+  const go = whaleSignalPlain(s, { bias: "SHORT", trendFrames: 3, agrees: true, opposes: false, stop: 101.5, targets: [96.5, 94, 91.5] });
+  assert.match(go.todo[0], /^SELL \(short\) SOL now/); assert.match(go.todo[1], /Stop-loss at 101.5/); assert.match(go.todo[3], /normal size/);
+  const held = whaleSignalPlain(s, { bias: "LONG", trendFrames: 2, agrees: false, opposes: true, stop: 101.5, targets: [96.5, 94, 91.5] });
+  assert.match(held.todo[0], /^Do nothing/);
+  assert.match(whaleSignalPlain({ ...s, status: "UNDERWATER" }, { bias: "SHORT", trendFrames: 1, agrees: false, opposes: false, stop: 1, targets: [] }).todo[0], /do not join/);
+  assert.match(whaleExitPlain("SOL", "SHORT", true), /close it now/); assert.match(managementPlain("HOLD"), /^Do nothing/);
+  assert.match(planPlain("SOL", { decision: "WAIT", side: "LONG", entry_low: 1, entry_high: 2, stop: 0.5, targets: [3], trigger: "1h close above 2" }), /^Do not enter yet. BUY \(long\) SOL only after/);
+});

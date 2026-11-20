@@ -21,6 +21,8 @@ const PlanSchema = z.object({
   side: z.enum(["LONG", "SHORT"]),
   confidence: z.number().min(0).max(100),
   thesis: z.string(),
+  /** Two or three short sentences in everyday words for a beginner. */
+  simple: z.string(),
   entry_low: z.number(),
   entry_high: z.number(),
   trigger: z.string(),
@@ -53,6 +55,8 @@ export type WhaleAnalysis = {
 const SYSTEM = `You are the entry planner of a crypto perpetual-futures desk that follows consistently successful Hyperliquid whales (Bybit USDT perps, 1H chart, Melbourne trader). Rule: follow what ranked whales are doing NOW, not what their old positions say.
 You receive: the whales' fresh opens / adds / closes on this coin with their entries and sizes, who is against them, the rule engine's own 1H plan (window, trigger, stop, targets, checks), historic levels, crowd positioning and the last 24 1H candles.
 Be explicit about sides. The "requestedSide" is the side the trader asked about (often the whale signal's side); your plan's side may differ, but then say so plainly in whale_read ("the whale signal is SHORT; I am NOT following it because…"). alignment: WITH WHALES when your plan follows the fresh whale money and the ranked book; AGAINST WHALES when you fade them; MIXED when whales are split or the book and the fresh flow disagree. whale_read: two or three sentences on what the ranked whales and other smart money (Binance / OKX top traders, Bybit crowd, funding) are doing right now and how that drove your decision, with sizes and prices.
+
+simple: two or three short sentences in everyday words for a beginner: what to do now (buy, sell or wait), at what price, and why. No jargon: no CHoCH, BOS, ATR, R, liquidity, confluence or order block.
 
 Produce one actionable plan in the required JSON shape. decision: ENTER NOW only when the whales' thesis and the chart agree and price is inside a sensible entry window now; WAIT with the exact trigger to wait for; NO TRADE when whales are split, the move has run away (price more than 2% past their average entry without a pullback) or the chart contradicts them. Entry window: a tight price range near the whales' average entry or the chart's zone, never chasing. Stop: at a structural level beyond the whales' entries, between 0.8 and 2.5 ATR(1H) from the window. Targets: three to five prices in the trade's direction between 1R and 5R of the risk, at visible levels. Quote prices exactly as given. Keep thesis under 300 characters, risks at most three short items, management one sentence (partials, moving the stop, what cancels the idea).`;
 

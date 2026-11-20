@@ -227,7 +227,8 @@ export function compactSignalLines(input: CompactSignalInput): string[] {
   const figures = (price: number) => "   " + (pct(price) >= 0 ? "+" : "") + pct(price).toFixed(2) + "%  ·  " + (sign * (price - input.entry) / risk).toFixed(1) + "R";
   return [
     "📍 Coin : #" + input.symbol.replace(/USDT$/, "") + "/USDT",
-    long ? "🟢 LONG" : "🔴 SHORT",
+    long ? "🟢 LONG (buy: profit if price goes up)" : "🔴 SHORT (sell: profit if price goes down)",
+    "✅ In plain words: " + (input.trigger ? "wait for a " + (input.timeframe ?? "1h") + " candle to close " + (long ? "above " : "below ") + formatPrice(input.trigger) + ", then " : "") + (long ? "buy" : "sell") + " with a limit order at " + formatPrice(input.entry) + ". Put the stop-loss at " + formatPrice(input.stop) + " straight away. Take profit bit by bit at the targets.",
     ...(input.call ? [input.call] : []),
     "👉 Entry: " + formatPrice(long ? input.entryHigh : input.entryLow) + " - " + formatPrice(long ? input.entryLow : input.entryHigh) + " · " + (long ? "BUY" : "SELL") + " LIMIT " + formatPrice(input.entry),
     ...(input.trigger ? ["🎯 Trigger: " + formatPrice(input.trigger) + " (" + (long ? "close above" : "close below") + (input.timeframe ? ", " + input.timeframe : "") + ")"] : []),

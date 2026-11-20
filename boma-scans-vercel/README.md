@@ -166,3 +166,16 @@ A section under the signals shows, for every signal and monitored pair, how live
 - **Liquidation pocket**: whale liquidation prices within 3% of the plan's stop are flagged so the stop is not widened into them.
 
 No public site shows individual Bybit or Binance positions, so Bybit is covered through its aggregate ratios. Server-pushed signals carry the same verdict in a `🐋` line.
+
+## Plain-English cards
+
+Every Telegram card and app panel now starts with **What to do** in everyday words, then **Why**, then the technical **Details**.
+
+- Whale entry: buy or sell, near what price, where the stop-loss goes and how big the loss is, the three profit targets, and whether to use normal or half size.
+- Whale exit: close now, or close half and move the stop-loss to your entry. Ignore it if you are not in the trade.
+- Whale warning on your trade: close, reduce, move the stop-loss, or do nothing.
+- Whale analysis: a one-line instruction plus a short beginner summary written by the AI (no jargon).
+- Scanner signals and WAIT cards: a one-line "In plain words" instruction.
+- The Whales section, Rules tab, has a "How to read the whale cards" guide (LONG, SHORT, stop-loss, targets, R, ATR, tiers and each signal status).
+
+Shared wording lives in `app/lib/plain-words.ts`.

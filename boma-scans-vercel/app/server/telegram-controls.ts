@@ -194,7 +194,8 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   else {
    const plan=analysis.executionPlan;
    const card=compactSignalLines({symbol:pair,side:analysis.bias,entryLow:plan.entryLow,entryHigh:plan.entryHigh,entry:analysis.entry,trigger:plan.trigger,timeframe:plan.timeframe,stop:analysis.stop,targets:analysis.takeProfits,expiresAt:plan.expiresAt,zoneLow:plan.zoneLow,zoneHigh:plan.zoneHigh});
-   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await whaleCheck(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
+   const dir=analysis.bias==="SHORT"?"SELL (short)":"BUY (long)";
+   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"","✅ WHAT TO DO: Do not enter yet. "+(analysis.bias==="LONG"||analysis.bias==="SHORT"?dir+" only if a 1-hour candle closes "+(analysis.bias==="SHORT"?"below ":"above ")+formatPrice(plan.trigger)+" and price is between "+formatPrice(Math.min(plan.entryLow,plan.entryHigh))+" and "+formatPrice(Math.max(plan.entryLow,plan.entryHigh))+". Otherwise skip it.":"There is no clear direction on this chart."),"","🔬 DETAILS","📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await whaleCheck(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
   }
   return;
  }

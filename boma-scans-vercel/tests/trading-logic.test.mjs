@@ -548,7 +548,7 @@ test("Telegram HTML highlights levels and safely escapes analysis text",()=>{
  const html=signals.telegramSignalHtml(item);
  assert.match(html,/👉 Entry: <code>[\d.]+<\/code>/);
  assert.match(html,/❌ StopLoss: <code>[\d.]+<\/code>/);
- assert.match(html,/^<b>📍 Coin : #ETH\/USDT<\/b>\n<b>🟢 LONG<\/b>\n\n👉 Entry/);
+ assert.match(html,/^<b>📍 Coin : #ETH\/USDT<\/b>\n<b>🟢 LONG \(buy: profit if price goes up\)<\/b>\n\n✅ In plain words: wait for a 5m candle to close above 100\.2400, then buy with a limit order at 100\.0000\. Put the stop-loss at 99\.0000 straight away\.[^\n]*\n\n👉 Entry/);
  assert.match(html,/⏱ Expires: \d\d [A-Z][a-z]{2}, \d\d:\d\d\n\n🧭 Enter: /);
  assert.match(html,/🛑 Stop order: <code>/);
  assert.match(html,/PULLBACK &lt;risk&gt; &amp; liquidity/);

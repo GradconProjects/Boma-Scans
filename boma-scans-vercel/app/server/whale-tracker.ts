@@ -1,4 +1,5 @@
 import { env } from "@/app/server/env";
+import { STATUS_WORDS, managementPlain, sideWords, whaleExitPlain, whaleSignalPlain } from "@/app/lib/plain-words";
 import { marketRead, analyzePair } from "@/app/server/market-analysis";
 import { whaleAddresses, whaleSnapshot } from "@/app/server/positioning";
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
@@ -142,6 +143,9 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
       ...fresh.withYou.map(w => "• WITH " + w.label + " (" + w.tier.toLowerCase() + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.abs(w.deltaUsd))),
       "",
       ...(management ? [
+        "✅ WHAT TO DO: " + managementPlain(management.action, management.reduce_pct, management.new_stop),
+        "",
+        "🔬 DETAILS",
         (management.action === "EXIT NOW" ? "⛔ " : management.action === "REDUCE" ? "✂️ " : management.action === "TIGHTEN STOP" ? "🛡 " : "✅ ") + management.action + (management.reduce_pct ? " · close " + management.reduce_pct + "%" : "") + (management.new_stop ? " · stop to " + formatPrice(management.new_stop) : ""),
         management.reasoning,
         ...(management.figures.length ? management.figures.map(f => "• " + f) : []),
@@ -159,6 +163,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
       "🕐 Whale check-in · " + trade.coin + " " + trade.side + " (your trade)",
       "📍 Price " + formatPrice(price) + " · entry " + formatPrice(trade.entry) + (price && trade.entry ? " · " + (sign * (price - trade.entry) >= 0 ? "+" : "") + (sign * (price - trade.entry) / trade.entry * 100).toFixed(2) + "%" : ""),
       w ? w.headline + " over the last 6 h (" + w.against.length + " moves against, " + w.withYou.length + " with)." : "No directional whale moves on " + trade.coin + " in the last 6 h.",
+      "✅ WHAT TO DO: " + (w && w.against.length > w.withYou.length ? "Be ready to act. More whales moved against your trade than with it. Keep your stop-loss in place and watch for a warning." : "Nothing. Keep the trade and your stop-loss as they are."),
     ] });
   }
   const bucket = Math.floor(now / (6 * 3_600_000));
@@ -177,19 +182,33 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
   for (const x of settings.alerts ? exits : exits.filter(x => watched.has(x.coin))) {
     out.push({ key: "whale:exit:" + x.coin + ":" + x.side + ":" + Math.floor(x.at / (3 * 3_600_000)), lines: [
       "🐋 WHALE EXIT · " + x.coin + " " + x.side + " · " + (x.urgency === "LEAVE" ? "LEAVE THE TRADE" : "REDUCE"),
+      "",
+      "✅ WHAT TO DO",
+      "• " + whaleExitPlain(x.coin, x.side, x.urgency === "LEAVE"),
+      "• If you are not in this trade, ignore this message.",
+      "",
+      "🔬 DETAILS",
       "📍 Whales realised " + (x.realizedPnl >= 0 ? "+" : "−") + formatUsd(Math.abs(x.realizedPnl)) + " on the way out",
       "",
       ...x.whales.map(w => "• " + w.label + " (" + w.tier.toLowerCase() + (w.wasLeader ? ", led the entry" : "") + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.abs(w.deltaUsd)) + " · " + (w.pnl >= 0 ? "+" : "−") + formatUsd(Math.abs(w.pnl)) + " · held " + w.heldHours + " h"),
       "",
       x.note,
-      x.urgency === "LEAVE" ? "If you followed this side, close or trail the remainder now; the whales who made the call have left." : "If you followed this side, take a partial and tighten the stop; one of the whales is cutting.",
     ] });
   }
   await rememberIssued(entrySignals, now);
   for (const s of entrySignals) {
+    const plain = whaleSignalPlain(s, s.engine);
     const lines = [
       "🐋 WHALE SIGNAL · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%",
-      "🧭 " + (s.engine?.agrees ? "Call: " + s.side + " " + s.coin + ". Whales and the 1h chart agree." : s.engine ? "Call: " + s.side + " " + s.coin + " with half size. Whales are " + s.side + "; the 1h chart is neutral (" + s.engine.bias + ", " + s.engine.trendFrames + "/3 frames), not against." : "Information only: not listed on Bybit."),
+      "(" + sideWords(s.side) + ")",
+      "",
+      "✅ WHAT TO DO",
+      ...plain.todo.map(t => "• " + t),
+      "",
+      "💡 WHY",
+      ...plain.why.map(t => "• " + t),
+      "",
+      "🔬 DETAILS",
       "📍 Price " + formatPrice(s.price) + " · whales' avg entry " + formatPrice(s.avgEntry) + " (" + (s.distancePct >= 0 ? "+" : "") + s.distancePct.toFixed(2) + "%)",
       "",
       ...s.whales.map(w => "• " + w.label + " (" + w.tier.toLowerCase() + ") " + w.kind.toLowerCase() + " " + formatUsd(Math.max(0, w.deltaUsd)) + " @ " + formatPrice(w.entry)),
@@ -197,8 +216,7 @@ export async function whaleAlerts(signals: WhaleSignalWithPlan[], exits: WhaleEx
       "",
       ...(s.engine ? ["📈 Chart (1h): bias " + s.engine.bias + " · " + s.engine.regime + " · " + s.engine.trendFrames + "/3 frames " + (s.engine.agrees ? "· agrees with the whales" : "· neutral, not against"), "🛑 Stop " + formatPrice(s.engine.stop) + " (1.5 ATR beyond their entry or price, whichever is worse)", "🎯 Targets " + s.engine.targets.map(t => formatPrice(t)).join(" / ") + " (1R / 2R / 3R)"] : ["📈 Not listed on Bybit; information only."]),
       "",
-      s.note,
-      "No order is placed. Follow what ranked whales do now, not what their old positions say.",
+      "No order is placed. Tap ✅ when you enter and I will watch the whales for you until you tap I exited.",
     ];
     lines[0] = "🐋 WHALE ENTRY · " + s.coin + " " + s.side + " · " + s.status + " · " + s.confidence + "%";
     out.push({ key: "whale:signal:" + s.coin + ":" + s.side + ":" + bucket, symbol: s.symbol ?? undefined, lines, buttons: s.symbol ? [{ text: "✅ I entered this " + s.side, data: "went:" + s.coin + ":" + s.side }, { text: "✏️ Entered " + s.side + " at…", data: "wenterat:" + s.coin + ":" + s.side }, { text: "👁 Watch " + s.coin + " whales", data: "wwatch:" + s.coin }, { text: "🐋 Whale read " + s.coin, data: "wread:" + s.coin + ":" + s.side }] : undefined });
@@ -234,6 +252,13 @@ export function enteredCard(trade: EnteredTrade, levels: { stop: number; targets
   const sign = trade.side === "LONG" ? 1 : -1; const risk = Math.max(Math.abs(trade.entry - levels.stop), trade.entry * 1e-4);
   return { key: "whale:entered:" + trade.coin + ":" + trade.at, symbol: trade.symbol ?? undefined, lines: [
     "✅ WHALE TRADE RECORDED · " + trade.coin + " " + trade.side + (trade.symbol ? " · " + trade.symbol : ""),
+    "(" + sideWords(trade.side) + ")",
+    "",
+    "✅ WHAT TO DO NOW",
+    "• Place your stop-loss at " + formatPrice(levels.stop) + " right away.",
+    "• Take profit in steps at the targets below. After the 2nd target, move your stop-loss to your entry price.",
+    "• Then wait. I will message you when whales move on " + trade.coin + ", at each target and at the stop.",
+    "",
     "👉 Entry: " + formatPrice(trade.entry),
     "❌ StopLoss: " + formatPrice(levels.stop) + "   −" + (Math.abs(trade.entry - levels.stop) / trade.entry * 100).toFixed(2) + "%",
     ...levels.targets.map((t, i) => "🎯 Target " + (i + 1) + ": " + formatPrice(t) + "   +" + (sign * (t - trade.entry) / trade.entry * 100).toFixed(2) + "%  ·  " + (sign * (t - trade.entry) / risk).toFixed(1) + "R"),

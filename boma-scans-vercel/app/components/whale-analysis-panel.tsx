@@ -6,6 +6,7 @@ import { formatUsd } from "@/app/lib/positioning";
 import { pushTelegramEvents } from "@/app/lib/telegram-events";
 import type { WhaleAnalysis } from "@/app/server/whale-analysis";
 import { whaleAnalysisLines } from "@/app/lib/whale-analysis-lines";
+import { planPlain, sideWords } from "@/app/lib/plain-words";
 
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -66,6 +67,12 @@ export function WhaleAnalysisPanel({ coin, side, compact = false }: { coin: stri
     {open && error && <p className="mt-2 text-sm text-amber-200">{error}</p>}
     {open && analysis && <div className="mt-3 space-y-3 rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm">
       <p className="text-xs text-slate-500">Analysed {melbourne(analysis.at)} · price {formatPrice(analysis.price)}{analysis.symbol ? " · " + analysis.symbol : " · not on Bybit"}</p>
+      {p && <div className="rounded-xl border-2 border-cyan-300/40 bg-cyan-300/[0.07] p-3">
+        <p className="text-xs font-bold uppercase tracking-widest text-cyan-200">✅ What to do</p>
+        <p className="mt-1 text-base font-semibold leading-6 text-white">{planPlain(analysis.coin, p)}</p>
+        {p.simple && <p className="mt-1 leading-6 text-slate-200">{p.simple}</p>}
+        {p.decision !== "NO TRADE" && <p className="mt-1 text-xs text-slate-400">{sideWords(p.side)}</p>}
+      </div>}
       <div className="grid gap-2 rounded-xl border border-white/[0.08] bg-slate-950/60 p-3 text-xs sm:grid-cols-3">
         <p><span className="text-slate-500">🐋 Whale signal</span><br/><b className={analysis.whales.signal ? (analysis.whales.signal.side === "LONG" ? "text-emerald-200" : "text-rose-200") : "text-slate-400"}>{analysis.whales.signal ? analysis.whales.signal.side + " · " + analysis.whales.signal.status + " · " + analysis.whales.signal.confidence + "%" : "none confirmed (asked about " + analysis.side + ")"}</b></p>
         <p><span className="text-slate-500">📈 Chart engine (1h)</span><br/><b className={analysis.chart ? (analysis.chart.bias === "LONG" ? "text-emerald-200" : "text-rose-200") : "text-slate-400"}>{analysis.chart ? analysis.chart.bias + " · " + analysis.chart.regime + " · plan " + analysis.chart.status.replaceAll("_", " ").toLowerCase() : "not on Bybit"}</b></p>
