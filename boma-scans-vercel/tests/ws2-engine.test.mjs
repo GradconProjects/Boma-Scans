@@ -183,6 +183,7 @@ test("Rating: every reading gets a 1–10 grade with its unseen-data record; gra
   assert.match(r.scoreNote, /has not shown a profit edge/);
   const lead = r.calibration.lead; assert.ok(lead && lead.rating >= 1 && lead.rating <= 10 && lead.p > 0 && lead.p < 1);
   assert.match(r.calibration.leadPlain, /finished in profit \d+% of the time and averaged [+−]\d\.\d\dR after fees/);
+  assert.match(r.calibration.leadPlain, /newest 40% of the \d(\.\d)?-year test/); assert.ok(cal.blocks.length >= 5, "half-year blocks reported"); assert.ok(Date.parse(cal.to) - Date.parse(cal.from) > 900 * 86_400_000, "about three years of history");
   assert.notEqual(r.status, "ENTRY READY"); assert.ok(r.explain.some(e => e.q === "What is this setup's track record?"));
   assert.ok(ratingLines(r)[0].startsWith("🎓 CALIBRATED RATING"));
   // The cut points map probabilities to grades exactly.

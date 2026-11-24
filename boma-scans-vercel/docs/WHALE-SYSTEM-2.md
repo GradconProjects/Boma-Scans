@@ -2,7 +2,7 @@
 
 A separate system inside Boma Scans, added beside the Scanner, the original Whale system and Before Telegram. It reads their data and changes none of their logic.
 
-Model version: `WS2-0.2`. Status: **shadow mode, calibrated on 511 pairs; no profit edge shown**. No order is ever placed.
+Model version: `WS2-0.3`. Status: **shadow mode, calibrated on 511 pairs over three years; no profit edge shown**. No order is ever placed.
 
 ## Backup and how to undo
 
@@ -97,67 +97,80 @@ The full registry is in `app/lib/ws2/registry.ts` and on the page under "Data so
 - **Whales:** Hyperliquid only. A futures position may hedge spot held elsewhere. Wallet transfers are not used.
 - **Predicted funding, order-book depth, CVD history:** not used.
 
-## Calibration (model WS2-0.2)
+## Calibration (model WS2-0.3)
 
 ### What was run
 
-- **Replay:** the engine was run every 4 hours over **511 Bybit crypto perpetuals** (every crypto pair listed; stock and commodity contracts left out) from 2026-05-28 to 2026-11-23: **513,764 readings**. Zero pairs failed.
+- **Replay:** the engine was run every 4 hours over **511 Bybit crypto perpetuals** (every crypto pair listed today; stock and commodity contracts left out) from **2023-12-08 to 2026-11-23**, about three years: **2,150,992 readings**, collected in six 180-day chunks. Zero pairs failed. A pair enters the test when it has enough history, so older periods hold fewer pairs.
 - **No look-ahead:** at each reading the engine saw only candles that had closed and open interest, account ratios and funding stamped by that time.
 - **Outcomes:** for every reading both the LONG and the SHORT plan, pullback and market, were played forward on 15-minute candles. The entry must trade within 4 hours. A stop touched before the fill cancels the trade. 30/25/20/15/10% is closed at TP1–TP5, the stop is never moved, the remainder is lost at the stop or closed after 24 hours. A stop and target in one candle counts as the stop. Fees (0.055% each way) and slippage (0.02%) are deducted.
 - **Split:** oldest 60% to fit, next 20% and final 20% to check, with a 30-hour gap between sets because outcome windows overlap.
 
-| Period | Dates | Readings | Typical coin per day | Share of times the market rose |
-|---|---|---:|---:|---:|
-| Fitting | 2026-05-28 → 2026-09-16 | 308,625 | -0.41% | 43% |
-| Check 1 | 2026-09-17 → 2026-10-20 | 99,034 | -0.22% | 54% |
-| Check 2 | 2026-10-22 → 2026-11-23 | 99,157 | -1.15% | 42% |
+| Period | Dates | Readings | Pairs | Typical coin per day | Share of times the market rose |
+|---|---|---:|---:|---:|---:|
+| Fitting | 2023-12-08 → 2026-01-22 | 1,290,940 | 446 | -0.47% | 47% |
+| Check 1 | 2026-01-24 → 2026-06-28 | 426,780 | 481 | -0.64% | 44% |
+| Check 2 | 2026-06-30 → 2026-11-23 | 426,981 | 511 | -0.39% | 46% |
 
 ### What it showed
 
-1. **The rating separates bad setups from better ones, and that holds on unseen data** (ranking score 0.573 fitting, 0.552 and 0.559 on the checks; 0.50 is chance).
-2. **No group of setups made money after fees.** The best rating is about break-even. System 2 has **not** shown a profit edge.
-3. **The directional bias did not predict direction.** Against the next 24 hours it scored 0.477, 0.489 and 0.447: slightly worse than a coin flip, i.e. mild mean reversion.
-4. **Retail crowding and funding carried no measurable information** (0.49–0.51).
-5. **The market fell in all three periods.** Shorts did well late in the test because of the market, as the "always SHORT" row shows.
+1. **The rating separates bad setups from better ones, and that holds on unseen data** (ranking score 0.57 fitting, 0.554 and 0.561 on the checks; 0.50 is chance). The worst rating lost 0.59R on average in unseen data.
+2. **No group of setups made money after fees.** The best rating averaged −0.04R in unseen data. System 2 has **not** shown a profit edge over three years.
+3. **ENTRY READY was slightly negative in all three periods** (−0.01R, −0.03R, −0.04R). LONG entries lost in every period; SHORT entries were about break-even.
+4. **The directional bias did not predict direction.** Against the next 24 hours it scored 0.477, 0.466 and 0.48, and below 0.50 in 5 of 6 half-years: mild mean reversion, not trend following.
+5. **Retail crowding and funding carried almost no information** (0.50–0.51).
+6. **The typical coin drifted down in every half-year.** Entering LONG at random lost more than entering SHORT at random in every block.
 
 Rating table, market entry, unseen data (both checks pooled):
 
 | Rating | Setups | Finished in profit | Average result | Error | Check 1 | Check 2 |
 |---|---:|---:|---:|---:|---:|---:|
-| 1/10 (blocked) | 44,857 | 30% | −0.47R | ±0.03 | −0.54R | −0.40R |
-| 2/10 (blocked) | 41,269 | 38% | −0.14R | ±0.03 | −0.15R | −0.13R |
-| 3/10 | 39,114 | 41% | −0.10R | ±0.02 | −0.12R | −0.09R |
-| 4/10 | 37,054 | 42% | −0.10R | ±0.02 | −0.13R | −0.08R |
-| 5/10 | 36,604 | 44% | −0.08R | ±0.01 | −0.09R | −0.07R |
-| 6/10 | 37,788 | 46% | −0.04R | ±0.01 | −0.04R | −0.03R |
-| 7/10 | 38,695 | 47% | −0.03R | ±0.02 | −0.02R | −0.03R |
-| 8/10 | 40,310 | 48% | −0.00R | ±0.02 | −0.01R | +0.00R |
-| 9/10 | 40,181 | 47% | −0.01R | ±0.02 | −0.02R | −0.00R |
-| 10/10 | 40,504 | 45% | −0.02R | ±0.02 | −0.03R | −0.02R |
+| 1/10 (blocked) | 182,502 | 30% | −0.59R | ±0.01 | −0.63R | −0.56R |
+| 2/10 (blocked) | 166,718 | 37% | −0.14R | ±0.01 | −0.11R | −0.16R |
+| 3/10 | 161,446 | 40% | −0.12R | ±0.01 | −0.09R | −0.14R |
+| 4/10 | 169,684 | 41% | −0.12R | ±0.01 | −0.10R | −0.14R |
+| 5/10 | 175,319 | 43% | −0.11R | ±0.01 | −0.09R | −0.13R |
+| 6/10 | 181,361 | 45% | −0.06R | ±0.01 | −0.06R | −0.07R |
+| 7/10 | 177,911 | 46% | −0.04R | ±0.01 | −0.04R | −0.04R |
+| 8/10 | 169,830 | 46% | −0.04R | ±0.01 | −0.05R | −0.03R |
+| 9/10 | 167,727 | 47% | −0.04R | ±0.01 | −0.05R | −0.02R |
+| 10/10 | 155,008 | 48% | −0.04R | ±0.01 | −0.04R | −0.03R |
 
 Rules compared (average result after fees, number of trades):
 
 | Rule | Fitting | Check 1 | Check 2 |
 |---|---:|---:|---:|
-| 0.1 ENTRY READY (market) | −0.06R (6,364) | −0.08R (1,769) | +0.08R (2,441) |
-| 0.2 ENTRY READY: 0.1 rule and rating 8-10 (market) | −0.07R (2,106) | −0.12R (579) | +0.10R (1,066) |
-| 0.2 blocked: lead side but rating 1-2 (pullback, what was avoided) | −0.12R (1,871) | −0.03R (646) | −0.07R (646) |
-| 0.2 kept waiting setups: lead side, rating 3-10 (pullback) | −0.02R (83,120) | +0.03R (26,042) | +0.09R (28,967) |
-| any lead side, rating 9-10 (market) | −0.01R (54,507) | −0.01R (16,816) | +0.07R (21,947) |
-| any lead side, rating 1-2 (market) | −0.10R (4,180) | −0.04R (1,484) | −0.07R (1,347) |
-| reference: always LONG (market) | −0.15R (308,620) | −0.07R (99,034) | −0.30R (99,154) |
-| reference: always SHORT (market) | −0.15R (308,620) | −0.13R (99,034) | +0.12R (99,154) |
+| 0.1 ENTRY READY (market) | −0.01R (25,696) | −0.03R (8,882) | −0.04R (8,597) |
+| ENTRY READY, LONG only | −0.07R (9,695) | −0.09R (2,395) | −0.07R (2,706) |
+| ENTRY READY, SHORT only | +0.04R (16,001) | −0.01R (6,487) | −0.01R (5,891) |
+| 0.2 blocked: lead side but rating 1-2 (pullback, what was avoided) | −0.07R (6,616) | −0.01R (1,821) | −0.06R (1,970) |
+| 0.2 kept waiting setups: lead side, rating 3-10 (pullback) | +0.01R (347,897) | +0.00R (117,651) | +0.00R (114,985) |
+| any lead side, rating 9-10 (market) | +0.01R (207,117) | −0.02R (66,424) | +0.00R (59,107) |
+| any lead side, rating 1-2 (market) | −0.08R (11,327) | −0.04R (3,206) | −0.06R (3,344) |
+| reference: always LONG (market) | −0.12R (1,290,940) | −0.16R (426,778) | −0.14R (426,975) |
+| reference: always SHORT (market) | −0.06R (1,290,940) | −0.07R (426,778) | −0.11R (426,975) |
+
+Half-year by half-year (average result after fees, number of trades). Only the last block is entirely unseen by the rating model; the ENTRY READY and reference columns are not fitted at all.
+
+| Period | Pairs | Typical coin / day | ENTRY READY | Rating 9–10 | Rating 1–2 | Always LONG | Always SHORT | Bias vs direction |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|
+| 2023-12-08 → 2024-05-27 | 216 | -0.33% | −0.03R (4,249) | −0.01R (30,673) | −0.12R (1,880) | −0.11R (188,415) | −0.06R (188,415) | 0.46 |
+| 2024-05-27 → 2024-11-25 | 262 | -0.31% | +0.04R (5,138) | +0.04R (40,754) | −0.10R (2,083) | −0.13R (249,799) | −0.06R (249,799) | 0.50 |
+| 2024-11-25 → 2025-05-26 | 330 | -0.61% | +0.01R (6,391) | +0.01R (48,492) | +0.03R (2,711) | −0.12R (308,621) | −0.03R (308,621) | 0.47 |
+| 2025-05-26 → 2025-11-24 | 430 | -0.6% | −0.06R (7,229) | −0.00R (64,131) | −0.11R (3,537) | −0.13R (390,304) | −0.07R (390,304) | 0.47 |
+| 2025-11-24 → 2026-05-25 | 475 | -0.53% | −0.03R (9,710) | −0.03R (75,573) | −0.06R (3,718) | −0.14R (494,389) | −0.09R (494,389) | 0.47 |
+| 2026-05-25 → 2026-11-23 (unseen) | 511 | -0.53% | −0.04R (10,765) | +0.01R (73,973) | −0.08R (3,996) | −0.16R (519,456) | −0.09R (519,456) | 0.48 |
 
 Did each input predict the next 24 hours? (0.50 = coin flip)
 
 | Input | Fitting | Check 1 | Check 2 |
 |---|---:|---:|---:|
-| structure | 0.485 | 0.497 | 0.451 |
-| flow | 0.486 | 0.481 | 0.477 |
-| htf | 0.475 | 0.496 | 0.472 |
-| retail | 0.501 | 0.496 | 0.502 |
-| funding | 0.498 | 0.493 | 0.509 |
-| btc | 0.500 | 0.464 | 0.439 |
+| structure | 0.481 | 0.467 | 0.482 |
+| flow | 0.494 | 0.484 | 0.485 |
+| htf | 0.477 | 0.485 | 0.493 |
+| retail | 0.513 | 0.505 | 0.498 |
+| funding | 0.511 | 0.504 | 0.499 |
+| btc | 0.484 | 0.494 | 0.481 |
 
 ### What changed in the app because of it
 
@@ -169,16 +182,17 @@ Did each input predict the next 24 hours? (0.50 = coin flip)
 
 ### Limits that remain
 
-- **180 days, one falling market.** Results in a rising or flat market are unknown. Re-run when the market changes.
+- **Survivorship:** only pairs still listed today were replayed. Delisted coins, which mostly fell, are missing, so real results were probably a little worse for longs.
+- **No broad rising market for alts in the sample.** The typical coin drifted down in every half-year, even when Bitcoin rose.
 - **Not tested, no history exists:** whale positions, exchange top-trader ratios, taker flow, liquidations. They still enter the live bias at their provisional weights.
-- **One model for all pairs.** A single pair has about 1,000 readings, too few to fit separately.
+- **One model for all pairs.** A single pair has too few readings to fit separately.
 - Readings every 4 hours overlap, so errors are grouped by timestamp; they are still approximate.
 - No walk-forward re-fitting, no probability calibration beyond the ten rating bands, no portfolio or daily-loss limits.
-- The 0.2 rule was not compared with the original whale system; that needs logged outcomes from both.
+- Not compared with the original whale system or the Scanner on the same footing.
 
 ### Re-running the calibration
 
-Tools and steps are in `tools/ws2-calibration/README.md`. The replay endpoint is `/api/ws2/calibrate` (scheduler key required).
+Tools and steps are in `tools/ws2-calibration/README.md`. The replay endpoint is `/api/ws2/calibrate` (scheduler key required); `end=<ms>` replays an older window.
 
 ## Market coverage
 

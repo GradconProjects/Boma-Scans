@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { fmt, type Levels } from "@/app/lib/ws2/engine";
-import type { Ws2Calibration, Ws2Rated as Ws2Result } from "@/app/lib/ws2/rating";
+import { spanWords, type Ws2Calibration, type Ws2Rated as Ws2Result } from "@/app/lib/ws2/rating";
 import type { Ws2LogEntry, Ws2Performance } from "@/app/lib/ws2/outcomes";
 import type { Ws2Source } from "@/app/lib/ws2/registry";
 
@@ -50,7 +50,7 @@ function ResultView({ r }: { r: Ws2Result }) {
         <p className="mt-2 text-sm leading-6 text-slate-100">{r.calibration.leadPlain}</p>
         {r.calibration.blocked && <p className="mt-1 text-sm font-semibold text-rose-100">⛔ Blocked: setups rated 1–2 lost money in every period of the test.</p>}
         <p className="mt-1 text-xs text-slate-400">Both sides, for comparison: {(["LONG", "SHORT"] as const).map(sd => sd + " pullback " + (r.calibration.ratings[sd].pullback ? r.calibration.ratings[sd].pullback!.rating + "/10" : "n/a") + ", market " + (r.calibration.ratings[sd].market ? r.calibration.ratings[sd].market!.rating + "/10" : "n/a")).join(" · ")}</p>
-        {r.calibration.pair && r.calibration.pair.ratedSetups >= 20 && r.calibration.pair.avgNetR !== null && <p className="mt-1 text-xs text-slate-300">📒 {r.symbol} itself: {r.calibration.pair.ratedSetups} well-rated setups (8–10) in the 180 days averaged {(r.calibration.pair.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.pair.avgNetR).toFixed(2)}R, {Math.round((r.calibration.pair.won ?? 0) * 100)}% in profit. Small sample.</p>}
+        {r.calibration.pair && r.calibration.pair.ratedSetups >= 20 && r.calibration.pair.avgNetR !== null && <p className="mt-1 text-xs text-slate-300">📒 {r.symbol} itself: {r.calibration.pair.ratedSetups} well-rated setups (8–10) over the whole test averaged {(r.calibration.pair.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.pair.avgNetR).toFixed(2)}R, {Math.round((r.calibration.pair.won ?? 0) * 100)}% in profit. Small sample.</p>}
       </> : <p className="mt-1 text-sm text-slate-300">{r.calibration.leadPlain}</p>}
     </div>
     <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4">
@@ -117,12 +117,12 @@ function CalibrationReport({ cal }: { cal: Omit<Ws2Calibration, "pairStats"> }) 
   return <div className="space-y-4 rounded-2xl border-2 border-cyan-300/30 bg-cyan-300/[0.04] p-4">
     <div>
       <h2 className="font-semibold text-white">🎓 Calibration: what was tested and what it showed</h2>
-      <p className="mt-1">The engine was replayed every 4 hours over <b>{cal.pairs} Bybit crypto pairs</b> from {cal.from} to {cal.to}: <b>{cal.samples.toLocaleString("en-AU")} readings</b>. At each one it saw only data that existed then. Both the LONG and the SHORT plan were then played forward on 15-minute candles with partial exits at the five targets, the stop never moved, and fees and slippage deducted. A rating model was fitted on the oldest 60% and checked on the newest 40%.</p>
+      <p className="mt-1">The engine was replayed every 4 hours over <b>{cal.pairs} Bybit crypto pairs</b> from {cal.from} to {cal.to} ({spanWords(cal)}): <b>{cal.samples.toLocaleString("en-AU")} readings</b>. At each one it saw only data that existed then. Both the LONG and the SHORT plan were then played forward on 15-minute candles with partial exits at the five targets, the stop never moved, and fees and slippage deducted. A rating model was fitted on the oldest 60% and checked on the newest 40%.</p>
       <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-100">
         <li><b>The rating works for avoiding bad trades.</b> Setups rated 1/10 lost {Math.abs(cal.models.market.deciles[0].check.avgNetR).toFixed(2)}R on average in the unseen data; setups rated 8–10 were close to break-even.</li>
         <li><b>No group of setups made money after fees.</b> Even the best rating averaged {rr(cal.models.market.deciles[9].check.avgNetR)}. System 2 has not shown a profit edge.</li>
         <li><b>The trend inputs did not predict direction.</b> The bias scored {cal.directionAuc.test["bias vs 24h direction"].toFixed(2)} to {cal.directionAuc.train["bias vs 24h direction"].toFixed(2)} against the next 24 hours, where 0.50 is a coin flip.</li>
-        <li><b>The market fell through all three periods</b>, so shorts did better late in the test. That is the market, not skill: compare the &quot;always SHORT&quot; row.</li>
+        <li><b>The typical coin drifted down in every half-year tested</b>, so shorts beat longs throughout. That is the market, not skill: compare the &quot;always SHORT&quot; rows. LONG entries lost money in all three periods.</li>
       </ul>
     </div>
     <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rating table (market entry, unseen data)</p>
@@ -134,7 +134,10 @@ function CalibrationReport({ cal }: { cal: Omit<Ws2Calibration, "pairStats"> }) 
     <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Did each input predict the next 24 hours? (0.50 = coin flip)</p>
       <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-1.5 font-medium">Input</th>{periods.map(([k, label]) => <th key={k} className="p-1.5 font-medium">{label}</th>)}</tr></thead>
         <tbody>{Object.entries(cal.componentAuc24h).map(([k, v]) => <tr key={k} className="border-t border-white/[0.05] font-mono"><td className="p-1.5 font-sans text-slate-100">{k}</td>{periods.map(([p]) => <td key={p} className="p-1.5">{v[p].toFixed(3)}</td>)}</tr>)}</tbody></table></div>
-    <p className="text-xs text-slate-400">Limits: 180 days in one falling market; samples every 4 hours overlap, so errors are grouped by time; whale positions, exchange top-trader ratios, taker flow and liquidations have no history and were not tested; the pooled model is one model for all pairs because a single pair has too few samples. Re-run the calibration after the market changes character. Model {cal.version}.</p>
+    {cal.blocks && cal.blocks.length > 0 && <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Half-year by half-year (average result after fees · trades)</p>
+      <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500">{["Period", "Pairs", "Typical coin / day", "ENTRY READY", "Rating 9–10", "Rating 1–2", "Always LONG", "Always SHORT", "Bias vs direction"].map(h => <th key={h} className="p-1.5 font-medium">{h}</th>)}</tr></thead>
+        <tbody>{cal.blocks.map(b => { const cell = (k: string) => { const c = b.rules[k]; return <td key={k} className={"p-1.5 font-mono " + ((c?.avgNetR ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(c?.avgNetR)} <span className="text-slate-500">· {c?.n.toLocaleString("en-AU")}</span></td>; }; return <tr key={b.from} className="border-t border-white/[0.05]"><td className="p-1.5 text-slate-100">{b.from} → {b.to}{b.unseen ? <span className="ml-1 rounded bg-cyan-300/20 px-1 text-[10px] text-cyan-100">unseen</span> : null}</td><td className="p-1.5 font-mono">{b.pairs}</td><td className="p-1.5 font-mono">{b.typicalCoin24hPct}%</td>{["0.1 ENTRY READY (market)", "any lead side, rating 9-10 (market)", "any lead side, rating 1-2 (market)", "reference: always LONG (market)", "reference: always SHORT (market)"].map(cell)}<td className="p-1.5 font-mono">{b.biasVs24h.toFixed(2)}</td></tr>; })}</tbody></table></div>}
+    <p className="text-xs text-slate-400">Limits: the typical coin drifted down in every half-year of the test, so a broad rising market is not represented; only pairs still listed today are included; samples every 4 hours overlap, so errors are grouped by time; whale positions, exchange top-trader ratios, taker flow and liquidations have no history and were not tested; the pooled model is one model for all pairs because a single pair has too few samples. Re-run the calibration after the market changes character. Model {cal.version}.</p>
   </div>;
 }
 
@@ -172,7 +175,7 @@ export function Ws2View() {
             <td className={"p-2 font-mono font-bold " + (!b.rating ? "text-slate-500" : b.rating <= 2 ? "text-rose-300" : b.rating <= 5 ? "text-amber-200" : "text-emerald-300")}>{b.rating ? b.rating + "/10" : "—"}</td><td className="p-2 font-mono text-cyan-200">{b.scores.opportunity}</td><td className="p-2 font-mono">{b.scores.bullishBias} / {b.scores.bearishBias}</td><td className="p-2 font-mono">{b.scores.longEntry} / {b.scores.shortEntry}</td><td className="p-2 font-mono text-amber-200">{b.scores.exhaustion}</td><td className="p-2 font-mono">{b.scores.reliability}</td>
             <td className="p-2 text-slate-300">{b.squeeze}</td><td className="p-2 text-slate-300">{b.whales}</td><td className="p-2 text-slate-300">{b.top.split(":")[0]}</td><td className="p-2 text-slate-400">{melbourne(b.at)}</td>
           </tr>)}</tbody></table></div>}
-      <p className="text-xs text-slate-500">Tap a row for the full reading. Rating is the calibrated 1–10 grade from the 180-day test across {overview?.calibration.pairs ?? "all"} pairs; 1–2 is blocked.</p>
+      <p className="text-xs text-slate-500">Tap a row for the full reading. Rating is the calibrated 1–10 grade from the multi-year test across {overview?.calibration.pairs ?? "all"} pairs; 1–2 is blocked.</p>
     </section>}
 
     {tab === "analyse" && <section className="mt-4 space-y-4">

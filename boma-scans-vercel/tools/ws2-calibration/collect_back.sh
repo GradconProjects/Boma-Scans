@@ -1,0 +1,7 @@
+#!/bin/bash
+cd "$(dirname "$0")"
+B=${WS2_ORIGIN:?set WS2_ORIGIN}; KEY=${WS2_CRON_KEY:?set WS2_CRON_KEY}; NOW0=$(cat now0.txt); export B KEY NOW0
+fetch(){ k=$1; s=$2; d=rows_$k; [ -s $d/$s.json ] && return; END=$((NOW0 - k*180*86400000)); for a in 1 2 3; do code=$(curl -s -m 80 "$B/api/ws2/calibrate?key=$KEY&symbol=$s&days=182&end=$END" -o $d/$s.tmp -w "%{http_code}"); if [ "$code" = 200 ]; then mv $d/$s.tmp $d/$s.json; return; fi; sleep 4; done; echo "FAIL $k $s $code" >> fail_back.log; rm -f $d/$s.tmp; }
+export -f fetch
+for k in 1 2 3 4 5; do mkdir -p rows_$k; cat symbols.txt | xargs -P 6 -I{} bash -c "fetch $k {}"; echo "chunk $k done: $(ls rows_$k | wc -l)"; done
+echo ALLDONE; cat fail_back.log 2>/dev/null | head -20
