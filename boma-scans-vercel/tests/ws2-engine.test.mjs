@@ -147,3 +147,12 @@ test("Outcome: fill then targets, fill then stop, same-candle conflict counts as
   const perf = summarise([{ ...shortSignal(), outcome: w }, { ...shortSignal({ id: "b" }), outcome: l }], 7, NOW);
   assert.equal(perf.filled, 2); assert.equal(perf.tp1BeforeStop, 1); assert.equal(perf.stops, 1); assert.equal(perf.sample, "INSUFFICIENT SAMPLE");
 });
+
+test("Symbols: kPEPE, KPEPE, PEPE and 1000PEPE all resolve to the real Bybit pair; unknown coins resolve to nothing", () => {
+  const sfile = new URL("../app/lib/ws2/symbols.ts", import.meta.url).pathname; const sm = new Module(sfile); sm.require = require;
+  sm._compile(ts.transpileModule(readFileSync(sfile, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, sfile);
+  const { resolveBybitSymbol } = sm.exports; const listed = new Set(["BTCUSDT", "1000PEPEUSDT", "10000SATSUSDT", "KASUSDT", "NEARUSDT"]);
+  for (const typed of ["kPEPE", "KPEPE", "PEPE", "1000PEPE", "1000pepeusdt", "kpepe"]) assert.equal(resolveBybitSymbol(typed, listed), "1000PEPEUSDT", typed);
+  assert.equal(resolveBybitSymbol("kSATS", listed), "10000SATSUSDT"); assert.equal(resolveBybitSymbol("KAS", listed), "KASUSDT", "a real K coin is not stripped");
+  assert.equal(resolveBybitSymbol("btc", listed), "BTCUSDT"); assert.equal(resolveBybitSymbol("NOTACOIN", listed), null); assert.equal(resolveBybitSymbol("", listed), null);
+});

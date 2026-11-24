@@ -102,7 +102,7 @@ export function Ws2View() {
   const [coin, setCoin] = useState(""); const [busy, setBusy] = useState(""); const [error, setError] = useState(""); const [result, setResult] = useState<Ws2Result | null>(null);
   const load = useCallback(async () => { try { const d = await (await fetch("/api/ws2", { cache: "no-store" })).json() as Overview; if (d.error) setError(d.error); else setOverview(d); } catch { setError("Whale System 2 is unavailable."); } }, []);
   const analyse = useCallback(async (c: string) => {
-    const clean = c.trim().toUpperCase().replace(/USDT$/, ""); if (!clean) return;
+    const clean = c.trim(); if (!clean) return;
     setBusy(clean); setError("");
     try { const d = await (await fetch("/api/ws2", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyse", coin: clean }) })).json() as { result?: Ws2Result; error?: string }; if (d.result) { setResult(d.result); setTab("analyse"); void load(); } else setError(d.error ?? "Analysis failed."); }
     catch { setError("Analysis failed."); } finally { setBusy(""); }
@@ -122,7 +122,7 @@ export function Ws2View() {
       {st && <p className="flex flex-wrap items-center gap-3 text-xs text-slate-300"><label>Scan the top <select value={st.universe} onChange={e => void save({ universe: Number(e.target.value) })} className="rounded border border-white/10 bg-slate-900 px-1 py-0.5"><option value={0}>0 (watchlist only)</option><option value={20}>20</option><option value={40}>40</option><option value={80}>80</option></select> Bybit pairs by turnover</label><label className="flex items-center gap-1"><input type="checkbox" checked={st.alerts} onChange={e => void save({ alerts: e.target.checked })}/> Telegram alert when any scanned coin becomes ENTRY READY</label><Button type="button" size="sm" variant="ghost" onClick={() => void load()} className="rounded-lg">Refresh</Button></p>}
       {overview && overview.board.length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm text-slate-400">No readings yet. The first automatic scan fills this within 15 minutes, or analyse a coin yourself.</p>
         : overview && <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Coin", "Status", "Bias", "Opp.", "Bull / Bear", "Entry L / S", "Exh.", "Data", "Squeeze stage", "Whales", "Top traders", "Read"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
-          <tbody>{overview.board.map(b => <tr key={b.symbol} onClick={() => { setCoin(b.coin); void analyse(b.coin); }} className="cursor-pointer border-t border-white/[0.05] align-top hover:bg-white/[0.04]">
+          <tbody>{overview.board.map(b => <tr key={b.symbol} onClick={() => { setCoin(b.coin); void analyse(b.symbol); }} className="cursor-pointer border-t border-white/[0.05] align-top hover:bg-white/[0.04]">
             <td className="p-2 font-mono font-bold text-white">{b.coin}<span className="block text-[10px] font-normal text-slate-500">{b.price ? fmt(b.price) : ""}</span></td>
             <td className="p-2"><span className={"rounded-full border px-2 py-0.5 font-semibold " + statusTone(b.status)}>{b.status}</span></td>
             <td className={"p-2 font-semibold " + (b.side === "LONG" ? "text-emerald-300" : b.side === "SHORT" ? "text-rose-300" : "text-slate-500")}>{b.side ?? "—"}</td>

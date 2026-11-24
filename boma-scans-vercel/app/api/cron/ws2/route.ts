@@ -15,7 +15,7 @@ export const maxDuration = 60;
 export async function GET(request: NextRequest) {
   if (!(await cronAuthorized(request))) return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   const started = Date.now(); const settings = await ws2Settings();
-  const watch = await Promise.all(settings.watch.map(c => symbolFor(c)));
+  const watch = (await Promise.all(settings.watch.map(c => symbolFor(c).catch(() => null)))).filter((s): s is string => !!s);
   const take = Math.max(0, Number(request.nextUrl.searchParams.get("take")) || 10);
   const slice = await nextUniverseSlice(settings.universe, take, new Set(watch)).catch(() => [] as string[]);
   const queue = Array.from(new Set([...watch, ...slice])); const results: Ws2Result[] = []; const errors: Array<{ symbol: string; error: string }> = [];

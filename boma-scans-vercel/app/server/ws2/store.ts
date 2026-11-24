@@ -1,6 +1,6 @@
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { marketRead, bars } from "@/app/server/market-analysis";
-import { bybitSymbolFor } from "@/app/lib/whale-logic";
+import { resolveBybitSymbol } from "@/app/lib/ws2/symbols";
 import { runWs2, type Candle, type Ws2Result } from "@/app/lib/ws2/engine";
 import { scoreOutcome, type Ws2LogEntry } from "@/app/lib/ws2/outcomes";
 import { gatherWs2, WS2_DEFAULTS, type Ws2Settings } from "@/app/server/ws2/gather";
@@ -41,9 +41,12 @@ export async function nextUniverseSlice(size: number, take: number, skip: Set<st
   return out;
 }
 
+/** The real Bybit pair for what was typed or tapped; throws a plain message when Bybit does not list it. */
 export async function symbolFor(coin: string): Promise<string> {
-  const clean = coin.toUpperCase().replace(/[^A-Z0-9]/g, "").replace(/USDT$/, "");
-  try { const tickers = await marketRead({ kind: "tickers" }); return bybitSymbolFor(clean, new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? ""))) ?? clean + "USDT"; } catch { return clean + "USDT"; }
+  const tickers = await marketRead({ kind: "tickers" });
+  const symbol = resolveBybitSymbol(coin, new Set((tickers.result!.list as Array<{ symbol?: string }>).map(t => t.symbol ?? "")));
+  if (!symbol) throw new Error("\"" + coin + "\" is not a Bybit USDT perpetual. Try the coin's ticker, for example BTC, SOL or PEPE.");
+  return symbol;
 }
 
 /** Runs Whale System 2 on a coin and appends the signal to the log (one entry per coin per 14 minutes unless the status changed). */

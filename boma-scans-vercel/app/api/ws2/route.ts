@@ -22,7 +22,7 @@ export async function POST(request: NextRequest) {
   if (request.headers.get("origin") && request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Origin rejected." }, 403);
   const body = await request.json().catch(() => ({})) as { action?: string; coin?: string; watch?: string[]; alerts?: boolean; universe?: number; equity?: number; riskPct?: number; leverage?: number };
   if (body.action === "analyse") {
-    const coin = String(body.coin ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);
+    const coin = String(body.coin ?? "").replace(/[^A-Za-z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);
     try { const { result } = await analyseWs2(coin); return reply({ result }); } catch (error) { return reply({ error: error instanceof Error ? error.message : "Analysis failed." }, 502); }
   }
   if (body.action === "settings") return reply({ settings: await saveWs2Settings(body) });

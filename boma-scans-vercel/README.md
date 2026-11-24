@@ -208,3 +208,15 @@ It borrows data from the scanner and the original whale tracker and changes noth
 
 - Telegram: `/ws2 NEAR`. Alerts only when a watchlist coin becomes ENTRY READY.
 - Full method, limits, what was and was not tested, and how to remove it: `docs/WHALE-SYSTEM-2.md`.
+
+## Market direction strip (all sections)
+
+A strip under the top bar on every section shows the overall market direction, Bitcoin against the coins, and which one rules.
+
+- **Overall:** BULLISH, BEARISH or MIXED, from Bitcoin's 1h and 4h trend and how many coins are up.
+- **BTC vs coins:** side-by-side bars for 1 h, 4 h and 24 h, the share of coins that are up, and whether coins are stronger or weaker than Bitcoin.
+- **Who rules:** BTC RULES when coins track Bitcoin closely and move with it, ALTS RULE when the link is weak or Bitcoin is quiet while coins move, otherwise SHARED.
+- Tap it for the detail, the strongest and weakest coins against BTC, and a plain "what to do".
+- "Coins" are the 30 most-traded crypto perpetuals on Bybit other than BTC. Stock and commodity contracts are left out. Refreshes every 3 minutes. Telegram: `/market`.
+
+Code: `app/lib/market-direction.ts`, `app/server/market-direction.ts`, `app/components/market-direction-strip.tsx`.

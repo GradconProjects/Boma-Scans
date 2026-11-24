@@ -1,4 +1,5 @@
 import { OwnerBar } from "@/app/components/owner-bar";
+import { MarketDirectionStrip } from "@/app/components/market-direction-strip";
 import { getOwnerUser } from "@/app/server/owner-auth";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
@@ -38,7 +39,7 @@ export default async function RootLayout({
   const owner = await getOwnerUser().catch(() => null);
   return (
     <html lang="en" className="dark">
-      <body className="antialiased"><OwnerBar initialSignedIn={!!owner} />{children}</body>
+      <body className="antialiased"><OwnerBar initialSignedIn={!!owner} /><MarketDirectionStrip />{children}</body>
     </html>
   );
 }
