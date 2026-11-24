@@ -1,13 +1,14 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { fmt, type Levels, type Ws2Result } from "@/app/lib/ws2/engine";
+import { fmt, type Levels } from "@/app/lib/ws2/engine";
+import type { Ws2Calibration, Ws2Rated as Ws2Result } from "@/app/lib/ws2/rating";
 import type { Ws2LogEntry, Ws2Performance } from "@/app/lib/ws2/outcomes";
 import type { Ws2Source } from "@/app/lib/ws2/registry";
 
 type Settings = { watch: string[]; alerts: boolean; universe: number; equity: number; riskPct: number; leverage: number };
-type BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string };
-type Overview = { version: string; settings: Settings; log: Ws2LogEntry[]; board: BoardRow[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
+type BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string; rating?: number | null };
+type Overview = { version: string; calibration: Omit<Ws2Calibration, "pairStats">; settings: Settings; log: Ws2LogEntry[]; board: BoardRow[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) + " Melbourne";
 const statusTone = (s: string) => s === "ENTRY READY" ? "border-emerald-300/60 bg-emerald-300/[0.12] text-emerald-50" : s === "CHASING RISK" || s === "INVALIDATED" ? "border-rose-300/50 bg-rose-300/[0.10] text-rose-50" : s === "NO TRADE" || s === "DATA UNAVAILABLE" || s === "WATCHING" ? "border-white/15 bg-white/[0.04] text-slate-100" : "border-amber-300/50 bg-amber-300/[0.10] text-amber-50";
 const usd = (v: number) => "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-AU") : v.toFixed(2));
@@ -38,9 +39,23 @@ function ResultView({ r }: { r: Ws2Result }) {
       <p className="mt-1 text-base font-semibold leading-6">✅ What to do: {r.headline}</p>
       <p className="mt-2 text-sm leading-6">💰 Position size: {r.sizing}</p>
     </div>
+    <div className={"rounded-2xl border-2 p-4 " + (r.calibration.blocked ? "border-rose-300/50 bg-rose-300/[0.08]" : "border-cyan-300/40 bg-cyan-300/[0.06]")}>
+      <p className="text-xs font-bold uppercase tracking-widest text-cyan-200">🎓 Calibrated rating and track record</p>
+      {r.calibration.lead && r.side ? <>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <p className="text-3xl font-black text-white">{r.calibration.lead.rating}<span className="text-base font-semibold text-slate-400">/10</span></p>
+          <div className="flex gap-0.5" aria-hidden>{Array.from({ length: 10 }, (_, i) => <span key={i} className={"h-5 w-3 rounded-sm " + (i < r.calibration.lead!.rating ? (r.calibration.lead!.rating <= 2 ? "bg-rose-400" : r.calibration.lead!.rating <= 5 ? "bg-amber-400" : "bg-emerald-400") : "bg-white/10")}/>)}</div>
+          <p className="text-sm text-slate-200">Finished in profit <b>{Math.round(r.calibration.lead.won * 100)}%</b> of the time · average <b>{(r.calibration.lead.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.lead.avgNetR).toFixed(2)}R</b> after fees · {r.calibration.lead.n.toLocaleString("en-AU")} unseen setups</p>
+        </div>
+        <p className="mt-2 text-sm leading-6 text-slate-100">{r.calibration.leadPlain}</p>
+        {r.calibration.blocked && <p className="mt-1 text-sm font-semibold text-rose-100">⛔ Blocked: setups rated 1–2 lost money in every period of the test.</p>}
+        <p className="mt-1 text-xs text-slate-400">Both sides, for comparison: {(["LONG", "SHORT"] as const).map(sd => sd + " pullback " + (r.calibration.ratings[sd].pullback ? r.calibration.ratings[sd].pullback!.rating + "/10" : "n/a") + ", market " + (r.calibration.ratings[sd].market ? r.calibration.ratings[sd].market!.rating + "/10" : "n/a")).join(" · ")}</p>
+        {r.calibration.pair && r.calibration.pair.ratedSetups >= 20 && r.calibration.pair.avgNetR !== null && <p className="mt-1 text-xs text-slate-300">📒 {r.symbol} itself: {r.calibration.pair.ratedSetups} well-rated setups (8–10) in the 180 days averaged {(r.calibration.pair.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.pair.avgNetR).toFixed(2)}R, {Math.round((r.calibration.pair.won ?? 0) * 100)}% in profit. Small sample.</p>}
+      </> : <p className="mt-1 text-sm text-slate-300">{r.calibration.leadPlain}</p>}
+    </div>
     <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4">
       <p className="text-xs font-bold uppercase tracking-widest text-slate-400">📊 Independent scores (0–100 each)</p>
-      <p className="mt-1 text-xs text-amber-200">{r.scoreNote}</p>
+      <p className="mt-1 text-xs leading-5 text-cyan-100">{r.scoreNote}</p>
       <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Bar label="Bullish directional bias" value={s.bullishBias} tone="bg-emerald-400"/><Bar label="Bearish directional bias" value={s.bearishBias} tone="bg-rose-400"/>
         <Bar label="Risk-adjusted opportunity" value={s.opportunity} tone="bg-cyan-400"/>
@@ -95,6 +110,34 @@ function ResultView({ r }: { r: Ws2Result }) {
   </div>;
 }
 
+const rr = (v?: number) => v === undefined ? "n/a" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + "R";
+/** What the calibration test found, with the real numbers. */
+function CalibrationReport({ cal }: { cal: Omit<Ws2Calibration, "pairStats"> }) {
+  const periods = [["train", "Fitting period"], ["val", "Check 1 (unseen)"], ["test", "Check 2 (unseen)"]] as const;
+  return <div className="space-y-4 rounded-2xl border-2 border-cyan-300/30 bg-cyan-300/[0.04] p-4">
+    <div>
+      <h2 className="font-semibold text-white">🎓 Calibration: what was tested and what it showed</h2>
+      <p className="mt-1">The engine was replayed every 4 hours over <b>{cal.pairs} Bybit crypto pairs</b> from {cal.from} to {cal.to}: <b>{cal.samples.toLocaleString("en-AU")} readings</b>. At each one it saw only data that existed then. Both the LONG and the SHORT plan were then played forward on 15-minute candles with partial exits at the five targets, the stop never moved, and fees and slippage deducted. A rating model was fitted on the oldest 60% and checked on the newest 40%.</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-100">
+        <li><b>The rating works for avoiding bad trades.</b> Setups rated 1/10 lost {Math.abs(cal.models.market.deciles[0].check.avgNetR).toFixed(2)}R on average in the unseen data; setups rated 8–10 were close to break-even.</li>
+        <li><b>No group of setups made money after fees.</b> Even the best rating averaged {rr(cal.models.market.deciles[9].check.avgNetR)}. System 2 has not shown a profit edge.</li>
+        <li><b>The trend inputs did not predict direction.</b> The bias scored {cal.directionAuc.test["bias vs 24h direction"].toFixed(2)} to {cal.directionAuc.train["bias vs 24h direction"].toFixed(2)} against the next 24 hours, where 0.50 is a coin flip.</li>
+        <li><b>The market fell through all three periods</b>, so shorts did better late in the test. That is the market, not skill: compare the &quot;always SHORT&quot; row.</li>
+      </ul>
+    </div>
+    <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rating table (market entry, unseen data)</p>
+      <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500">{["Rating", "Setups", "Finished in profit", "Average result", "± error", "Check 1", "Check 2"].map(h => <th key={h} className="p-1.5 font-medium">{h}</th>)}</tr></thead>
+        <tbody>{cal.models.market.deciles.map(d => <tr key={d.decile} className="border-t border-white/[0.05] font-mono"><td className={"p-1.5 font-bold " + (d.decile <= 2 ? "text-rose-300" : d.decile <= 5 ? "text-amber-200" : "text-emerald-300")}>{d.decile}/10{d.decile <= 2 ? " blocked" : ""}</td><td className="p-1.5">{d.check.n.toLocaleString("en-AU")}</td><td className="p-1.5">{Math.round(d.check.won * 100)}%</td><td className={"p-1.5 " + (d.check.avgNetR >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(d.check.avgNetR)}</td><td className="p-1.5 text-slate-400">{d.check.se.toFixed(2)}</td><td className="p-1.5">{rr(d.val.avgNetR)}</td><td className="p-1.5">{rr(d.test.avgNetR)}</td></tr>)}</tbody></table></div>
+    <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rules compared, by period (average result after fees · number of trades)</p>
+      <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-1.5 font-medium">Rule</th>{periods.map(([k, label]) => <th key={k} className="p-1.5 font-medium">{label}<span className="block font-normal text-[10px]">{cal.regime[k].from} → {cal.regime[k].to} · typical coin {cal.regime[k].typicalCoin24hPct}%/day</span></th>)}</tr></thead>
+        <tbody>{Object.keys(cal.rules.train).map(rule => <tr key={rule} className="border-t border-white/[0.05]"><td className="p-1.5 text-slate-100">{rule}</td>{periods.map(([k]) => { const c = cal.rules[k][rule]; return <td key={k} className={"p-1.5 font-mono " + ((c?.avgNetR ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(c?.avgNetR)} <span className="text-slate-500">· {c?.n.toLocaleString("en-AU")}{c?.se !== undefined ? " · ±" + c.se.toFixed(2) : ""}</span></td>; })}</tr>)}</tbody></table></div>
+    <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Did each input predict the next 24 hours? (0.50 = coin flip)</p>
+      <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-1.5 font-medium">Input</th>{periods.map(([k, label]) => <th key={k} className="p-1.5 font-medium">{label}</th>)}</tr></thead>
+        <tbody>{Object.entries(cal.componentAuc24h).map(([k, v]) => <tr key={k} className="border-t border-white/[0.05] font-mono"><td className="p-1.5 font-sans text-slate-100">{k}</td>{periods.map(([p]) => <td key={p} className="p-1.5">{v[p].toFixed(3)}</td>)}</tr>)}</tbody></table></div>
+    <p className="text-xs text-slate-400">Limits: 180 days in one falling market; samples every 4 hours overlap, so errors are grouped by time; whale positions, exchange top-trader ratios, taker flow and liquidations have no history and were not tested; the pooled model is one model for all pairs because a single pair has too few samples. Re-run the calibration after the market changes character. Model {cal.version}.</p>
+  </div>;
+}
+
 /** Whale System 2: a separate system. It reads the other systems' data but changes nothing in them. */
 export function Ws2View() {
   const [tab, setTab] = useState<"board" | "analyse" | "log" | "method">("board");
@@ -121,15 +164,15 @@ export function Ws2View() {
       <p className="text-sm leading-6 text-slate-300">Every coin System 2 has read in the last 24 hours, best opportunity first. The automatic scan covers your watchlist every 15 minutes and rotates through the {st?.universe || "watchlist-only"}{st?.universe ? " most-traded Bybit pairs" : ""}, about once an hour. Most rows will say wait or no trade; that is the system working.</p>
       {st && <p className="flex flex-wrap items-center gap-3 text-xs text-slate-300"><label>Scan the top <select value={st.universe} onChange={e => void save({ universe: Number(e.target.value) })} className="rounded border border-white/10 bg-slate-900 px-1 py-0.5"><option value={0}>0 (watchlist only)</option><option value={20}>20</option><option value={40}>40</option><option value={80}>80</option></select> Bybit pairs by turnover</label><label className="flex items-center gap-1"><input type="checkbox" checked={st.alerts} onChange={e => void save({ alerts: e.target.checked })}/> Telegram alert when any scanned coin becomes ENTRY READY</label><Button type="button" size="sm" variant="ghost" onClick={() => void load()} className="rounded-lg">Refresh</Button></p>}
       {overview && overview.board.length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm text-slate-400">No readings yet. The first automatic scan fills this within 15 minutes, or analyse a coin yourself.</p>
-        : overview && <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Coin", "Status", "Bias", "Opp.", "Bull / Bear", "Entry L / S", "Exh.", "Data", "Squeeze stage", "Whales", "Top traders", "Read"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
+        : overview && <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Coin", "Status", "Bias", "Rating", "Opp.", "Bull / Bear", "Entry L / S", "Exh.", "Data", "Squeeze stage", "Whales", "Top traders", "Read"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
           <tbody>{overview.board.map(b => <tr key={b.symbol} onClick={() => { setCoin(b.coin); void analyse(b.symbol); }} className="cursor-pointer border-t border-white/[0.05] align-top hover:bg-white/[0.04]">
             <td className="p-2 font-mono font-bold text-white">{b.coin}<span className="block text-[10px] font-normal text-slate-500">{b.price ? fmt(b.price) : ""}</span></td>
             <td className="p-2"><span className={"rounded-full border px-2 py-0.5 font-semibold " + statusTone(b.status)}>{b.status}</span></td>
             <td className={"p-2 font-semibold " + (b.side === "LONG" ? "text-emerald-300" : b.side === "SHORT" ? "text-rose-300" : "text-slate-500")}>{b.side ?? "—"}</td>
-            <td className="p-2 font-mono text-cyan-200">{b.scores.opportunity}</td><td className="p-2 font-mono">{b.scores.bullishBias} / {b.scores.bearishBias}</td><td className="p-2 font-mono">{b.scores.longEntry} / {b.scores.shortEntry}</td><td className="p-2 font-mono text-amber-200">{b.scores.exhaustion}</td><td className="p-2 font-mono">{b.scores.reliability}</td>
+            <td className={"p-2 font-mono font-bold " + (!b.rating ? "text-slate-500" : b.rating <= 2 ? "text-rose-300" : b.rating <= 5 ? "text-amber-200" : "text-emerald-300")}>{b.rating ? b.rating + "/10" : "—"}</td><td className="p-2 font-mono text-cyan-200">{b.scores.opportunity}</td><td className="p-2 font-mono">{b.scores.bullishBias} / {b.scores.bearishBias}</td><td className="p-2 font-mono">{b.scores.longEntry} / {b.scores.shortEntry}</td><td className="p-2 font-mono text-amber-200">{b.scores.exhaustion}</td><td className="p-2 font-mono">{b.scores.reliability}</td>
             <td className="p-2 text-slate-300">{b.squeeze}</td><td className="p-2 text-slate-300">{b.whales}</td><td className="p-2 text-slate-300">{b.top.split(":")[0]}</td><td className="p-2 text-slate-400">{melbourne(b.at)}</td>
           </tr>)}</tbody></table></div>}
-      <p className="text-xs text-slate-500">Tap a row for the full reading. Scores are uncalibrated heuristics, not win probabilities.</p>
+      <p className="text-xs text-slate-500">Tap a row for the full reading. Rating is the calibrated 1–10 grade from the 180-day test across {overview?.calibration.pairs ?? "all"} pairs; 1–2 is blocked.</p>
     </section>}
 
     {tab === "analyse" && <section className="mt-4 space-y-4">
@@ -165,7 +208,7 @@ export function Ws2View() {
         <p className="text-slate-300">Direction right after 4 h: {p.directionJudged ? p.directionRight + " of " + p.directionJudged : "none yet"}</p>
         {p.byStatus.length > 0 && <ul className="mt-1 text-xs text-slate-400">{p.byStatus.map(b => <li key={b.status}>{b.status}: {b.scored} scored, {b.filled} filled, {b.tp1} TP1+, {b.stops} stops{b.avgNetR !== null ? ", " + b.avgNetR + "R avg" : ""}</li>)}</ul>}
       </div>)}</div>
-      <p className="text-xs text-slate-400">Shadow mode. Each signal is frozen when issued and scored once against the 15-minute candles that followed: the entry must actually trade within 4 hours; if the stop level trades first the trade is cancelled with no loss; a stop and target in the same candle counts as a stop; fees and slippage are deducted. Under 30 filled trades the figures prove nothing.</p>
+      <p className="text-xs text-slate-400">Shadow mode. Each signal is frozen when issued and scored once against the 15-minute candles that followed: the entry must actually trade within 4 hours; if the stop level trades first the trade is cancelled with no loss; profit is taken in parts at the five targets (30/25/20/15/10%) and the stop is never moved; a stop and target in the same candle counts as a stop; fees and slippage are deducted. Under 30 filled trades the figures prove nothing.</p>
       <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-2 font-medium">Issued</th><th className="p-2 font-medium">Coin</th><th className="p-2 font-medium">Status</th><th className="p-2 font-medium">Bias</th><th className="p-2 text-right font-medium">Bull / Bear</th><th className="p-2 text-right font-medium">Exh.</th><th className="p-2 font-medium">Plan</th><th className="p-2 font-medium">Outcome</th></tr></thead>
         <tbody>{overview.log.map(e => <tr key={e.id} className="border-t border-white/[0.05] align-top"><td className="p-2 text-slate-400">{melbourne(e.at)}</td><td className="p-2 font-mono text-white">{e.coin}</td><td className="p-2">{e.status}</td><td className="p-2">{e.side ?? "—"}</td><td className="p-2 text-right font-mono">{e.scores.bullishBias} / {e.scores.bearishBias}</td><td className="p-2 text-right font-mono">{e.scores.exhaustion}</td><td className="p-2 font-mono text-slate-300">{e.plan ? fmt(e.plan.entryLow) + "–" + fmt(e.plan.entryHigh) + " · stop " + fmt(e.plan.stop) : "—"}</td><td className="p-2 text-slate-300">{e.outcome ? e.outcome.result + (e.outcome.netR !== null && e.outcome.filled ? " · " + e.outcome.netR + "R" : "") + (e.outcome.forward4hPct !== null ? " · 4 h " + (e.outcome.forward4hPct >= 0 ? "+" : "") + e.outcome.forward4hPct.toFixed(2) + "%" : "") : "pending"}</td></tr>)}</tbody></table></div>
     </section>}
@@ -184,11 +227,12 @@ export function Ws2View() {
           <li>Position size comes from the stop distance, fees and your risk %, never from how strong the positioning looks.</li>
           <li>Missing data is shown as UNAVAILABLE and scores nothing. Nothing is invented.</li>
         </ul>
-        <p className="mt-2 text-amber-200">Unvalidated: the weights and thresholds below are starting hypotheses. No backtest of the positioning inputs has been run, because exchanges publish only days to weeks of that history. The signal log is the validation: once enough signals are scored, the weights can be re-fitted.</p>
+        <p className="mt-2 text-cyan-100">Calibrated: see the results below. Whale positions and exchange top-trader ratios have no usable history, so those two inputs remain untested.</p>
         <p className="mt-2 font-mono text-xs">Weights: {Object.entries(overview.weights).map(([k, v]) => k + " " + v).join(" · ")}</p>
         <p className="font-mono text-xs">Thresholds: {Object.entries(overview.thresholds).map(([k, v]) => k + " " + v).join(" · ")}</p>
         <p className="mt-1 text-xs text-slate-500">Model {overview.version}</p>
       </div>
+      <CalibrationReport cal={overview.calibration}/>
       <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Metric", "Exchange", "Unit", "Who it covers", "Updates", "History", "If missing", "Limits"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
         <tbody>{overview.sources.map(s => <tr key={s.metric + s.exchange} className="border-t border-white/[0.05] align-top"><td className="p-2 text-white">{s.metric}<span className="block font-mono text-[10px] text-slate-500">{s.endpoint}</span></td><td className="p-2">{s.exchange}</td><td className="p-2">{s.unit}</td><td className="p-2">{s.population}</td><td className="p-2">{s.update}</td><td className="p-2">{s.history}</td><td className="p-2">{s.missing}</td><td className="p-2">{s.limits}</td></tr>)}</tbody></table></div>
     </section>}

@@ -2,7 +2,7 @@
 
 A separate system inside Boma Scans, added beside the Scanner, the original Whale system and Before Telegram. It reads their data and changes none of their logic.
 
-Model version: `WS2-0.1`. Status: **shadow mode, unvalidated**. No order is ever placed.
+Model version: `WS2-0.2`. Status: **shadow mode, calibrated on 511 pairs; no profit edge shown**. No order is ever placed.
 
 ## Backup and how to undo
 
@@ -97,19 +97,88 @@ The full registry is in `app/lib/ws2/registry.ts` and on the page under "Data so
 - **Whales:** Hyperliquid only. A futures position may hedge spot held elsewhere. Wallet transfers are not used.
 - **Predicted funding, order-book depth, CVD history:** not used.
 
-## Testing actually run
+## Calibration (model WS2-0.2)
 
-- `tests/ws2-engine.test.mjs`: 8 tests, all passing.
-- The mandatory NEAR/USDT regression test uses the captured readings (Binance 62% long, OKX 51%, Bybit 67% unchanged, coin open interest +0.18% with USD about −11%, funding −0.002262% against a displayed +0.0050%, 95% long liquidations, whale exposure not supplied). The general engine, with no NEAR-specific code, returns bearish bias, top traders "do not support shorts", retail "normal for this coin", the USD/coin open-interest distinction, exhaustion 90/100, long squeeze at "potential exhaustion", the funding discrepancy flag, whales UNAVAILABLE, size NOT AUTHORISED, and status CHASING RISK.
-- The existing 102 tests still pass unchanged.
+### What was run
 
-## Testing NOT run (unresolved)
+- **Replay:** the engine was run every 4 hours over **511 Bybit crypto perpetuals** (every crypto pair listed; stock and commodity contracts left out) from 2026-05-28 to 2026-11-23: **513,764 readings**. Zero pairs failed.
+- **No look-ahead:** at each reading the engine saw only candles that had closed and open interest, account ratios and funding stamped by that time.
+- **Outcomes:** for every reading both the LONG and the SHORT plan, pullback and market, were played forward on 15-minute candles. The entry must trade within 4 hours. A stop touched before the fill cancels the trade. 30/25/20/15/10% is closed at TP1–TP5, the stop is never moved, the remainder is lost at the stop or closed after 24 hours. A stop and target in one candle counts as the stop. Fees (0.055% each way) and slippage (0.02%) are deducted.
+- **Split:** oldest 60% to fit, next 20% and final 20% to check, with a 30-hour gap between sets because outcome windows overlap.
 
-- **No historical backtest of System 2 has been run.** Exchanges publish only days to weeks of positioning, open-interest and account-ratio history, so a 12–24 month test of those inputs is not possible from public data. No win rate, profit factor or drawdown is claimed.
-- **No comparison against the original system** exists yet. It needs logged outcomes from both.
-- **No probability calibration.** Scores are heuristics.
-- **No walk-forward, ablation or regime breakdown** yet; they need the log.
-- Daily loss limits, portfolio exposure and correlation limits are not implemented; sizing is per trade.
+| Period | Dates | Readings | Typical coin per day | Share of times the market rose |
+|---|---|---:|---:|---:|
+| Fitting | 2026-05-28 → 2026-09-16 | 308,625 | -0.41% | 43% |
+| Check 1 | 2026-09-17 → 2026-10-20 | 99,034 | -0.22% | 54% |
+| Check 2 | 2026-10-22 → 2026-11-23 | 99,157 | -1.15% | 42% |
+
+### What it showed
+
+1. **The rating separates bad setups from better ones, and that holds on unseen data** (ranking score 0.573 fitting, 0.552 and 0.559 on the checks; 0.50 is chance).
+2. **No group of setups made money after fees.** The best rating is about break-even. System 2 has **not** shown a profit edge.
+3. **The directional bias did not predict direction.** Against the next 24 hours it scored 0.477, 0.489 and 0.447: slightly worse than a coin flip, i.e. mild mean reversion.
+4. **Retail crowding and funding carried no measurable information** (0.49–0.51).
+5. **The market fell in all three periods.** Shorts did well late in the test because of the market, as the "always SHORT" row shows.
+
+Rating table, market entry, unseen data (both checks pooled):
+
+| Rating | Setups | Finished in profit | Average result | Error | Check 1 | Check 2 |
+|---|---:|---:|---:|---:|---:|---:|
+| 1/10 (blocked) | 44,857 | 30% | −0.47R | ±0.03 | −0.54R | −0.40R |
+| 2/10 (blocked) | 41,269 | 38% | −0.14R | ±0.03 | −0.15R | −0.13R |
+| 3/10 | 39,114 | 41% | −0.10R | ±0.02 | −0.12R | −0.09R |
+| 4/10 | 37,054 | 42% | −0.10R | ±0.02 | −0.13R | −0.08R |
+| 5/10 | 36,604 | 44% | −0.08R | ±0.01 | −0.09R | −0.07R |
+| 6/10 | 37,788 | 46% | −0.04R | ±0.01 | −0.04R | −0.03R |
+| 7/10 | 38,695 | 47% | −0.03R | ±0.02 | −0.02R | −0.03R |
+| 8/10 | 40,310 | 48% | −0.00R | ±0.02 | −0.01R | +0.00R |
+| 9/10 | 40,181 | 47% | −0.01R | ±0.02 | −0.02R | −0.00R |
+| 10/10 | 40,504 | 45% | −0.02R | ±0.02 | −0.03R | −0.02R |
+
+Rules compared (average result after fees, number of trades):
+
+| Rule | Fitting | Check 1 | Check 2 |
+|---|---:|---:|---:|
+| 0.1 ENTRY READY (market) | −0.06R (6,364) | −0.08R (1,769) | +0.08R (2,441) |
+| 0.2 ENTRY READY: 0.1 rule and rating 8-10 (market) | −0.07R (2,106) | −0.12R (579) | +0.10R (1,066) |
+| 0.2 blocked: lead side but rating 1-2 (pullback, what was avoided) | −0.12R (1,871) | −0.03R (646) | −0.07R (646) |
+| 0.2 kept waiting setups: lead side, rating 3-10 (pullback) | −0.02R (83,120) | +0.03R (26,042) | +0.09R (28,967) |
+| any lead side, rating 9-10 (market) | −0.01R (54,507) | −0.01R (16,816) | +0.07R (21,947) |
+| any lead side, rating 1-2 (market) | −0.10R (4,180) | −0.04R (1,484) | −0.07R (1,347) |
+| reference: always LONG (market) | −0.15R (308,620) | −0.07R (99,034) | −0.30R (99,154) |
+| reference: always SHORT (market) | −0.15R (308,620) | −0.13R (99,034) | +0.12R (99,154) |
+
+Did each input predict the next 24 hours? (0.50 = coin flip)
+
+| Input | Fitting | Check 1 | Check 2 |
+|---|---:|---:|---:|
+| structure | 0.485 | 0.497 | 0.451 |
+| flow | 0.486 | 0.481 | 0.477 |
+| htf | 0.475 | 0.496 | 0.472 |
+| retail | 0.501 | 0.496 | 0.502 |
+| funding | 0.498 | 0.493 | 0.509 |
+| btc | 0.500 | 0.464 | 0.439 |
+
+### What changed in the app because of it
+
+- Every reading carries a **calibrated rating from 1 to 10** with the record of similar setups in the unseen data: how often they finished in profit and the average result after fees.
+- **Setups rated 1–2 are blocked** (status NO TRADE). That is the one rule the data supports in every period.
+- ENTRY READY is worded as a fair entry, not a proven edge.
+- Each pair shows its own count and result of well-rated setups, marked as a small sample.
+- The weights from the brief are unchanged: nothing in the test justified new ones, and the rating model now does the ranking.
+
+### Limits that remain
+
+- **180 days, one falling market.** Results in a rising or flat market are unknown. Re-run when the market changes.
+- **Not tested, no history exists:** whale positions, exchange top-trader ratios, taker flow, liquidations. They still enter the live bias at their provisional weights.
+- **One model for all pairs.** A single pair has about 1,000 readings, too few to fit separately.
+- Readings every 4 hours overlap, so errors are grouped by timestamp; they are still approximate.
+- No walk-forward re-fitting, no probability calibration beyond the ten rating bands, no portfolio or daily-loss limits.
+- The 0.2 rule was not compared with the original whale system; that needs logged outcomes from both.
+
+### Re-running the calibration
+
+Tools and steps are in `tools/ws2-calibration/README.md`. The replay endpoint is `/api/ws2/calibrate` (scheduler key required).
 
 ## Market coverage
 
@@ -124,7 +193,7 @@ System 2 is a general engine. No coin has special rules; NEAR is only the regres
 ## Validation plan (prospective)
 
 1. The 15-minute job analyses the System 2 watchlist and freezes each signal in `ws2-log` with its inputs, scores and plan.
-2. After the signal's life, `scoreOutcome` scores it once against the following 15-minute candles: the entry must trade within 4 hours; a stop touched first cancels the trade with no loss; a stop and target in one candle counts as a stop; fees and slippage are deducted.
+2. After the signal's life, `scoreOutcome` scores it once against the following 15-minute candles: the entry must trade within 4 hours; a stop touched first cancels the trade with no loss; exits are partial at the five targets (30/25/20/15/10%), the stop is never moved, a stop and target in one candle counts as the stop, and fees and slippage are deducted.
 3. The page shows 7, 30 and 90-day results, labelled INSUFFICIENT SAMPLE under 30 filled trades and PRELIMINARY under 100.
 
 ## Recalibrating later

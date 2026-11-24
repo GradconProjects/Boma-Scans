@@ -1,5 +1,7 @@
 import { runWs2, type Candle, type Levels, type Side, type Ws2Input, type Ws2Params } from "@/app/lib/ws2/engine";
 import { scoreOutcome, type Ws2LogEntry } from "@/app/lib/ws2/outcomes";
+import { WS2_CALIBRATION } from "@/app/lib/ws2/calibrated";
+import { rate, ratingFeatures } from "@/app/lib/ws2/rating";
 
 /**
  * Historical replay of Whale System 2 for one Bybit pair, used for calibration.
@@ -36,7 +38,7 @@ async function timeSeries<T>(path: string, params: Record<string, string>, limit
 const RESULTS = ["UNFILLED", "INVALIDATED BEFORE ENTRY", "STOP", "TP1", "TP2", "TP3", "TP4", "TP5", "EXPIRED IN TRADE", "NO PLAN"];
 const r3 = (v: number | null | undefined) => v === null || v === undefined || !Number.isFinite(v) ? null : Math.round(v * 1000) / 1000;
 export const REPLAY_COLUMNS = ["t", "bull", "bear", "entryL", "entryS", "exhL", "exhS", "confL", "confS", "locL", "locS", "rel", "struB", "struS", "flowB", "flowS", "htfB", "htfS", "retB", "retS", "funB", "funS", "btcB", "btcS", "sqL", "sqS", "fwd4", "fwd24",
-  ...["LP", "LM", "SP", "SM"].flatMap(k => [k + "_filled", k + "_res", k + "_netR", k + "_mfe", k + "_mae", k + "_stopAtr", k + "_wR"])];
+  ...["LP", "LM", "SP", "SM"].flatMap(k => [k + "_filled", k + "_res", k + "_netR", k + "_mfe", k + "_mae", k + "_stopAtr", k + "_wR"]), "pLM", "pLP", "pSM", "pSP"];
 
 export async function replayWs2(symbol: string, days: number, stepHours: number, params: Ws2Params | undefined, now = Date.now()) {
   const since = now - days * 24 * H; const warm = since - 16 * 24 * H;
@@ -84,7 +86,9 @@ export async function replayWs2(symbol: string, days: number, stepHours: number,
     const loc = (v: string) => v === "GOOD" ? 0 : v === "EXTENDED" ? 1 : v === "CHASING" ? 2 : 3;
     rows.push([t, r.scores.bullishBias, r.scores.bearishBias, r.detail.LONG.entry, r.detail.SHORT.entry, r.detail.LONG.exhaustion, r.detail.SHORT.exhaustion, r.detail.LONG.confirmed ? 1 : 0, r.detail.SHORT.confirmed ? 1 : 0, loc(r.detail.LONG.located), loc(r.detail.SHORT.located), r.scores.reliability,
       ...["structure", "flow", "htf", "retail", "funding", "btc"].flatMap(k => [r3(c(k).bull), r3(c(k).bear)]), r.scores.longSqueeze, r.scores.shortSqueeze, at(4), at(24),
-      ...plan("LONG", r.plans.LONG.pullback), ...plan("LONG", r.plans.LONG.market), ...plan("SHORT", r.plans.SHORT.pullback), ...plan("SHORT", r.plans.SHORT.market)]);
+      ...plan("LONG", r.plans.LONG.pullback), ...plan("LONG", r.plans.LONG.market), ...plan("SHORT", r.plans.SHORT.pullback), ...plan("SHORT", r.plans.SHORT.market),
+      // The shipped rating for each plan, so a re-run can confirm the app scores exactly as the fitted model does.
+      rate(WS2_CALIBRATION.models.market, ratingFeatures(r, "LONG", r.plans.LONG.market)).p, rate(WS2_CALIBRATION.models.pullback, ratingFeatures(r, "LONG", r.plans.LONG.pullback)).p, rate(WS2_CALIBRATION.models.market, ratingFeatures(r, "SHORT", r.plans.SHORT.market)).p, rate(WS2_CALIBRATION.models.pullback, ratingFeatures(r, "SHORT", r.plans.SHORT.pullback)).p]);
   }
   return { meta, columns: REPLAY_COLUMNS, rows };
 }

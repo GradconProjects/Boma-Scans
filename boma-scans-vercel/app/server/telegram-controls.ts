@@ -135,7 +135,7 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
  if(command==="/ws2") {
   const coin=(args[0]??"").toUpperCase().replace(/[^A-Z0-9]/g,"").replace(/USDT$/,"");if(!coin){await send("Use /ws2 NEAR (Whale System 2: separate scores, can say no trade).");return;}
   await send("🐋² Whale System 2 is reading "+coin+"…");
-  const {analyseWs2}=await import("@/app/server/ws2/store");const {ws2Lines}=await import("@/app/lib/ws2/engine");
+  const {analyseWs2}=await import("@/app/server/ws2/store");const {ws2RatedLines:ws2Lines}=await import("@/app/lib/ws2/calibrated");
   const {result}=await analyseWs2(coin);
   await send(renderTelegramHtml([...ws2Lines(result),"🔗 Open in app: "+origin+"/whales-2?coin="+coin]),true,true);return;
  }

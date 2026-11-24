@@ -1,7 +1,9 @@
 import { readOwnerRecord, writeOwnerRecord } from "@/app/server/telegram-delivery";
 import { marketRead, bars } from "@/app/server/market-analysis";
 import { resolveBybitSymbol } from "@/app/lib/ws2/symbols";
-import { runWs2, type Candle, type Ws2Result } from "@/app/lib/ws2/engine";
+import type { Candle } from "@/app/lib/ws2/engine";
+import { runWs2Calibrated as runWs2 } from "@/app/lib/ws2/calibrated";
+import type { Ws2Rated as Ws2Result } from "@/app/lib/ws2/rating";
 import { scoreOutcome, type Ws2LogEntry } from "@/app/lib/ws2/outcomes";
 import { gatherWs2, WS2_DEFAULTS, type Ws2Settings } from "@/app/server/ws2/gather";
 
@@ -16,9 +18,9 @@ export async function ws2Log(): Promise<Ws2LogEntry[]> { try { return JSON.parse
 const saveLog = (log: Ws2LogEntry[]) => writeOwnerRecord("ws2-log", JSON.stringify(log.slice(-800)));
 
 /** Latest reading per coin, for the market board. */
-export type Ws2BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string };
+export type Ws2BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string; rating: number | null };
 export async function ws2Board(): Promise<Record<string, Ws2BoardRow>> { try { return JSON.parse((await readOwnerRecord("ws2-board")) ?? "{}") as Record<string, Ws2BoardRow>; } catch { return {}; } }
-const boardRow = (r: Ws2Result): Ws2BoardRow => ({ coin: r.coin, symbol: r.symbol, at: r.at, status: r.status, side: r.side, price: r.price, scores: r.scores, headline: r.headline, squeeze: r.side === "SHORT" ? r.squeeze.long.stage : r.side === "LONG" ? r.squeeze.short.stage : "—", top: r.institutions.verdict, whales: r.whales.verdict });
+const boardRow = (r: Ws2Result): Ws2BoardRow => ({ coin: r.coin, symbol: r.symbol, at: r.at, status: r.status, side: r.side, price: r.price, scores: r.scores, headline: r.headline, squeeze: r.side === "SHORT" ? r.squeeze.long.stage : r.side === "LONG" ? r.squeeze.short.stage : "—", top: r.institutions.verdict, whales: r.whales.verdict, rating: r.calibration.lead?.rating ?? null });
 /** Saves a batch of readings to the board in one write and drops rows older than a day. */
 export async function saveBoardRows(results: Ws2Result[], now = Date.now()) {
   if (!results.length) return;
@@ -72,7 +74,7 @@ export async function logWs2(results: Ws2Result[], settings: Ws2Settings, now = 
     added++;
     {
     const lv = result.status === "ENTRY READY" ? result.levels.market ?? result.levels.pullback : result.levels.pullback;
-    log.push({ id: symbol + ":" + now, at: now, version: result.version, coin: result.coin, symbol, status: result.status, side: result.side, price: result.price, scores: result.scores,
+    log.push({ id: symbol + ":" + now, at: now, version: result.version, coin: result.coin, symbol, status: result.status, side: result.side, price: result.price, scores: { ...result.scores, rating: result.calibration.lead?.rating ?? 0 },
       plan: lv && result.side ? { entryLow: lv.entryLow, entryHigh: lv.entryHigh, entry: lv.entry, stop: lv.stop, targets: lv.targets.map(t => t.price) } : null,
       inputs: result.components.map(c => c.key + ": " + (c.available ? "bull " + c.bull.toFixed(2) + " bear " + c.bear.toFixed(2) : "UNAVAILABLE")), costPct: 2 * settings.feePct + settings.slippagePct });
     }

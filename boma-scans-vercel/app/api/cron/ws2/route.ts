@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from "next/server";
 import { cronAuthorized } from "@/app/server/cron-auth";
 import { logWs2, nextUniverseSlice, readWs2, saveBoardRows, scoreWs2Log, symbolFor, ws2Settings } from "@/app/server/ws2/store";
 import { deliverEvents, telegramConfig } from "@/app/server/telegram-delivery";
-import { ws2Lines, type Ws2Result } from "@/app/lib/ws2/engine";
+import { ws2RatedLines as ws2Lines } from "@/app/lib/ws2/calibrated";
+import type { Ws2Rated as Ws2Result } from "@/app/lib/ws2/rating";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -35,5 +36,5 @@ export async function GET(request: NextRequest) {
   }
   let sent = 0; if (events.length) { const config = await telegramConfig().catch(() => null); if (config) sent = (await deliverEvents(config, events, request.nextUrl.origin)).sent; }
   const scored = await scoreWs2Log(4).catch(() => 0);
-  return NextResponse.json({ ok: true, analysed: results.map(r => ({ coin: r.coin, status: r.status, side: r.side, opportunity: r.scores.opportunity })), errors, alerts: sent, scored, ms: Date.now() - started }, { headers: { "Cache-Control": "no-store" } });
+  return NextResponse.json({ ok: true, analysed: results.map(r => ({ coin: r.coin, status: r.status, side: r.side, opportunity: r.scores.opportunity, rating: r.calibration.lead?.rating ?? null })), errors, alerts: sent, scored, ms: Date.now() - started }, { headers: { "Cache-Control": "no-store" } });
 }

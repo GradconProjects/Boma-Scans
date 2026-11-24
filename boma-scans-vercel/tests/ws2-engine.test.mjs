@@ -159,3 +159,39 @@ test("Symbols: kPEPE, KPEPE, PEPE and 1000PEPE all resolve to the real Bybit pai
   assert.equal(resolveBybitSymbol("kSATS", listed), "10000SATSUSDT"); assert.equal(resolveBybitSymbol("KAS", listed), "KASUSDT", "a real K coin is not stripped");
   assert.equal(resolveBybitSymbol("btc", listed), "BTCUSDT"); assert.equal(resolveBybitSymbol("NOTACOIN", listed), null); assert.equal(resolveBybitSymbol("", listed), null);
 });
+
+// ── Calibrated rating
+const cal = JSON.parse(readFileSync(new URL("../app/lib/ws2/calibration-data.json", import.meta.url), "utf8"));
+const rfile = new URL("../app/lib/ws2/rating.ts", import.meta.url).pathname; const rmod = new Module(rfile); rmod.require = require;
+rmod._compile(ts.transpileModule(readFileSync(rfile, "utf8"), { compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2022 } }).outputText, rfile);
+const { applyCalibration, rate, ratingFeatures, ratingLines } = rmod.exports;
+
+test("Calibration data: built from every pair, honest about the result, ratings ordered worst to best", () => {
+  assert.ok(cal.pairs >= 400 && cal.samples >= 300_000, cal.pairs + " pairs, " + cal.samples + " samples");
+  assert.equal(Object.keys(cal.pairStats).length, cal.pairs);
+  for (const m of [cal.models.market, cal.models.pullback]) {
+    assert.equal(m.coef.length, cal.features.length); assert.equal(m.decileCuts.length, 9); assert.equal(m.deciles.length, 10);
+    assert.ok(m.auc.val > 0.52 && m.auc.test > 0.52, "the rating holds on unseen data");
+    assert.ok(m.deciles[0].check.avgNetR < -0.3, "rating 1 lost heavily in unseen data"); assert.ok(m.deciles[0].check.avgNetR < m.deciles[9].check.avgNetR - 0.3);
+    assert.ok(m.deciles[9].check.avgNetR < 0.1, "no rating is presented as a proven profit edge");
+  }
+});
+
+test("Rating: every reading gets a 1–10 grade with its unseen-data record; grades 1–2 are blocked", () => {
+  const r = applyCalibration(runWs2(nearInput()), cal);
+  assert.equal(r.version, cal.version); assert.match(r.scoreNote, /^CALIBRATED on [\d,]+ replayed readings from \d+ Bybit crypto pairs/); assert.ok(!r.scoreNote.includes("UNCALIBRATED"));
+  assert.match(r.scoreNote, /has not shown a profit edge/);
+  const lead = r.calibration.lead; assert.ok(lead && lead.rating >= 1 && lead.rating <= 10 && lead.p > 0 && lead.p < 1);
+  assert.match(r.calibration.leadPlain, /finished in profit \d+% of the time and averaged [+−]\d\.\d\dR after fees/);
+  assert.notEqual(r.status, "ENTRY READY"); assert.ok(r.explain.some(e => e.q === "What is this setup's track record?"));
+  assert.ok(ratingLines(r)[0].startsWith("🎓 CALIBRATED RATING"));
+  // The cut points map probabilities to grades exactly.
+  const m = cal.models.market; const lo = rate({ ...m, intercept: -9 }, ratingFeatures(runWs2(nearInput()), "SHORT", null)), hi = rate({ ...m, intercept: 9 }, ratingFeatures(runWs2(nearInput()), "SHORT", null));
+  assert.equal(lo.rating, 1); assert.equal(hi.rating, 10); assert.equal(lo.won, m.deciles[0].check.won);
+  // A setup graded 1–2 is turned into NO TRADE whatever the bias says.
+  const bad = { ...cal, models: { market: { ...cal.models.market, intercept: -9 }, pullback: { ...cal.models.pullback, intercept: -9 } } };
+  const b = applyCalibration(runWs2(nearInput()), bad); assert.equal(b.calibration.blocked, true); assert.equal(b.status, "NO TRADE"); assert.equal(b.scores.opportunity, 0); assert.match(b.headline, /Stand aside/); assert.match(b.sizing, /^NOT AUTHORISED/);
+  // With no data there is nothing to rate.
+  const none = applyCalibration(runWs2({ ...nearInput(), candles: { m15: [], h1: [], h4: [], d1: [] }, price: null }), cal); assert.equal(none.status, "DATA UNAVAILABLE"); assert.equal(none.calibration.lead, null);
+  assert.match(none.headline, /Bybit returned only 0 closed 1h candles for NEARUSDT/);
+});
