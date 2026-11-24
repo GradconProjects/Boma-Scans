@@ -18,7 +18,7 @@ async function page<T>(path: string, params: Record<string, string>): Promise<T[
 }
 async function klines(symbol: string, interval: string, ms: number, since: number, now: number): Promise<Candle[]> {
   const out: Candle[] = []; let end = now;
-  for (let i = 0; i < 14 && end > since; i++) {
+  for (let i = 0; i < 24 && end > since; i++) {
     const rows = await page<string[]>("/v5/market/kline", { symbol, interval, limit: "1000", end: String(end) }); if (!rows.length) break;
     for (const r of rows) out.push({ time: Number(r[0]), open: Number(r[1]), high: Number(r[2]), low: Number(r[3]), close: Number(r[4]), volume: Number(r[5]) });
     const oldest = Number(rows[rows.length - 1][0]); if (oldest >= end) break; end = oldest - 1; if (rows.length < 1000) break;
@@ -43,9 +43,9 @@ export async function replayWs2(symbol: string, days: number, stepHours: number,
   const [h1, m15, h4, d1, btcH1, btcH4, oiRaw, accRaw, fundRaw, inst] = await Promise.all([
     klines(symbol, "60", H, warm, now), klines(symbol, "15", H / 4, since - 2 * 24 * H, now), klines(symbol, "240", 4 * H, since - 30 * 24 * H, now), klines(symbol, "D", 24 * H, since - 130 * 24 * H, now),
     symbol === "BTCUSDT" ? Promise.resolve([] as Candle[]) : klines("BTCUSDT", "60", H, warm, now), symbol === "BTCUSDT" ? Promise.resolve([] as Candle[]) : klines("BTCUSDT", "240", 4 * H, since - 30 * 24 * H, now),
-    timeSeries<{ openInterest: string; timestamp: string }>("/v5/market/open-interest", { symbol, intervalTime: "1h" }, 200, r => Number(r.timestamp), warm, now, 16),
-    timeSeries<{ buyRatio: string; timestamp: string }>("/v5/market/account-ratio", { symbol, period: "1h" }, 500, r => Number(r.timestamp), since - 21 * 24 * H, now, 8),
-    timeSeries<{ fundingRate: string; fundingRateTimestamp: string }>("/v5/market/funding/history", { symbol }, 200, r => Number(r.fundingRateTimestamp), since - 40 * 24 * H, now, 6),
+    timeSeries<{ openInterest: string; timestamp: string }>("/v5/market/open-interest", { symbol, intervalTime: "1h" }, 200, r => Number(r.timestamp), warm, now, 30),
+    timeSeries<{ buyRatio: string; timestamp: string }>("/v5/market/account-ratio", { symbol, period: "1h" }, 500, r => Number(r.timestamp), since - 21 * 24 * H, now, 12),
+    timeSeries<{ fundingRate: string; fundingRateTimestamp: string }>("/v5/market/funding/history", { symbol }, 200, r => Number(r.fundingRateTimestamp), since - 40 * 24 * H, now, 10),
     page<{ fundingInterval?: number }>("/v5/market/instruments-info", { symbol }),
   ]);
   const oi = oiRaw.map(o => ({ t: Number(o.timestamp), coins: Number(o.openInterest) })).filter(o => o.coins > 0);

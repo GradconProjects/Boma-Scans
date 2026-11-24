@@ -15,7 +15,7 @@ export async function GET(request: NextRequest) {
   try {
     if (q.get("list")) return NextResponse.json({ universe: await replayUniverse() });
     const symbol = (q.get("symbol") ?? "").toUpperCase(); if (!/^[A-Z0-9]{2,24}USDT$/.test(symbol)) return NextResponse.json({ error: "symbol?" }, { status: 400 });
-    const days = Math.max(5, Math.min(120, Number(q.get("days")) || 90)), step = Math.max(1, Math.min(24, Number(q.get("step")) || 4));
+    const days = Math.max(5, Math.min(200, Number(q.get("days")) || 180)), step = Math.max(1, Math.min(24, Number(q.get("step")) || 4));
     return NextResponse.json(await replayWs2(symbol, days, step, q.get("current") ? undefined : WS2_BASELINE), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "replay failed" }, { status: 502 }); }
 }

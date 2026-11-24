@@ -138,7 +138,10 @@ test("Outcome: an entry that never trades is UNFILLED; a stop touched first canc
 test("Outcome: fill then targets, fill then stop, same-candle conflict counts as a stop, costs are deducted", () => {
   const fill = bar(1, 100.5, 101.6, 100.4, 101.2);
   const win = [bar(0, 100, 100.5, 99.8, 100.4), fill, bar(2, 101.2, 101.3, 98.8, 99), bar(3, 99, 99.2, 96.8, 97.2), ...Array.from({ length: 110 }, (_, i) => bar(4 + i, 97.2, 97.6, 97.05, 97.3))];
-  const w = scoreOutcome(shortSignal(), win, NOW); assert.equal(w.filled, true); assert.equal(w.result, "TP2"); assert.ok(w.netR > 1 && w.netR < (w.fillPrice - 97) / (104 - w.fillPrice), "net of costs");
+  const w = scoreOutcome(shortSignal(), win, NOW); assert.equal(w.filled, true); assert.equal(w.result, "TP2");
+  { const risk = 104 - w.fillPrice, r1 = (w.fillPrice - 99) / risk, r2 = (w.fillPrice - 97) / risk, rEnd = (w.fillPrice - 97.3) / risk; const expected = 0.3 * r1 + 0.25 * r2 + 0.45 * rEnd - w.fillPrice * 0.0013 / risk; assert.ok(Math.abs(w.netR - expected) < 0.02, "partial exits at TP1 and TP2, the rest closed at the last price, net of costs: " + w.netR + " vs " + expected.toFixed(2)); assert.ok(w.netR < r2, "never credited with the best target on the whole position"); }
+  const giveBack = [bar(0, 100, 100.5, 99.8, 100.4), fill, bar(2, 101.2, 101.3, 98.8, 99.4), bar(3, 99.4, 104.5, 99.3, 104.2), ...Array.from({ length: 110 }, (_, i) => bar(4 + i, 104, 104.2, 103.8, 104))];
+  const g = scoreOutcome(shortSignal(), giveBack, NOW); assert.equal(g.result, "TP1"); assert.match(g.note, /then the rest was stopped out/); assert.ok(g.netR < 0, "TP1 on 30% then a stop on 70% is a net loss: " + g.netR);
   const lose = [bar(0, 100, 100.5, 99.8, 100.4), fill, bar(2, 101.2, 104.3, 101, 104.1), ...Array.from({ length: 110 }, (_, i) => bar(3 + i, 104, 104.2, 103.8, 104))];
   const l = scoreOutcome(shortSignal(), lose, NOW); assert.equal(l.result, "STOP"); assert.ok(l.netR < -1);
   const both = [bar(0, 100, 100.5, 99.8, 100.4), fill, bar(2, 101.2, 104.3, 98.5, 99), ...Array.from({ length: 110 }, (_, i) => bar(3 + i, 99, 99.2, 98.8, 99))];
