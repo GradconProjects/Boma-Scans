@@ -1,3 +1,6 @@
+import { analyzeMarket, analyzeBtcRelationship, scannerRowFromAnalysis, normalizeTicker, normalizeInstrument } from "@/app/lib/market";
+import { getMediumRiskShortlist } from "@/app/lib/recommendations";
+import { majorEventGate } from "@/app/lib/push-policy";
 import { runWs2, type Candle, type Levels, type Side, type Ws2Input, type Ws2Params } from "@/app/lib/ws2/engine";
 import { scoreOutcome, type Ws2LogEntry } from "@/app/lib/ws2/outcomes";
 import { WS2_CALIBRATION } from "@/app/lib/ws2/calibrated";
@@ -98,4 +101,57 @@ export async function replayUniverse(): Promise<Array<{ symbol: string; turnover
   const [tickers, instruments] = await Promise.all([page<{ symbol: string; turnover24h: string }>("/v5/market/tickers", {}), page<{ symbol: string; symbolType?: string; status?: string }>("/v5/market/instruments-info", { limit: "1000" })]);
   const skip = new Set(instruments.filter(i => ["stock", "commodity", "forex", "index", "etf"].includes((i.symbolType ?? "").toLowerCase())).map(i => i.symbol));
   return tickers.filter(t => /^[A-Z0-9]{2,24}USDT$/.test(t.symbol) && !skip.has(t.symbol)).map(t => ({ symbol: t.symbol, turnover: Number(t.turnover24h) })).sort((a, b) => b.turnover - a.turnover);
+}
+
+
+/**
+ * The same replay for the original Scanner (DAY style: 1h signals, 4h and daily context, STRICT), for a like-for-like comparison.
+ * At each sample the Scanner engine sees the closed candles plus the current price, exactly as it does live, with turnover taken from
+ * the real last 24 hours. A row is recorded when the engine calls a setup. Each plan is scored twice with the same partial-exit rules
+ * and costs as System 2: (A) the Scanner's own horizon, 24 h to fill and 72 h in the trade; (B) System 2's horizon, 4 h and 24 h.
+ * Not replayable, so absent: the AI second read, the whale and positioning gates, the order-book spread (a tight spread is assumed).
+ */
+export const SCANNER_COLUMNS = ["t", "side", "pick", "gate", "score", "riskPct", "A_filled", "A_res", "A_netR", "B_filled", "B_res", "B_netR", "fwd24", "regimeTrending", "frames"];
+export async function replayScanner(symbol: string, days: number, stepHours: number, now = Date.now()) {
+  const since = now - days * 24 * H;
+  const [h1, m15, h4, d1, wk, btcH1, btcD, fundRaw, inst] = await Promise.all([
+    klines(symbol, "60", H, since - 22 * 24 * H, now), klines(symbol, "15", H / 4, since - 2 * 24 * H, now), klines(symbol, "240", 4 * H, since - 70 * 24 * H, now), klines(symbol, "D", 24 * H, since - 365 * 24 * H, now), klines(symbol, "W", 7 * 24 * H, since - 1500 * 24 * H, now),
+    symbol === "BTCUSDT" ? Promise.resolve([] as Candle[]) : klines("BTCUSDT", "60", H, since - 22 * 24 * H, now), klines("BTCUSDT", "D", 24 * H, since - 365 * 24 * H, now),
+    timeSeries<{ fundingRate: string; fundingRateTimestamp: string }>("/v5/market/funding/history", { symbol }, 200, r => Number(r.fundingRateTimestamp), since - 5 * 24 * H, now, 10),
+    page<Record<string, unknown>>("/v5/market/instruments-info", { symbol }),
+  ]);
+  const fund = fundRaw.map(f => ({ t: Number(f.fundingRateTimestamp), v: Number(f.fundingRate) })).filter(f => Number.isFinite(f.v));
+  const meta = { symbol, days, stepHours, h1: h1.length, m15: m15.length, h4: h4.length, d1: d1.length, weekly: wk.length, evaluated: 0, setups: 0 };
+  const rows: Array<Array<number | null>> = [];
+  if (h1.length < 200 || m15.length < 400 || !inst[0]) return { meta, columns: SCANNER_COLUMNS, rows };
+  const instrument = normalizeInstrument(inst[0]);
+  const upto = <T,>(arr: T[], closedBy: (x: T) => number) => { let i = 0; return (t: number) => { while (i < arr.length && closedBy(arr[i]) <= t) i++; return i; }; };
+  const pH1 = upto(h1, c => c.time + H), pM = upto(m15, c => c.time + H / 4), pH4 = upto(h4, c => c.time + 4 * H), pD = upto(d1, c => c.time + 24 * H), pW = upto(wk, c => c.time + 7 * 24 * H), pB1 = upto(btcH1, c => c.time + H), pBD = upto(btcD, c => c.time + 24 * H), pF = upto(fund, f => f.t);
+  const start = Math.ceil(Math.max(since, h1[0].time + 130 * H) / (stepHours * H)) * stepHours * H; const last = now - 98 * H; const costPct = 2 * 0.055 + 0.02;
+  for (let t = start; t <= last; t += stepHours * H) {
+    const iM = pM(t), iH = pH1(t); if (iM < 30 || iH < 130) continue;
+    const price = m15[iM - 1].close; const live: Candle = { time: t, open: price, high: price, low: price, close: price, volume: 0 };
+    const fast = [...h1.slice(Math.max(0, iH - 480), iH), live], mid = h4.slice(Math.max(0, pH4(t) - 400), pH4(t)), slow = d1.slice(Math.max(0, pD(t) - 360), pD(t));
+    if (mid.length < 31 || slow.length < 31) continue;
+    const day = h1.slice(Math.max(0, iH - 24), iH); const turnover = day.reduce((a, c) => a + c.close * c.volume, 0); const iF = pF(t);
+    const ticker = normalizeTicker({ symbol, lastPrice: price, markPrice: price, indexPrice: price, price24hPcnt: day.length ? price / day[0].open - 1 : 0, turnover24h: turnover, volume24h: day.reduce((a, c) => a + c.volume, 0), fundingRate: iF ? fund[iF - 1].v : 0.0001, bid1Price: price * 0.99997, ask1Price: price * 1.00003, openInterestValue: 0 });
+    meta.evaluated++;
+    let analysis: ReturnType<typeof analyzeMarket>;
+    try { analysis = analyzeMarket(fast, mid, slow, ticker, "DAY", { flexibility: "STRICT", takerFeePct: 0.055, slippagePct: 0.02, now: t + 2000, weekly: wk.slice(Math.max(0, pW(t) - 200), pW(t)) }); } catch { continue; }
+    if (analysis.decision !== "SETUP") continue;
+    const btcFast = symbol === "BTCUSDT" ? fast : btcH1.slice(Math.max(0, pB1(t) - 480), pB1(t));
+    const row = scannerRowFromAnalysis(ticker, analysis, false, instrument, "DAY", analyzeBtcRelationship(symbol, fast, btcFast, analysis, btcD.slice(Math.max(0, pBD(t) - 360), pBD(t))));
+    if (row.bias !== "LONG" && row.bias !== "SHORT") continue;
+    const pick = getMediumRiskShortlist([row], 10_000, true, 1, t + 2000)[0]; let gate = false;
+    try { gate = majorEventGate(row, analysis, fast).ok; } catch { gate = false; }
+    const plan = row.executionPlan; const targets = row.takeProfits.filter(x => x.available !== false && Number.isFinite(x.price)).map(x => x.price); if (!targets.length || !Number.isFinite(row.stop)) continue;
+    meta.setups++;
+    const entry: Ws2LogEntry = { id: "", at: t, version: "", coin: "", symbol, status: "WATCHING", side: row.bias, price, scores: {}, plan: { entryLow: Math.min(plan.entryLow, plan.entryHigh), entryHigh: Math.max(plan.entryLow, plan.entryHigh), entry: plan.entry, stop: row.stop, targets }, inputs: [], costPct };
+    const after = m15.slice(iM, Math.min(m15.length, iM + 97 * 4 + 2));
+    const a = scoreOutcome(entry, after, t + 200 * H, { fillMs: 24 * H, lifeMs: 72 * H }), b = scoreOutcome(entry, after, t + 200 * H);
+    const cell = (o: typeof a) => o ? [o.filled ? 1 : 0, RESULTS.indexOf(o.result), r3(o.netR)] : [0, 9, null];
+    const k24 = iM - 1 + 96;
+    rows.push([t, row.bias === "LONG" ? 1 : -1, pick ? 1 : 0, gate ? 1 : 0, r3(row.score), r3(Math.abs(plan.entry - row.stop) / plan.entry * 100), ...cell(a), ...cell(b), k24 < m15.length ? r3((m15[k24].close / price - 1) * 100) : null, row.regime === "TRENDING" ? 1 : 0, row.trendFrames]);
+  }
+  return { meta, columns: SCANNER_COLUMNS, rows };
 }

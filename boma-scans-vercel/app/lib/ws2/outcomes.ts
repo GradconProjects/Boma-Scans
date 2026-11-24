@@ -11,8 +11,9 @@ export type Ws2LogEntry = {
 };
 export type Ws2Outcome = { scoredAt: number; filled: boolean; fillPrice: number | null; result: "UNFILLED" | "INVALIDATED BEFORE ENTRY" | "STOP" | "TP1" | "TP2" | "TP3" | "TP4" | "TP5" | "EXPIRED IN TRADE" | "NO PLAN"; netR: number | null; forward4hPct: number | null; directionRight: boolean | null; mfeR: number | null; maeR: number | null; note: string };
 
-export const SIGNAL_LIFE_MS = 4 * 3_600_000;
-export const TRADE_LIFE_MS = 24 * 3_600_000;
+const DEFAULT_SIGNAL_LIFE_MS = 4 * 3_600_000, DEFAULT_TRADE_LIFE_MS = 24 * 3_600_000;
+export const SIGNAL_LIFE_MS = DEFAULT_SIGNAL_LIFE_MS;
+export const TRADE_LIFE_MS = DEFAULT_TRADE_LIFE_MS;
 /** Share of the position closed at each of the five targets. */
 export const EXIT_SHARES = [0.3, 0.25, 0.2, 0.15, 0.1];
 
@@ -22,7 +23,8 @@ export const EXIT_SHARES = [0.3, 0.25, 0.2, 0.15, 0.1];
  * cancels the trade (no loss is recorded for a trade never opened); when the stop and a target fall in the same
  * 15-minute candle the stop is assumed first (conservative); fees and slippage are deducted in R.
  */
-export function scoreOutcome(entry: Ws2LogEntry, after: Candle[], now: number): Ws2Outcome | null {
+export function scoreOutcome(entry: Ws2LogEntry, after: Candle[], now: number, opts: { fillMs?: number; lifeMs?: number } = {}): Ws2Outcome | null {
+  const SIGNAL_LIFE_MS = opts.fillMs ?? DEFAULT_SIGNAL_LIFE_MS, TRADE_LIFE_MS = opts.lifeMs ?? DEFAULT_TRADE_LIFE_MS;
   const candles = after.filter(c => c.time >= entry.at).sort((a, b) => a.time - b.time);
   if (now - entry.at < SIGNAL_LIFE_MS + 15 * 60_000) return null; // too early to judge
   const at4h = candles.filter(c => c.time <= entry.at + SIGNAL_LIFE_MS).pop();

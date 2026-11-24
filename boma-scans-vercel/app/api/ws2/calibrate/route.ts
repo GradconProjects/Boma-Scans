@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { cronAuthorized } from "@/app/server/cron-auth";
-import { replayUniverse, replayWs2 } from "@/app/server/ws2/replay";
+import { replayScanner, replayUniverse, replayWs2 } from "@/app/server/ws2/replay";
 import { WS2_BASELINE } from "@/app/lib/ws2/engine";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -18,6 +18,8 @@ export async function GET(request: NextRequest) {
     const days = Math.max(5, Math.min(200, Number(q.get("days")) || 180)), step = Math.max(1, Math.min(24, Number(q.get("step")) || 4));
     // ?end=<ms> replays an older window ending at that time, so long histories can be collected in chunks.
     const end = Number(q.get("end")); const now = Number.isFinite(end) && end > 1_500_000_000_000 && end < Date.now() ? end : Date.now();
+    // ?system=scanner replays the original Scanner's rules with the same scoring, for comparison.
+    if (q.get("system") === "scanner") return NextResponse.json(await replayScanner(symbol, days, step, now), { headers: { "Cache-Control": "no-store" } });
     return NextResponse.json(await replayWs2(symbol, days, step, q.get("current") ? undefined : WS2_BASELINE, now), { headers: { "Cache-Control": "no-store" } });
   } catch (error) { return NextResponse.json({ error: error instanceof Error ? error.message : "replay failed" }, { status: 502 }); }
 }
