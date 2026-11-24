@@ -16,7 +16,7 @@ export type WeekdayStats = Record<string, { n: number; avgNetR?: number; se?: nu
 const DAY_NAMES: Record<string, string> = { Sun: "Sunday", Mon: "Monday", Tue: "Tuesday", Wed: "Wednesday", Thu: "Thursday", Fri: "Friday", Sat: "Saturday" };
 export const melbourneWeekday = (at: number) => new Intl.DateTimeFormat("en-AU", { timeZone: "Australia/Melbourne", weekday: "short" }).format(new Date(at)).slice(0, 3);
 export type Ws2Rated = Ws2Result & {
-  calibration: { weekday: { day: string; early: boolean; avgNetR: number | null; note: string } | null; ratings: Record<Side, { market: Rating | null; pullback: Rating | null }>; lead: Rating | null; leadPlain: string; pair: { samples: number; ratedSetups: number; won: number | null; avgNetR: number | null } | null; blocked: boolean; summary: string };
+  calibration: { weekday: { day: string; early: boolean; avgNetR: number | null; note: string } | null; ratings: Record<Side, { market: Rating | null; pullback: Rating | null }>; lead: Rating | null; leadPlain: string; pair: { samples: number; ratedSetups: number; won: number | null; avgNetR: number | null } | null; /** Rated 1–2: flagged, never blocked. */ lowRating: boolean; /** Brief evidence flags. Information only. */ flags: string[]; summary: string };
 };
 const KEYS = ["structure", "flow", "htf", "retail", "funding", "btc"];
 /** The same 20 features the model was fitted on, seen from one side. */
@@ -34,11 +34,11 @@ const sign = (v: number) => (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2);
 /** "3-year" / "180-day": the length of the calibration history, for wording. */
 export const spanWords = (cal: { from: string; to: string }) => { const days = Math.round((Date.parse(cal.to) - Date.parse(cal.from)) / 86_400_000); return days >= 540 ? (days / 365).toFixed(days % 365 < 40 || days % 365 > 325 ? 0 : 1) + "-year" : days + "-day"; };
 
-/** Adds the calibrated rating, the pair's own record and the one validated rule: setups rated 1–2 are blocked. */
+/** Adds the calibrated rating, the pair's own record and brief evidence flags. Nothing is blocked or held: the engine's status is never changed here. */
 export function applyCalibration(r: Ws2Result, cal: Ws2Calibration, weekdays?: WeekdayStats): Ws2Rated {
   // The one timing effect that held in all three years and in both engines: trend-style entries lose early in the week (Melbourne time).
   const short = melbourneWeekday(r.at); const ws = weekdays?.[short]; const early = short === "Mon" || short === "Tue";
-  const weekday = weekdays ? { day: DAY_NAMES[short] ?? short, early, avgNetR: ws?.avgNetR ?? null, note: "It is " + (DAY_NAMES[short] ?? short) + " in Melbourne. In the three-year test, entries on this day averaged " + (ws?.avgNetR !== undefined ? sign(ws.avgNetR) + "R" : "n/a") + " after fees" + (early ? ". Monday and Tuesday lost money in the test for both systems; other days were about break-even. Wait until Wednesday or skip." : short === "Wed" ? ". Wednesday was also weak in System 2's data; treat it with care." : ".") } : null;
+  const weekday = weekdays ? { day: DAY_NAMES[short] ?? short, early, avgNetR: ws?.avgNetR ?? null, note: "It is " + (DAY_NAMES[short] ?? short) + " in Melbourne. In the three-year test, entries on this day averaged " + (ws?.avgNetR !== undefined ? sign(ws.avgNetR) + "R" : "n/a") + " after fees" + (early ? ". Monday and Tuesday lost money in the test for both systems; other days were about break-even." : short === "Wed" ? ". Wednesday was also weak in System 2's data; treat it with care." : ".") } : null;
   const ratings = { LONG: { market: null, pullback: null }, SHORT: { market: null, pullback: null } } as Ws2Rated["calibration"]["ratings"];
   if (r.status !== "DATA UNAVAILABLE") for (const side of ["LONG", "SHORT"] as const) {
     if (r.plans[side].market) ratings[side].market = rate(cal.models.market, ratingFeatures(r, side, r.plans[side].market));
@@ -46,24 +46,17 @@ export function applyCalibration(r: Ws2Result, cal: Ws2Calibration, weekdays?: W
   }
   const lead = r.side ? (r.status === "ENTRY READY" ? ratings[r.side].market : ratings[r.side].pullback) ?? ratings[r.side].market : null;
   const ps = cal.pairStats[r.symbol]; const pair = ps ? { samples: ps[0], ratedSetups: ps[1], won: ps[2], avgNetR: ps[3] } : null;
-  const blocked = !!lead && lead.rating <= 2 && r.status !== "DATA UNAVAILABLE";
+  const lowRating = !!lead && lead.rating <= 2 && r.status !== "DATA UNAVAILABLE";
+  const flags: string[] = [];
+  if (lowRating && lead) flags.push("🚩 Low rating (" + lead.rating + "/10): setups like this finished in profit " + Math.round(lead.won * 100) + "% of the time and averaged " + sign(lead.avgNetR) + "R in the test.");
+  if (weekday?.early && r.side) flags.push("🚩 " + weekday.day + " (Melbourne): entries on Monday and Tuesday lost money in every year of the test (" + (ws?.avgNetR !== undefined ? sign(ws.avgNetR) + "R on this day" : "negative") + "); other days were about break-even.");
+  if (r.side === "LONG") flags.push("🚩 LONG: long entries lost in the 3-year test for both systems (about −0.06R a trade); shorts were about break-even.");
   const leadPlain = lead && r.side ? "Rating " + lead.rating + "/10 for this " + r.side + ". In the newest 40% of the " + spanWords(cal) + " test, which the model never saw, " + lead.n.toLocaleString("en-AU") + " setups with this rating finished in profit " + Math.round(lead.won * 100) + "% of the time and averaged " + sign(lead.avgNetR) + "R after fees (±" + lead.se.toFixed(2) + ")." : "No side leads, so there is no setup to rate.";
   const summary = "CALIBRATED on " + cal.samples.toLocaleString("en-AU") + " replayed readings from " + cal.pairs + " Bybit crypto pairs, " + cal.from + " to " + cal.to + ". What the test showed: the rating reliably separates bad setups from better ones, but no group of setups made money after fees. Use this system to avoid bad trades; it has not shown a profit edge.";
-  const out: Ws2Rated = { ...r, version: cal.version, scoreNote: summary, calibration: { weekday, ratings, lead, leadPlain, pair, blocked, summary } };
-  if (blocked && lead && r.side) {
-    out.status = "NO TRADE";
-    out.headline = "No trade on " + r.coin + ". The bias is " + r.side + ", but setups like this one are rated " + lead.rating + "/10: in the test they finished in profit only " + Math.round(lead.won * 100) + "% of the time and lost " + Math.abs(lead.avgNetR).toFixed(2) + "R on average. Stand aside.";
-    out.sizing = "NOT AUTHORISED. Setups with this rating lost money in the calibration test.";
-    out.scores = { ...r.scores, opportunity: 0 };
-    out.activate = ["A rating of 3/10 or better. That needs a fairer entry area or a wider, structural stop."]; 
-  } else if (r.status === "ENTRY READY" && weekday?.early) {
-    out.status = "AWAITING CONFIRMATION";
-    out.headline = "The chart setup is ready, but it is " + weekday.day + " in Melbourne. Entries on Monday and Tuesday lost money in the three-year test (" + (ws?.avgNetR !== undefined ? sign(ws.avgNetR) + "R on this day" : "negative") + "), while other days were about break-even. Wait until Wednesday or skip this one.";
-    out.sizing = "NOT AUTHORISED on Monday or Tuesday (Melbourne).";
-    out.activate = ["The same setup still valid on Wednesday or later (Melbourne time).", ...r.activate];
-  } else if (lead && r.side && r.status === "ENTRY READY") {
-    out.headline = r.headline + " Rating " + lead.rating + "/10: similar setups averaged " + sign(lead.avgNetR) + "R after fees in the test, so this is a fair entry, not a proven edge.";
-  }
+  const out: Ws2Rated = { ...r, version: cal.version, scoreNote: summary, calibration: { weekday, ratings, lead, leadPlain, pair, lowRating, flags, summary } };
+  // Nothing is blocked or held. Each concern is a flag with a one-sentence reason; the engine's own status stands.
+  if (lead && r.side && r.status === "ENTRY READY") out.headline = r.headline + " Rating " + lead.rating + "/10: similar setups averaged " + sign(lead.avgNetR) + "R after fees in the test, so this is a fair entry, not a proven edge.";
+  if (flags.length) out.headline += " " + flags.length + " flag" + (flags.length === 1 ? "" : "s") + " below.";
   if (weekday) out.explain = [...out.explain, { q: "Does the day of the week matter?", a: weekday.note }];
   out.explain = [...out.explain, { q: "What is this setup's track record?", a: leadPlain + (pair && pair.ratedSetups >= 20 && pair.avgNetR !== null ? " On " + r.symbol + " itself, " + pair.ratedSetups + " well-rated setups (8–10) over the whole test averaged " + sign(pair.avgNetR) + "R and " + Math.round((pair.won ?? 0) * 100) + "% finished in profit (a small sample, partly from the fitting period)." : "") }];
   return out;
@@ -71,5 +64,5 @@ export function applyCalibration(r: Ws2Result, cal: Ws2Calibration, weekdays?: W
 
 export function ratingLines(r: Ws2Rated): string[] {
   const c = r.calibration; if (!c.lead || !r.side) return ["🎓 Calibrated: no side leads, nothing to rate."];
-  return ["🎓 CALIBRATED RATING: " + c.lead.rating + "/10" + (c.blocked ? " · BLOCKED" : ""), c.leadPlain, ...(c.weekday ? ["📅 " + c.weekday.note] : []), ...(c.pair && c.pair.ratedSetups >= 20 && c.pair.avgNetR !== null ? ["📒 This pair: " + c.pair.ratedSetups + " well-rated setups in the test averaged " + sign(c.pair.avgNetR) + "R."] : [])];
+  return ["🎓 CALIBRATED RATING: " + c.lead.rating + "/10" + (c.lowRating ? " · LOW" : ""), c.leadPlain, ...(c.weekday ? ["📅 " + c.weekday.note] : []), ...(c.flags.length ? ["🚩 FLAGS (information only, nothing is blocked)", ...c.flags] : []), ...(c.pair && c.pair.ratedSetups >= 20 && c.pair.avgNetR !== null ? ["📒 This pair: " + c.pair.ratedSetups + " well-rated setups in the test averaged " + sign(c.pair.avgNetR) + "R."] : [])];
 }

@@ -53,15 +53,15 @@ export function whaleStance(side: "LONG" | "SHORT", book: { longUsd: number; sho
 
 /**
  * Backtested trading windows (Melbourne time, DST-aware). In two years of 1H
- * signals, Monday and Tuesday were net losers in both years and both styles,
- * and 03:00–10:00 (after the US close, before the Asian session gets going)
- * was flat to negative. Skipping both roughly doubled the average R, lifted
- * the win rate from the low 50s to about 69% and cut the maximum drawdown
- * from 9R to under 4R, on about 40% of the trades. Entered trades are always
- * managed regardless of the window.
+ * signals, Monday and Tuesday were net losers. A three-year replay of 489 pairs
+ * (docs/SYSTEM-COMPARISON.md) confirmed that for both systems in every year, and
+ * did NOT confirm the 03:00–10:00 "dead zone": hours made no difference. So the
+ * window is now the weekday only. It is a flag by default; it restricts pushes
+ * only when the owner chooses BACKTESTED. Entered trades are always managed.
  */
 export type WindowMode = "BACKTESTED" | "ALL";
-export const DEAD_ZONE = { from: 3, to: 10 } as const;      // Melbourne hours, inclusive of 03:00, exclusive of 10:00
+/** No longer used by the gate: the three-year replay did not confirm an hour-of-day effect. Kept for reference. */
+export const DEAD_ZONE = { from: 3, to: 10 } as const;
 export const SKIP_WEEKDAYS = new Set([1, 2]);              // Monday, Tuesday (Melbourne)
 
 export function melbourneClock(now = Date.now()): { hour: number; weekday: number; label: string } {
@@ -75,19 +75,35 @@ export function melbourneClock(now = Date.now()): { hour: number; weekday: numbe
 export function tradingWindowGate(now = Date.now(), mode: WindowMode = "BACKTESTED"): { ok: boolean; reason: string | null; label: string } {
   const clock = melbourneClock(now);
   if (mode === "ALL") return { ok: true, reason: null, label: clock.label };
-  if (SKIP_WEEKDAYS.has(clock.weekday)) return { ok: false, reason: "outside the backtested windows: Monday and Tuesday (Melbourne) lost money in both years", label: clock.label };
-  if (clock.hour >= DEAD_ZONE.from && clock.hour < DEAD_ZONE.to) return { ok: false, reason: "outside the backtested windows: 03:00–10:00 Melbourne was flat to negative in both years", label: clock.label };
+  if (SKIP_WEEKDAYS.has(clock.weekday)) return { ok: false, reason: "outside the backtested windows: Monday and Tuesday (Melbourne) lost money in every year of the three-year test", label: clock.label };
   return { ok: true, reason: null, label: clock.label };
 }
 
 /** Plain statement for the trader: is now a good time, and when is the next good window (Melbourne). */
 export function windowVerdict(now = Date.now()): { good: boolean; title: string; detail: string; label: string } {
   const gate = tradingWindowGate(now, "BACKTESTED");
-  if (gate.ok) return { good: true, label: gate.label, title: "GOOD TIME TO TRADE", detail: "Inside the backtested windows (Wednesday to Sunday, outside 03:00–10:00 Melbourne): 69% winners and +0.6R a trade over two years." };
+  if (gate.ok) return { good: true, label: gate.label, title: "GOOD TIME TO TRADE", detail: "Wednesday to Sunday (Melbourne). In the three-year test these days were about break-even to slightly positive; Monday and Tuesday lost money. The hour of the day made no difference." };
   // Find the next good hour.
   let t = now; for (let i = 0; i < 24 * 8; i++) { t += 3_600_000; if (tradingWindowGate(t, "BACKTESTED").ok) break; }
   const next = melbourneClock(t);
   const clock = melbourneClock(now);
-  const reason = SKIP_WEEKDAYS.has(clock.weekday) ? "Monday and Tuesday lost money in both backtest years." : "03:00–10:00 Melbourne was flat to negative in both backtest years.";
-  return { good: false, label: gate.label, title: "NOT A GOOD TIME TO TRADE", detail: reason + " Next good window: " + next.label + ". Trades you are already in are still managed.", };
+  const reason = "Flag only, nothing is blocked: entries on Monday and Tuesday (Melbourne) lost money in every year of the three-year test, for both systems.";
+  return { good: false, label: gate.label, title: "CAUTION DAY", detail: reason + " Next better day starts " + next.label + ". Trades you are already in are still managed.", };
 }
+
+
+/**
+ * Evidence flags from the three-year, all-pairs replay (docs/SYSTEM-COMPARISON.md). Information only: a flag never blocks,
+ * hides or changes a signal. Each one says in a sentence what the test found.
+ */
+export function evidenceFlags(input: { side?: string | null; at?: number; majorEvent?: boolean | null; rating?: number | null }): string[] {
+  const flags: string[] = []; const clock = melbourneClock(input.at ?? Date.now());
+  if (SKIP_WEEKDAYS.has(clock.weekday)) flags.push("🚩 " + (clock.weekday === 1 ? "Monday" : "Tuesday") + " (Melbourne): entries on Monday and Tuesday lost money in every year of the 3-year test (about −0.06R to −0.15R). Other days were about break-even.");
+  if (input.side === "LONG") flags.push("🚩 LONG: long entries lost in the 3-year test (about −0.06R a trade); shorts were about break-even.");
+  if (input.majorEvent === false) flags.push("🚩 No major event (change of character, breakout or sweep with a 2+ ATR stop): signals without one averaged about −0.09R.");
+  if (input.majorEvent === true) flags.push("✅ Major event present: the best group in the 3-year test (about break-even overall, +0.05R from Wednesday to Sunday).");
+  if (input.rating !== null && input.rating !== undefined && input.rating <= 2) flags.push("🚩 Low rating (" + input.rating + "/10): setups rated 1–2 lost 0.14R to 0.60R on average in the test.");
+  return flags;
+}
+/** The flags as a short block for a card, or nothing when there are none. */
+export function evidenceFlagLines(input: Parameters<typeof evidenceFlags>[0]): string[] { const f = evidenceFlags(input); return f.length ? ["", "🚩 FLAGS (3-year test · information only, nothing is blocked)", ...f] : []; }

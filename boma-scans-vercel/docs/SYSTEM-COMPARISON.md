@@ -55,12 +55,13 @@ Caution: the weekday rule was first chosen on the earlier small test and is conf
 - On those same 23 pairs this replay gives **−0.07R ± 0.07** (212 trades).
 - A sample of about 200 trades has an error of roughly ±0.08R. It cannot tell a small gain from a small loss. The earlier headline figures should be treated as superseded by this replay.
 
-## What was changed, and what was not
+## What was changed: flags only, no restrictions
 
-- **Whale System 2** now holds an ENTRY READY signal on a Melbourne Monday or Tuesday (status becomes AWAITING CONFIRMATION) and shows the day's record on every reading.
-- **The Scanner was not changed.** Two changes the evidence supports, for the owner to decide:
-  1. Trading windows: keep "skip Monday and Tuesday", drop the 03:00–10:00 dead zone.
-  2. Telegram entry calls: the rule "READY and a major event" almost never fires. "Setup with a major event, Wednesday to Sunday" is the best-performing group measured, at about +0.05R.
+The owner's instruction is no restrictions: flag and briefly explain. Nothing found here blocks, holds or hides a signal.
+
+- **Whale System 2** shows a short flag list on a reading when it applies: low rating (1–2 out of 10), Monday or Tuesday in Melbourne, LONG side. Each flag is one sentence with the figure from the test. The status and size note the engine gave are left as they are.
+- **Scanner cards** (Telegram entry calls and the `/analyse` card) carry the same flags, plus whether a major event is present. Which signals the Scanner sends is unchanged.
+- **Trading windows** are now the weekday only. The 03:00–10:00 rule is dropped because it was not confirmed. By default the window is a flag ("CAUTION DAY" on Monday and Tuesday); it holds calls only if the owner switches that on.
 
 ## Limits
 

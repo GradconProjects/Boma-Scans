@@ -20,7 +20,7 @@ import {matrixLines} from "@/app/lib/positioning-matrix";
 import {whaleAlignment} from "@/app/server/whale-align";
 import {bybitSymbolFor} from "@/app/lib/whale-logic";
 import {pushSettings,savePushSettings} from "@/app/server/push-settings";
-import {tradingWindowGate,windowVerdict} from "@/app/lib/push-policy";
+import {tradingWindowGate,windowVerdict,evidenceFlagLines,majorEventGate} from "@/app/lib/push-policy";
 import {marketRead} from "@/app/server/market-analysis";
 type Workspace={symbol:string;interval:string;style:TradingStyle;flexibility:FlexibilityMode;equity:number;fee:number;slippage:number;autoScan:boolean;autoScanMinutes:number;targetStyle?:"TA"|"LADDER";[key:string]:unknown};
 const defaults:Workspace={symbol:"BTCUSDT",interval:"60",style:"DAY",flexibility:"STRICT",equity:10000,fee:.055,slippage:.02,autoScan:true,autoScanMinutes:180};
@@ -126,7 +126,7 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   if(choice==="ALL"||choice==="BACKTESTED"){await savePushSettings({tradingWindows:choice});}
   const current=await pushSettings();const w=tradingWindowGate(Date.now(),current.tradingWindows);
   const v=windowVerdict(Date.now());
-  await send("🕰 "+v.label+"\n"+(v.good?"✅ GOOD TIME TO TRADE":"⛔ NOT A GOOD TIME TO TRADE")+"\n"+v.detail+"\n\nSetting: "+(current.tradingWindows==="ALL"?"ALL HOURS, every entry call is pushed and flagged with this statement.":"GOOD WINDOWS ONLY, entry calls outside them are held.")+(w.ok?"":"")+"\n/windows all · /windows backtested",true);return;
+  await send("🕰 "+v.label+"\n"+(v.good?"✅ "+v.title:"🚩 "+v.title)+"\n"+v.detail+"\n\nSetting: "+(current.tradingWindows==="ALL"?"ALL HOURS, every entry call is pushed and flagged with this statement.":"GOOD WINDOWS ONLY, entry calls outside them are held.")+(w.ok?"":"")+"\n/windows all · /windows backtested",true);return;
  }
  if(command==="/market") {
   const {marketDirectionNow}=await import("@/app/server/market-direction");const {marketDirectionLines}=await import("@/app/lib/market-direction");
@@ -212,14 +212,16 @@ export async function handleCommand(userId:string,chatId:string,text:string,orig
   const interval=args[1]?BOT_FRAMES[args[1].toLowerCase()]:settings.interval;
   if(!/^[A-Z0-9]{2,24}USDT$/.test(pair)||!interval){await send("Use /analyse BTCUSDT 1h, or just type ETHUSDT.");return;}
   await send("🔎 Checking fresh Bybit candles for "+pair+"…");
-  const {analysis,row,relationship}=await analyzePair(pair,interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
+  const {analysis,row,relationship,candles}=await analyzePair(pair,interval,settings.style,settings.flexibility,settings.fee,settings.slippage,settings.targetStyle==="LADDER"?"LADDER":"TA");
   const pick=getMediumRiskShortlist([row],settings.equity,true,1)[0];
-  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);const w=await positioningBlock(pair,pick.row.bias);if(w.length)await send(renderTelegramHtml(w),true,true);}
+  let major:boolean|null=null;try{major=majorEventGate(row,analysis,candles).ok;}catch{major=null;}
+  const flags=evidenceFlagLines({side:analysis.bias,majorEvent:major});
+  if(pick) {await send(telegramSignalHtml(snapshotSignal(pick),false,Date.now(),appLink(origin,pair)),keyboardRows(signalButtons(pair)),true);const w=[...(await positioningBlock(pair,pick.row.bias)),...flags];if(w.length)await send(renderTelegramHtml(w),true,true);}
   else {
    const plan=analysis.executionPlan;
    const card=compactSignalLines({symbol:pair,side:analysis.bias,entryLow:plan.entryLow,entryHigh:plan.entryHigh,entry:analysis.entry,trigger:plan.trigger,timeframe:plan.timeframe,stop:analysis.stop,targets:analysis.takeProfits,expiresAt:plan.expiresAt,zoneLow:plan.zoneLow,zoneHigh:plan.zoneHigh});
    const dir=analysis.bias==="SHORT"?"SELL (short)":"BUY (long)";
-   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"","✅ WHAT TO DO: Do not enter yet. "+(analysis.bias==="LONG"||analysis.bias==="SHORT"?dir+" only if a 1-hour candle closes "+(analysis.bias==="SHORT"?"below ":"above ")+formatPrice(plan.trigger)+" and price is between "+formatPrice(Math.min(plan.entryLow,plan.entryHigh))+" and "+formatPrice(Math.max(plan.entryLow,plan.entryHigh))+". Otherwise skip it.":"There is no clear direction on this chart."),"","🔬 DETAILS","📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await positioningBlock(pair,analysis.bias)),"🔗 Open in app: "+appLink(origin,pair)]),true,true);
+   await send(renderTelegramHtml(["⏸ "+pair+" "+analysis.bias+" · WAIT · "+plan.status.replaceAll("_"," "),"","✅ WHAT TO DO: Do not enter yet. "+(analysis.bias==="LONG"||analysis.bias==="SHORT"?dir+" only if a 1-hour candle closes "+(analysis.bias==="SHORT"?"below ":"above ")+formatPrice(plan.trigger)+" and price is between "+formatPrice(Math.min(plan.entryLow,plan.entryHigh))+" and "+formatPrice(Math.max(plan.entryLow,plan.entryHigh))+". Otherwise skip it.":"There is no clear direction on this chart."),"","🔬 DETAILS","📍 Price "+formatPrice(row.price),"",...card,"","⏳ "+plan.reason,"₿ "+relationship.explanation,...(await positioningBlock(pair,analysis.bias)),...flags,"🔗 Open in app: "+appLink(origin,pair)]),true,true);
   }
   return;
  }

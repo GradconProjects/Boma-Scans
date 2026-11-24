@@ -177,7 +177,7 @@ test("Calibration data: built from every pair, honest about the result, ratings 
   }
 });
 
-test("Rating: every reading gets a 1–10 grade with its unseen-data record; grades 1–2 are blocked", () => {
+test("Rating: every reading gets a 1–10 grade with its unseen-data record; grades 1–2 are flagged, never blocked", () => {
   const r = applyCalibration(runWs2(nearInput()), cal);
   assert.equal(r.version, cal.version); assert.match(r.scoreNote, /^CALIBRATED on [\d,]+ replayed readings from \d+ Bybit crypto pairs/); assert.ok(!r.scoreNote.includes("UNCALIBRATED"));
   assert.match(r.scoreNote, /has not shown a profit edge/);
@@ -189,15 +189,18 @@ test("Rating: every reading gets a 1–10 grade with its unseen-data record; gra
   // The cut points map probabilities to grades exactly.
   const m = cal.models.market; const lo = rate({ ...m, intercept: -9 }, ratingFeatures(runWs2(nearInput()), "SHORT", null)), hi = rate({ ...m, intercept: 9 }, ratingFeatures(runWs2(nearInput()), "SHORT", null));
   assert.equal(lo.rating, 1); assert.equal(hi.rating, 10); assert.equal(lo.won, m.deciles[0].check.won);
-  // A setup graded 1–2 is turned into NO TRADE whatever the bias says.
+  // A setup graded 1–2 is flagged with a one-sentence reason; its status, size note and scores are left exactly as the engine set them.
   const bad = { ...cal, models: { market: { ...cal.models.market, intercept: -9 }, pullback: { ...cal.models.pullback, intercept: -9 } } };
-  const b = applyCalibration(runWs2(nearInput()), bad); assert.equal(b.calibration.blocked, true); assert.equal(b.status, "NO TRADE"); assert.equal(b.scores.opportunity, 0); assert.match(b.headline, /Stand aside/); assert.match(b.sizing, /^NOT AUTHORISED/);
+  const raw = runWs2(nearInput()); const b = applyCalibration(raw, bad);
+  assert.equal(b.calibration.lowRating, true); assert.equal(b.status, raw.status, "status is not changed"); assert.equal(b.scores.opportunity, raw.scores.opportunity); assert.equal(b.sizing, raw.sizing);
+  assert.ok(b.calibration.flags.some(f => /^🚩 Low rating \(1\/10\)/.test(f))); assert.match(b.headline, /flags? below\.$/);
+  assert.ok(ratingLines(b).some(l => l.startsWith("🚩 FLAGS (information only, nothing is blocked)")));
   // With no data there is nothing to rate.
   const none = applyCalibration(runWs2({ ...nearInput(), candles: { m15: [], h1: [], h4: [], d1: [] }, price: null }), cal); assert.equal(none.status, "DATA UNAVAILABLE"); assert.equal(none.calibration.lead, null);
   assert.match(none.headline, /Bybit returned only 0 closed 1h candles for NEARUSDT/);
 });
 
-test("Weekday rule: ENTRY READY on a Melbourne Monday or Tuesday becomes a wait; other days are untouched", () => {
+test("Weekday flag: a Melbourne Monday or Tuesday is flagged with the reason; the signal itself is untouched", () => {
   const cmp = JSON.parse(readFileSync(new URL("../app/lib/ws2/comparison-data.json", import.meta.url), "utf8")); const days = cmp.ws2["lead side by weekday"];
   assert.ok(days.Mon.avgNetR < 0 && days.Tue.avgNetR < 0, "Monday and Tuesday lost in the replay"); assert.ok(cmp.scanner.levels["READY (every check passed)"].all.avgNetR < 0.05, "the Scanner comparison is stated as measured");
   const { melbourneWeekday } = rmod.exports;
@@ -205,8 +208,10 @@ test("Weekday rule: ENTRY READY on a Melbourne Monday or Tuesday becomes a wait;
   assert.equal(melbourneWeekday(Date.UTC(2026, 10, 22, 14, 0, 0)), "Mon", "Sunday 14:00 UTC is already Monday in Melbourne");
   const base = runWs2(nearInput()); const good = { ...cal, models: { market: { ...cal.models.market, intercept: 9 }, pullback: { ...cal.models.pullback, intercept: 9 } } };
   const ready = at => ({ ...base, at, status: "ENTRY READY" });
-  const mon = applyCalibration(ready(monday), good, days); assert.equal(mon.status, "AWAITING CONFIRMATION"); assert.match(mon.headline, /it is Monday in Melbourne/); assert.match(mon.sizing, /^NOT AUTHORISED on Monday or Tuesday/); assert.equal(mon.calibration.weekday.early, true);
-  const thu = applyCalibration(ready(thursday), good, days); assert.equal(thu.status, "ENTRY READY"); assert.equal(thu.calibration.weekday.early, false); assert.match(thu.calibration.weekday.note, /It is Thursday in Melbourne/);
+  const mon = applyCalibration(ready(monday), good, days); assert.equal(mon.status, "ENTRY READY", "nothing is held"); assert.equal(mon.sizing, base.sizing); assert.equal(mon.calibration.weekday.early, true);
+  assert.ok(mon.calibration.flags.some(f => /^🚩 Monday \(Melbourne\): entries on Monday and Tuesday lost money/.test(f)));
+  const thu = applyCalibration(ready(thursday), good, days); assert.equal(thu.status, "ENTRY READY"); assert.equal(thu.calibration.weekday.early, false); assert.ok(!thu.calibration.flags.some(f => f.includes("Melbourne")), "no weekday flag on Thursday");
+  assert.ok(applyCalibration({ ...ready(thursday), side: "LONG" }, good, days).calibration.flags.some(f => f.startsWith("🚩 LONG"))); assert.match(thu.calibration.weekday.note, /It is Thursday in Melbourne/);
   assert.ok(mon.explain.some(e => e.q === "Does the day of the week matter?")); assert.ok(ratingLines(thu).some(l => l.startsWith("📅 ")));
   assert.equal(applyCalibration(ready(monday), good).calibration.weekday, null, "without weekday data nothing is assumed");
 });

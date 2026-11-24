@@ -223,4 +223,4 @@ Code: `app/lib/market-direction.ts`, `app/server/market-direction.ts`, `app/comp
 
 ## How the systems compare (three-year replay)
 
-The Scanner and Whale System 2 were replayed on every Bybit crypto pair over three years with the same scoring. Neither showed a profit edge after fees; both beat random entries. LONG entries lost in both. Monday and Tuesday (Melbourne) lost money in both, in every year, so System 2 now holds entry signals on those days. Full tables, the correction to the earlier Scanner backtest and two suggested Scanner changes are in `docs/SYSTEM-COMPARISON.md`.
+The Scanner and Whale System 2 were replayed on every Bybit crypto pair over three years with the same scoring. Neither showed a profit edge after fees; both beat random entries. LONG entries lost in both. Monday and Tuesday (Melbourne) lost money in both, in every year. Nothing is restricted because of this: readings and Scanner cards carry short flags (Monday/Tuesday, LONG side, low rating, no major event), each with a one-sentence reason. Full tables, the correction to the earlier Scanner backtest and two suggested Scanner changes are in `docs/SYSTEM-COMPARISON.md`.

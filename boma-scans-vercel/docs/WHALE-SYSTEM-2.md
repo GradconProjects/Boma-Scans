@@ -125,8 +125,8 @@ Rating table, market entry, unseen data (both checks pooled):
 
 | Rating | Setups | Finished in profit | Average result | Error | Check 1 | Check 2 |
 |---|---:|---:|---:|---:|---:|---:|
-| 1/10 (blocked) | 182,502 | 30% | −0.59R | ±0.01 | −0.63R | −0.56R |
-| 2/10 (blocked) | 166,718 | 37% | −0.14R | ±0.01 | −0.11R | −0.16R |
+| 1/10 (flagged) | 182,502 | 30% | −0.59R | ±0.01 | −0.63R | −0.56R |
+| 2/10 (flagged) | 166,718 | 37% | −0.14R | ±0.01 | −0.11R | −0.16R |
 | 3/10 | 161,446 | 40% | −0.12R | ±0.01 | −0.09R | −0.14R |
 | 4/10 | 169,684 | 41% | −0.12R | ±0.01 | −0.10R | −0.14R |
 | 5/10 | 175,319 | 43% | −0.11R | ±0.01 | −0.09R | −0.13R |
@@ -175,9 +175,10 @@ Did each input predict the next 24 hours? (0.50 = coin flip)
 ### What changed in the app because of it
 
 - Every reading carries a **calibrated rating from 1 to 10** with the record of similar setups in the unseen data: how often they finished in profit and the average result after fees.
-- **Setups rated 1–2 are blocked** (status NO TRADE). That is the one rule the data supports in every period.
+- **Setups rated 1–2 are flagged**, with the reason in one sentence. Nothing is blocked: the status the engine gave stands.
 - ENTRY READY is worded as a fair entry, not a proven edge.
-- **ENTRY READY is held on a Melbourne Monday or Tuesday.** Entries on those days lost money in both systems across three years; see `docs/SYSTEM-COMPARISON.md`.
+- **Monday and Tuesday (Melbourne) are flagged**, with the reason. Entries on those days lost money in both systems across three years; see `docs/SYSTEM-COMPARISON.md`. The signal itself is not held.
+- **LONG setups are flagged**: long entries lost in the test for both systems.
 - Each pair shows its own count and result of well-rated setups, marked as a small sample.
 - The weights from the brief are unchanged: nothing in the test justified new ones, and the rating model now does the ranking.
 

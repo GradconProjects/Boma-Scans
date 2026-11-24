@@ -41,7 +41,7 @@ function ResultView({ r }: { r: Ws2Result }) {
       <p className="mt-1 text-base font-semibold leading-6">✅ What to do: {r.headline}</p>
       <p className="mt-2 text-sm leading-6">💰 Position size: {r.sizing}</p>
     </div>
-    <div className={"rounded-2xl border-2 p-4 " + (r.calibration.blocked ? "border-rose-300/50 bg-rose-300/[0.08]" : "border-cyan-300/40 bg-cyan-300/[0.06]")}>
+    <div className={"rounded-2xl border-2 p-4 " + (r.calibration.flags.length ? "border-amber-300/50 bg-amber-300/[0.06]" : "border-cyan-300/40 bg-cyan-300/[0.06]")}>
       <p className="text-xs font-bold uppercase tracking-widest text-cyan-200">🎓 Calibrated rating and track record</p>
       {r.calibration.lead && r.side ? <>
         <div className="mt-2 flex flex-wrap items-center gap-3">
@@ -50,8 +50,8 @@ function ResultView({ r }: { r: Ws2Result }) {
           <p className="text-sm text-slate-200">Finished in profit <b>{Math.round(r.calibration.lead.won * 100)}%</b> of the time · average <b>{(r.calibration.lead.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.lead.avgNetR).toFixed(2)}R</b> after fees · {r.calibration.lead.n.toLocaleString("en-AU")} unseen setups</p>
         </div>
         <p className="mt-2 text-sm leading-6 text-slate-100">{r.calibration.leadPlain}</p>
-        {r.calibration.blocked && <p className="mt-1 text-sm font-semibold text-rose-100">⛔ Blocked: setups rated 1–2 lost money in every period of the test.</p>}
-        {r.calibration.weekday && <p className={"mt-1 text-sm leading-6 " + (r.calibration.weekday.early ? "font-semibold text-amber-100" : "text-slate-200")}>📅 {r.calibration.weekday.note}</p>}
+        {r.calibration.flags.length > 0 && <div className="mt-2 rounded-lg border border-amber-300/40 bg-amber-300/[0.08] p-2 text-sm leading-6 text-amber-50"><p className="text-xs font-bold uppercase tracking-widest">🚩 Flags · information only, nothing is blocked</p><ul className="mt-1 space-y-0.5">{r.calibration.flags.map(f => <li key={f}>{f}</li>)}</ul></div>}
+        {r.calibration.weekday && !r.calibration.weekday.early && <p className="mt-1 text-sm leading-6 text-slate-200">📅 {r.calibration.weekday.note}</p>}
         <p className="mt-1 text-xs text-slate-400">Both sides, for comparison: {(["LONG", "SHORT"] as const).map(sd => sd + " pullback " + (r.calibration.ratings[sd].pullback ? r.calibration.ratings[sd].pullback!.rating + "/10" : "n/a") + ", market " + (r.calibration.ratings[sd].market ? r.calibration.ratings[sd].market!.rating + "/10" : "n/a")).join(" · ")}</p>
         {r.calibration.pair && r.calibration.pair.ratedSetups >= 20 && r.calibration.pair.avgNetR !== null && <p className="mt-1 text-xs text-slate-300">📒 {r.symbol} itself: {r.calibration.pair.ratedSetups} well-rated setups (8–10) over the whole test averaged {(r.calibration.pair.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.pair.avgNetR).toFixed(2)}R, {Math.round((r.calibration.pair.won ?? 0) * 100)}% in profit. Small sample.</p>}
       </> : <p className="mt-1 text-sm text-slate-300">{r.calibration.leadPlain}</p>}
@@ -162,7 +162,7 @@ function CalibrationReport({ cal }: { cal: Omit<Ws2Calibration, "pairStats"> }) 
     </div>
     <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rating table (market entry, unseen data)</p>
       <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500">{["Rating", "Setups", "Finished in profit", "Average result", "± error", "Check 1", "Check 2"].map(h => <th key={h} className="p-1.5 font-medium">{h}</th>)}</tr></thead>
-        <tbody>{cal.models.market.deciles.map(d => <tr key={d.decile} className="border-t border-white/[0.05] font-mono"><td className={"p-1.5 font-bold " + (d.decile <= 2 ? "text-rose-300" : d.decile <= 5 ? "text-amber-200" : "text-emerald-300")}>{d.decile}/10{d.decile <= 2 ? " blocked" : ""}</td><td className="p-1.5">{d.check.n.toLocaleString("en-AU")}</td><td className="p-1.5">{Math.round(d.check.won * 100)}%</td><td className={"p-1.5 " + (d.check.avgNetR >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(d.check.avgNetR)}</td><td className="p-1.5 text-slate-400">{d.check.se.toFixed(2)}</td><td className="p-1.5">{rr(d.val.avgNetR)}</td><td className="p-1.5">{rr(d.test.avgNetR)}</td></tr>)}</tbody></table></div>
+        <tbody>{cal.models.market.deciles.map(d => <tr key={d.decile} className="border-t border-white/[0.05] font-mono"><td className={"p-1.5 font-bold " + (d.decile <= 2 ? "text-rose-300" : d.decile <= 5 ? "text-amber-200" : "text-emerald-300")}>{d.decile}/10{d.decile <= 2 ? " flagged" : ""}</td><td className="p-1.5">{d.check.n.toLocaleString("en-AU")}</td><td className="p-1.5">{Math.round(d.check.won * 100)}%</td><td className={"p-1.5 " + (d.check.avgNetR >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(d.check.avgNetR)}</td><td className="p-1.5 text-slate-400">{d.check.se.toFixed(2)}</td><td className="p-1.5">{rr(d.val.avgNetR)}</td><td className="p-1.5">{rr(d.test.avgNetR)}</td></tr>)}</tbody></table></div>
     <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Rules compared, by period (average result after fees · number of trades)</p>
       <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-1.5 font-medium">Rule</th>{periods.map(([k, label]) => <th key={k} className="p-1.5 font-medium">{label}<span className="block font-normal text-[10px]">{cal.regime[k].from} → {cal.regime[k].to} · typical coin {cal.regime[k].typicalCoin24hPct}%/day</span></th>)}</tr></thead>
         <tbody>{Object.keys(cal.rules.train).map(rule => <tr key={rule} className="border-t border-white/[0.05]"><td className="p-1.5 text-slate-100">{rule}</td>{periods.map(([k]) => { const c = cal.rules[k][rule]; return <td key={k} className={"p-1.5 font-mono " + ((c?.avgNetR ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{rr(c?.avgNetR)} <span className="text-slate-500">· {c?.n.toLocaleString("en-AU")}{c?.se !== undefined ? " · ±" + c.se.toFixed(2) : ""}</span></td>; })}</tr>)}</tbody></table></div>
@@ -210,7 +210,7 @@ export function Ws2View() {
             <td className={"p-2 font-mono font-bold " + (!b.rating ? "text-slate-500" : b.rating <= 2 ? "text-rose-300" : b.rating <= 5 ? "text-amber-200" : "text-emerald-300")}>{b.rating ? b.rating + "/10" : "—"}</td><td className="p-2 font-mono text-cyan-200">{b.scores.opportunity}</td><td className="p-2 font-mono">{b.scores.bullishBias} / {b.scores.bearishBias}</td><td className="p-2 font-mono">{b.scores.longEntry} / {b.scores.shortEntry}</td><td className="p-2 font-mono text-amber-200">{b.scores.exhaustion}</td><td className="p-2 font-mono">{b.scores.reliability}</td>
             <td className="p-2 text-slate-300">{b.squeeze}</td><td className="p-2 text-slate-300">{b.whales}</td><td className="p-2 text-slate-300">{b.top.split(":")[0]}</td><td className="p-2 text-slate-400">{melbourne(b.at)}</td>
           </tr>)}</tbody></table></div>}
-      <p className="text-xs text-slate-500">Tap a row for the full reading. Rating is the calibrated 1–10 grade from the multi-year test across {overview?.calibration.pairs ?? "all"} pairs; 1–2 is blocked.</p>
+      <p className="text-xs text-slate-500">Tap a row for the full reading. Rating is the calibrated 1–10 grade from the multi-year test across {overview?.calibration.pairs ?? "all"} pairs; 1–2 is flagged, never blocked.</p>
     </section>}
 
     {tab === "analyse" && <section className="mt-4 space-y-4">
