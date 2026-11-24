@@ -58,6 +58,11 @@ export type Ws2Result = {
   fundingRead: { verdict: string; lines: string[] };
   btc: { verdict: string; lines: string[] };
   feeds: Array<{ name: string; available: boolean; weight: number; detail: string }>;
+  /** Per-side detail used by the decision and by calibration. */
+  detail: Record<Side, { entry: number; confirmed: boolean; located: string; exhaustion: number }>;
+  /** Plans for both sides, whichever leads, so a replay can score either. */
+  plans: Record<Side, { pullback: Levels | null; market: Levels | null }>;
+  missing: string[];
   levels: { pullback: Levels | null; market: Levels | null };
   sizing: string;
   activate: string[]; invalidate: string[];
@@ -102,6 +107,27 @@ export function trendRead(c: Candle[]): { bull: number; bear: number; note: stri
   const bear = (a < b ? 0.3 : 0) + (slope < 0 ? 0.2 : 0) + (px < a ? 0.2 : 0) + (lh ? 0.15 : 0) + (ll ? 0.15 : 0);
   return { bull, bear, note: (a > b ? "EMA20 above EMA50" : "EMA20 below EMA50") + ", " + (slope > 0 ? "rising" : "falling") + ", price " + (px > a ? "above" : "below") + " EMA20" + (hh && hl ? ", higher highs and higher lows" : lh && ll ? ", lower highs and lower lows" : ", mixed swings") };
 }
+/**
+ * System 2's own structure read on closed 1h candles, so it is reproducible in a historical replay.
+ * BOS: a close in the last 6 candles beyond the latest confirmed swing in the direction of the prior swing sequence.
+ * CHoCH: the same break against the prior sequence. Sweep: a wick through the latest swing in the last 3 candles that closed back inside.
+ */
+export function structureRead(c: Candle[]): { bos: "BULLISH" | "BEARISH" | "NONE"; choch: "BULLISH" | "BEARISH" | "NONE"; sweep: "BULLISH" | "BEARISH" | "NONE" } {
+  const none = { bos: "NONE", choch: "NONE", sweep: "NONE" } as const; if (c.length < 40) return none;
+  const w = c.slice(-86, -6); const p = pivots(w); if (p.highs.length < 2 || p.lows.length < 2) return none;
+  const h = p.highs.slice(-2), l = p.lows.slice(-2); const up = h[1].price > h[0].price && l[1].price > l[0].price, down = h[1].price < h[0].price && l[1].price < l[0].price;
+  const recent = c.slice(-6); const brokeUp = recent.some(x => x.close > h[1].price), brokeDown = recent.some(x => x.close < l[1].price);
+  const last3 = c.slice(-3); const sweptHigh = last3.some(x => x.high > h[1].price && x.close < h[1].price), sweptLow = last3.some(x => x.low < l[1].price && x.close > l[1].price);
+  return { bos: brokeUp && !down ? "BULLISH" : brokeDown && !up ? "BEARISH" : "NONE", choch: brokeUp && down ? "BULLISH" : brokeDown && up ? "BEARISH" : "NONE", sweep: sweptLow ? "BULLISH" : sweptHigh ? "BEARISH" : "NONE" };
+}
+/** Pearson correlation of the last `n` 1h returns of two candle series aligned by time. */
+export function returnCorrelation(a: Candle[], b: Candle[], n = 48): number | null {
+  const bm = new Map(b.map(x => [x.time, x.close])); const xs: number[] = [], ys: number[] = [];
+  for (let i = Math.max(1, a.length - n); i < a.length; i++) { const b1 = bm.get(a[i].time), b0 = bm.get(a[i - 1].time); if (b1 && b0) { xs.push(a[i].close / a[i - 1].close - 1); ys.push(b1 / b0 - 1); } }
+  if (xs.length < 24) return null; const mx = xs.reduce((p, q) => p + q, 0) / xs.length, my = ys.reduce((p, q) => p + q, 0) / ys.length;
+  let sxy = 0, sxx = 0, syy = 0; for (let i = 0; i < xs.length; i++) { sxy += (xs[i] - mx) * (ys[i] - my); sxx += (xs[i] - mx) ** 2; syy += (ys[i] - my) ** 2; }
+  return sxx > 0 && syy > 0 ? sxy / Math.sqrt(sxx * syy) : null;
+}
 const pct = (v: number, d = 1) => (v >= 0 ? "+" : "") + (v * 100).toFixed(d) + "%";
 const share = (v: number) => Math.round(v * 100) + "% long";
 const usd = (v: number) => Math.abs(v) >= 1e9 ? "$" + (v / 1e9).toFixed(2) + "B" : Math.abs(v) >= 1e6 ? "$" + (v / 1e6).toFixed(1) + "M" : "$" + Math.round(v / 1e3) + "K";
@@ -109,7 +135,11 @@ export const fmt = (v: number) => v >= 1000 ? v.toFixed(2) : v >= 10 ? v.toFixed
 const changeOver = (series: Array<{ t: number; coins: number }>, hours: number): number | null => { if (series.length < hours + 1) return null; const now = last(series).coins, then = series[series.length - 1 - hours].coins; return then > 0 ? now / then - 1 : null; };
 
 // ───────────── the engine ─────────────
-export function runWs2(input: Ws2Input): Ws2Result {
+/** The first, uncalibrated parameter set (WS2-0.1). Kept unchanged so every later version can be compared with it. */
+export const WS2_BASELINE = { weights: { structure: 30, flow: 20, htf: 15, whales: 10, top: 10, retail: 5, funding: 5, btc: 5 }, thresholds: { leadBias: 35, leadGap: 15, readyBias: 45, readyEntry: 65, noTradeBelow: 30, chasingExhaustion: 60, readyMaxExhaustion: 50, minReliability: 45, readyReliability: 60 } } as const;
+export type Ws2Params = { weights: Record<keyof typeof WS2_WEIGHTS, number>; thresholds: Record<keyof typeof WS2_THRESHOLDS, number> };
+export function runWs2(input: Ws2Input, params: Ws2Params = { weights: WS2_WEIGHTS, thresholds: WS2_THRESHOLDS }): Ws2Result {
+  const WEIGHTS = params.weights;
   const { h1, h4, d1, m15 } = input.candles;
   const price = input.price ?? (h1.length ? last(h1).close : null);
   const atr1h = atr(h1), atrD = atr(d1), closes = h1.map(c => c.close);
@@ -118,14 +148,14 @@ export function runWs2(input: Ws2Input): Ws2Result {
   const change24 = h1.length >= 25 && price ? price / h1[h1.length - 25].close - 1 : null;
   const extensionAtr = price !== null && e20 !== null && atr1h ? (price - e20) / atr1h : null;
   const components: Component[] = [];
-  const add = (key: keyof typeof WS2_WEIGHTS, label: string, c: { available: boolean; bull?: number; bear?: number; note: string; raw?: string[] }) => components.push({ key, label, weight: WS2_WEIGHTS[key], available: c.available, bull: clamp(c.bull ?? 0), bear: clamp(c.bear ?? 0), note: c.note, raw: c.raw ?? [] });
+  const add = (key: keyof typeof WS2_WEIGHTS, label: string, c: { available: boolean; bull?: number; bear?: number; note: string; raw?: string[] }) => components.push({ key, label, weight: WEIGHTS[key], available: c.available, bull: clamp(c.bull ?? 0), bear: clamp(c.bear ?? 0), note: c.note, raw: c.raw ?? [] });
 
-  // 1. Price action and market structure (1h)
+  // 1. Price action and market structure (1h). System 2 reads structure itself so live and replay results match.
+  const own = structureRead(h1);
   const t1 = trendRead(h1);
   if (t1) {
-    const ch = input.chart;
-    const sb = ch ? (ch.bos === "BULLISH" ? 0.15 : 0) + (ch.choch === "BULLISH" ? 0.15 : 0) : 0, sr = ch ? (ch.bos === "BEARISH" ? 0.15 : 0) + (ch.choch === "BEARISH" ? 0.15 : 0) : 0;
-    add("structure", "Price action and structure (1h)", { available: true, bull: t1.bull * 0.7 + sb, bear: t1.bear * 0.7 + sr, note: t1.note + (ch ? "; chart engine: BOS " + ch.bos.toLowerCase() + ", CHoCH " + ch.choch.toLowerCase() + ", " + ch.regime.toLowerCase() : ""), raw: ["EMA20 " + (e20 ? fmt(e20) : "n/a"), "ATR(1h) " + (atr1h ? fmt(atr1h) : "n/a"), "RSI(1h) " + (rsi1h?.toFixed(0) ?? "n/a")] });
+    const sb = (own.bos === "BULLISH" ? 0.15 : 0) + (own.choch === "BULLISH" ? 0.15 : 0), sr = (own.bos === "BEARISH" ? 0.15 : 0) + (own.choch === "BEARISH" ? 0.15 : 0);
+    add("structure", "Price action and structure (1h)", { available: true, bull: t1.bull * 0.7 + sb, bear: t1.bear * 0.7 + sr, note: t1.note + "; break of structure " + own.bos.toLowerCase() + ", change of character " + own.choch.toLowerCase() + (input.chart ? "; scanner regime " + input.chart.regime.toLowerCase() : ""), raw: ["EMA20 " + (e20 ? fmt(e20) : "n/a"), "ATR(1h) " + (atr1h ? fmt(atr1h) : "n/a"), "RSI(1h) " + (rsi1h?.toFixed(0) ?? "n/a")] });
   } else add("structure", "Price action and structure (1h)", { available: false, note: "UNAVAILABLE: fewer than 55 closed 1h candles." });
 
   // 2. Open interest (coin units) and execution flow
@@ -208,7 +238,7 @@ export function runWs2(input: Ws2Input): Ws2Result {
   } else add("funding", "Funding", { available: false, note: "UNAVAILABLE." });
 
   // 8. Bitcoin context
-  const b1 = input.btc ? trendRead(input.btc.h1) : null, b4 = input.btc ? trendRead(input.btc.h4) : null; const corr = input.chart?.btcCorrelation ?? null; const btcLines: string[] = []; let btcVerdict = "UNAVAILABLE";
+  const b1 = input.btc ? trendRead(input.btc.h1) : null, b4 = input.btc ? trendRead(input.btc.h4) : null; const corr = (input.btc ? returnCorrelation(h1, input.btc.h1) : null) ?? input.chart?.btcCorrelation ?? null; const btcLines: string[] = []; let btcVerdict = "UNAVAILABLE";
   if (input.coin === "BTC") { btcVerdict = "THIS IS BITCOIN"; add("btc", "Bitcoin and wider market", { available: false, note: "Not applicable: the instrument is BTC." }); }
   else if (b1 && b4) {
     const link = corr === null ? 0.6 : clamp(Math.abs(corr)); const bull = (b1.bull * 0.5 + b4.bull * 0.5) * link, bear = (b1.bear * 0.5 + b4.bear * 0.5) * link;
@@ -294,7 +324,7 @@ export function runWs2(input: Ws2Input): Ws2Result {
     const located = away > 1.5 ? "CHASING" : away > 0.7 ? "EXTENDED" : "GOOD";
     const loc = away > 1.5 ? 0 : away > 0.7 ? 12 : away >= -1 ? 35 : 20;
     const confirmed = !!m15Trend && (side === "SHORT" ? m15Trend.below : m15Trend.above); const conf = confirmed ? 25 : 0;
-    const ch = input.chart; const want = side === "LONG" ? "BULLISH" : "BEARISH"; const struct = ch ? (ch.bos === want ? 8 : 0) + (ch.choch === want ? 8 : 0) + (ch.sweep === want ? 4 : 0) : 0;
+    const want = side === "LONG" ? "BULLISH" : "BEARISH"; const struct = (own.bos === want ? 8 : 0) + (own.choch === want ? 8 : 0) + (own.sweep === want ? 4 : 0);
     const lv = buildLevels(side, "PULLBACK"); const rr = lv ? clamp(lv.weightedR / 2) * 20 : 0;
     return { score: Math.round(clamp((loc + conf + struct + rr - 0.3 * exhaustionFor(side)) / 100) * 100), confirmed, located };
   };
@@ -317,7 +347,7 @@ export function runWs2(input: Ws2Input): Ws2Result {
   const reliability = Math.round(feeds.reduce((a, f) => a + (f.available ? f.weight : 0), 0));
 
   // ── Status: bias is not entry readiness
-  const T = WS2_THRESHOLDS;
+  const T = params.thresholds;
   const lead: Side | null = bullishBias >= T.leadBias && bullishBias - bearishBias >= T.leadGap ? "LONG" : bearishBias >= T.leadBias && bearishBias - bullishBias >= T.leadGap ? "SHORT" : null;
   const q = lead === "LONG" ? longQ : lead === "SHORT" ? shortQ : null; const bias = lead === "LONG" ? bullishBias : bearishBias; const exh = lead ? exhaustionFor(lead) : 0;
   let status: Ws2Status;
@@ -333,7 +363,8 @@ export function runWs2(input: Ws2Input): Ws2Result {
   // ── Plain-language output
   const dirWord = lead === "LONG" ? "bullish" : lead === "SHORT" ? "bearish" : "unclear";
   const sq = { long: stage(true), short: stage(false) };
-  const headline = status === "DATA UNAVAILABLE" ? "Not enough reliable data to judge " + input.coin + "." : status === "NO TRADE" ? "No trade on " + input.coin + ": neither direction has enough evidence. That is a valid result." : status === "WATCHING" ? "Mixed evidence on " + input.coin + " (bullish " + bullishBias + ", bearish " + bearishBias + "). Watch only." : status === "CHASING RISK" ? "Bias is " + dirWord + ", but the move has largely happened. Entering now is chasing. Wait." : status === "AWAITING PULLBACK" ? "Bias is " + dirWord + ". Price has run from a fair entry; wait for it to come back." : status === "AWAITING CONFIRMATION" ? "Bias is " + dirWord + " and price is in a fair area, but the 15-minute chart has not confirmed. Wait." : status === "SETUP FORMING" ? "A " + dirWord + " setup is forming on " + input.coin + ". Not ready." : "Entry ready: " + lead + " " + input.coin + ". Check the levels and the risk first.";
+  const criticalMissing = feeds.filter(f => !f.available && f.weight >= 10).map(f => f.name);
+  const headline = status === "DATA UNAVAILABLE" ? "Cannot judge " + input.coin + " right now: " + (h1.length < 55 ? "Bybit returned only " + h1.length + " closed 1h candles for " + input.symbol + " (55 are needed; a newly listed pair needs about 3 days of history)." : price === null ? "Bybit returned no live price for " + input.symbol + "." : "too many inputs are missing (" + (criticalMissing.join("; ") || "several feeds") + ").") + " Nothing is guessed. Try again in a few minutes." : status === "NO TRADE" ? "No trade on " + input.coin + ": neither direction has enough evidence. That is a valid result." : status === "WATCHING" ? "Mixed evidence on " + input.coin + " (bullish " + bullishBias + ", bearish " + bearishBias + "). Watch only." : status === "CHASING RISK" ? "Bias is " + dirWord + ", but the move has largely happened. Entering now is chasing. Wait." : status === "AWAITING PULLBACK" ? "Bias is " + dirWord + ". Price has run from a fair entry; wait for it to come back." : status === "AWAITING CONFIRMATION" ? "Bias is " + dirWord + " and price is in a fair area, but the 15-minute chart has not confirmed. Wait." : status === "SETUP FORMING" ? "A " + dirWord + " setup is forming on " + input.coin + ". Not ready." : "Entry ready: " + lead + " " + input.coin + ". Check the levels and the risk first.";
   const sizing = status === "ENTRY READY" && (pullback ?? market) ? "Risk " + input.settings.riskPct + "% of equity (" + usd((pullback ?? market)!.size.riskUsd) + "). Size is computed from the stop distance, fees and slippage only; it does not depend on how strong the positioning looks." : "NOT AUTHORISED. No position size is approved until the status is ENTRY READY. The figures shown are what the size would be.";
   const activate: string[] = [], invalidate: string[] = [];
   if (lead && pullback && atr1h && e20 !== null) {
@@ -361,7 +392,10 @@ export function runWs2(input: Ws2Input): Ws2Result {
     components, squeeze: sq, exhaustion: { direction: moveDir, parts: exParts },
     oi: input.oi ? { coinChange4h: oiC4, coinChange24h: oiC24, usdChange24h: oiUsd24, read: oiRead + (oiC24 !== null && oiUsd24 !== null && Math.abs(oiUsd24 - oiC24) > 0.03 ? " In USD it changed " + pct(oiUsd24, 1) + " over 24 h, but in coins only " + pct(oiC24, 1) + ": most of the USD change is the price move, not positions closing." : "") } : null,
     institutions: { verdict: instVerdict, lines: instLines }, retail: { verdict: retailVerdict, lines: retailLines }, whales: { verdict: whaleVerdict, lines: whaleLines }, fundingRead: { verdict: fundVerdict, lines: fundLines }, btc: { verdict: btcVerdict, lines: btcLines },
-    feeds, levels: { pullback, market }, sizing, activate, invalidate, explain,
+    feeds, detail: { LONG: { entry: longQ.score, confirmed: longQ.confirmed, located: longQ.located, exhaustion: exhaustionFor("LONG") }, SHORT: { entry: shortQ.score, confirmed: shortQ.confirmed, located: shortQ.located, exhaustion: exhaustionFor("SHORT") } },
+    plans: { LONG: { pullback: buildLevels("LONG", "PULLBACK"), market: buildLevels("LONG", "MARKET") }, SHORT: { pullback: buildLevels("SHORT", "PULLBACK"), market: buildLevels("SHORT", "MARKET") } },
+    missing: feeds.filter(f => !f.available).map(f => f.name + " (" + f.detail + ")"),
+    levels: { pullback, market }, sizing, activate, invalidate, explain,
     metrics: { atr1h, ema20: e20, extensionAtr, change24hPct: change24 === null ? null : change24 * 100, rsi1h },
   };
 }
