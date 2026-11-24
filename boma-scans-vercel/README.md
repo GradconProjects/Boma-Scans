@@ -199,3 +199,12 @@ Patterns, best first: strong hands vs crowd, strong hands aligned, whales vs cro
 - The AI planner must name each group's side and explain how the pattern changed its decision and size.
 
 Code: `app/lib/positioning-matrix.ts` (logic and wording) and `app/server/positioning-matrix.ts` (live data).
+
+## Whale System 2 (separate, shadow mode)
+
+A fourth system at `/whales-2`, reachable from the system switcher and the chooser. It is a stricter second opinion that scores direction, entry timing, exhaustion and data reliability separately, can return NO TRADE, never averages different trader populations, never invents missing data, and logs every signal to measure its own accuracy before it is trusted.
+
+It borrows data from the scanner and the original whale tracker and changes nothing in them. The pre-existing version is preserved on branch `backup/before-whale-system-2`.
+
+- Telegram: `/ws2 NEAR`. Alerts only when a watchlist coin becomes ENTRY READY.
+- Full method, limits, what was and was not tested, and how to remove it: `docs/WHALE-SYSTEM-2.md`.

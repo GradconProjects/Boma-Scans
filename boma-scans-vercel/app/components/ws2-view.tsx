@@ -1,0 +1,180 @@
+"use client";
+import { useCallback, useEffect, useState } from "react";
+import { Button } from "@/components/ui/button";
+import { fmt, type Levels, type Ws2Result } from "@/app/lib/ws2/engine";
+import type { Ws2LogEntry, Ws2Performance } from "@/app/lib/ws2/outcomes";
+import type { Ws2Source } from "@/app/lib/ws2/registry";
+
+type Settings = { watch: string[]; alerts: boolean; equity: number; riskPct: number; leverage: number };
+type Overview = { version: string; settings: Settings; log: Ws2LogEntry[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
+const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) + " Melbourne";
+const statusTone = (s: string) => s === "ENTRY READY" ? "border-emerald-300/60 bg-emerald-300/[0.12] text-emerald-50" : s === "CHASING RISK" || s === "INVALIDATED" ? "border-rose-300/50 bg-rose-300/[0.10] text-rose-50" : s === "NO TRADE" || s === "DATA UNAVAILABLE" || s === "WATCHING" ? "border-white/15 bg-white/[0.04] text-slate-100" : "border-amber-300/50 bg-amber-300/[0.10] text-amber-50";
+const usd = (v: number) => "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-AU") : v.toFixed(2));
+
+function Bar({ label, value, tone, hint }: { label: string; value: number; tone: string; hint?: string }) {
+  return <div title={hint}><p className="flex justify-between text-xs text-slate-300"><span>{label}</span><b className="font-mono text-white">{value}</b></p><div className="mt-0.5 h-2 overflow-hidden rounded-full bg-white/10"><div className={"h-full " + tone} style={{ width: Math.max(0, Math.min(100, value)) + "%" }}/></div></div>;
+}
+function Group({ icon, title, verdict, lines }: { icon: string; title: string; verdict: string; lines: string[] }) {
+  return <div className="rounded-xl border border-white/[0.08] bg-slate-950/60 p-3"><p className="text-sm font-bold text-white">{icon} {title}</p><p className="mt-1 text-sm font-semibold text-violet-100">{verdict}</p><ul className="mt-2 space-y-1 text-xs leading-5 text-slate-300">{lines.map(l => <li key={l}>• {l}</li>)}</ul></div>;
+}
+function LevelsCard({ title, lv, side, note }: { title: string; lv: Levels; side: string; note: string }) {
+  return <div className="rounded-xl border border-white/[0.08] bg-slate-950/60 p-3 text-xs leading-5">
+    <p className="text-sm font-bold text-white">{title}</p><p className="text-slate-400">{note}</p>
+    <p className="mt-2 font-mono text-slate-100">👉 Entry {fmt(lv.entryLow)} – {fmt(lv.entryHigh)}</p>
+    <p className="font-mono text-rose-200">❌ Stop {fmt(lv.stop)} ({lv.stopAtr} ATR, {(Math.abs(lv.entry - lv.stop) / lv.entry * 100).toFixed(2)}%)</p>
+    {lv.targets.map((t, i) => <p key={t.price} className="font-mono text-emerald-200">🎯 TP{i + 1} {fmt(t.price)} · {t.r}R <span className="font-sans text-[10px] text-slate-500">{t.source}</span></p>)}
+    <p className="mt-1 text-slate-300">⚖️ Weighted reward {lv.weightedR}R across the five targets (30/25/20/15/10%). This is the expected reward, not the distance to TP5.</p>
+    <p className="mt-2 text-slate-300">💰 If it activates ({side}): risk {usd(lv.size.riskUsd)} → quantity {lv.size.qty.toFixed(3)} · notional {usd(lv.size.notional)} · margin {usd(lv.size.margin)} · est. liquidation {fmt(lv.size.estLiquidation)} {lv.size.liquidationSafe ? "(safely beyond the stop)" : "⚠️ too close to the stop: lower the leverage"}</p>
+  </div>;
+}
+
+function ResultView({ r }: { r: Ws2Result }) {
+  const s = r.scores;
+  return <div className="space-y-3">
+    <div className={"rounded-2xl border-2 p-4 " + statusTone(r.status)}>
+      <p className="text-xs font-bold uppercase tracking-widest opacity-80">{r.coin} · {r.symbol} · {r.price ? fmt(r.price) : "no price"} · {melbourne(r.at)}</p>
+      <p className="mt-1 text-2xl font-black">{r.status}{r.side ? " · bias " + r.side : ""}</p>
+      <p className="mt-1 text-base font-semibold leading-6">✅ What to do: {r.headline}</p>
+      <p className="mt-2 text-sm leading-6">💰 Position size: {r.sizing}</p>
+    </div>
+    <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4">
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">📊 Independent scores (0–100 each)</p>
+      <p className="mt-1 text-xs text-amber-200">{r.scoreNote}</p>
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <Bar label="Bullish directional bias" value={s.bullishBias} tone="bg-emerald-400"/><Bar label="Bearish directional bias" value={s.bearishBias} tone="bg-rose-400"/>
+        <Bar label="Risk-adjusted opportunity" value={s.opportunity} tone="bg-cyan-400"/>
+        <Bar label="LONG entry quality" value={s.longEntry} tone="bg-emerald-400/70"/><Bar label="SHORT entry quality" value={s.shortEntry} tone="bg-rose-400/70"/>
+        <Bar label="Market exhaustion risk" value={s.exhaustion} tone="bg-amber-400"/>
+        <Bar label="Long-squeeze potential" value={s.longSqueeze} tone="bg-rose-300/70" hint="Longs being forced out: price falls"/><Bar label="Short-squeeze potential" value={s.shortSqueeze} tone="bg-emerald-300/70" hint="Shorts being forced out: price rises"/>
+        <Bar label="Data reliability" value={s.reliability} tone="bg-violet-400"/>
+      </div>
+      <p className="mt-2 text-xs text-slate-400">Bullish and bearish do not add up to 100. Both can be low at once, and then the answer is no trade.</p>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm leading-6"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">⏳ Wait for (what activates the trade)</p><ul className="mt-1 space-y-1 text-slate-100">{r.activate.map(a => <li key={a}>• {a}</li>)}</ul></div>
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm leading-6"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">⛔ Invalid if</p><ul className="mt-1 space-y-1 text-slate-100">{r.invalidate.map(a => <li key={a}>• {a}</li>)}</ul></div>
+    </div>
+    <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4">
+      <p className="text-xs font-bold uppercase tracking-widest text-slate-400">❓ In plain words</p>
+      <dl className="mt-2 grid gap-3 text-sm leading-6 lg:grid-cols-2">{r.explain.map(e => <div key={e.q}><dt className="font-semibold text-white">{e.q}</dt><dd className="text-slate-300">{e.a}</dd></div>)}</dl>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-3">
+      <Group icon="🐋" title="Whales (ranked Hyperliquid accounts)" verdict={r.whales.verdict} lines={r.whales.lines}/>
+      <Group icon="🏦" title="Exchange top traders" verdict={r.institutions.verdict} lines={r.institutions.lines}/>
+      <Group icon="👥" title="Retail crowd" verdict={r.retail.verdict} lines={r.retail.lines}/>
+      <Group icon="💸" title="Funding" verdict={r.fundingRead.verdict} lines={r.fundingRead.lines}/>
+      <Group icon="📈" title="Open interest (coins vs USD)" verdict={r.oi ? "Coins 24 h " + (r.oi.coinChange24h === null ? "n/a" : (r.oi.coinChange24h * 100).toFixed(1) + "%") + " · USD 24 h " + (r.oi.usdChange24h === null ? "n/a" : (r.oi.usdChange24h * 100).toFixed(1) + "%") : "UNAVAILABLE"} lines={r.oi ? [r.oi.read] : ["No open-interest history."]}/>
+      <Group icon="₿" title="Bitcoin context" verdict={r.btc.verdict} lines={r.btc.lines}/>
+    </div>
+    <div className="grid gap-3 lg:grid-cols-2">
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm leading-6">
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">🔥 Squeeze lifecycle</p>
+        <p className="mt-1"><b className="text-rose-200">Long squeeze (longs forced out):</b> {r.squeeze.long.stage}</p><p className="text-xs text-slate-300">{r.squeeze.long.note}</p>
+        <p className="mt-2"><b className="text-emerald-200">Short squeeze (shorts forced out):</b> {r.squeeze.short.stage}</p><p className="text-xs text-slate-300">{r.squeeze.short.note}</p>
+      </div>
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm leading-6">
+        <p className="text-xs font-bold uppercase tracking-widest text-slate-400">🥵 Has the move already happened? Exhaustion {s.exhaustion}/100</p>
+        <ul className="mt-1 space-y-0.5 text-xs text-slate-300">{r.exhaustion.parts.map(p => <li key={p}>• {p}</li>)}</ul>
+      </div>
+    </div>
+    {r.side && (r.levels.pullback || r.levels.market) && <div className="grid gap-3 lg:grid-cols-2">
+      {r.levels.pullback && <LevelsCard title={"Pullback entry (" + r.side + ")"} lv={r.levels.pullback} side={r.side} note="Preferred: wait for price to come to you. Cancelled, with no loss recorded, if the stop level trades first."/>}
+      {r.levels.market && <LevelsCard title={"Market entry now (" + r.side + ")"} lv={r.levels.market} side={r.side} note="Recalculated from the current price with its own stop and targets. Only for ENTRY READY."/>}
+    </div>}
+    <details className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm">
+      <summary className="cursor-pointer font-semibold text-white">🔍 Score breakdown: every component, its weight and raw values</summary>
+      <table className="mt-3 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="pr-2 font-medium">Component</th><th className="pr-2 text-right font-medium">Weight</th><th className="pr-2 text-right font-medium">Bull pts</th><th className="pr-2 text-right font-medium">Bear pts</th><th className="font-medium">Read</th></tr></thead>
+        <tbody>{r.components.map(c => <tr key={c.key} className="border-t border-white/[0.05] align-top"><td className="pr-2 py-1 text-slate-100">{c.label}</td><td className="pr-2 py-1 text-right font-mono">{c.weight}</td><td className="pr-2 py-1 text-right font-mono text-emerald-300">{c.available ? (c.weight * c.bull).toFixed(1) : "—"}</td><td className="pr-2 py-1 text-right font-mono text-rose-300">{c.available ? (c.weight * c.bear).toFixed(1) : "—"}</td><td className="py-1 text-slate-300">{c.note}{c.raw.length > 0 && <span className="block text-[11px] text-slate-500">{c.raw.join(" · ")}</span>}</td></tr>)}</tbody></table>
+      <p className="mt-2 text-xs text-slate-400">An unavailable component adds nothing to either side, and its weight is not handed to the others.</p>
+    </details>
+    <details className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm">
+      <summary className="cursor-pointer font-semibold text-white">📡 Data feeds used for this reading ({s.reliability}/100 reliable)</summary>
+      <ul className="mt-2 space-y-1 text-xs">{r.feeds.map(f => <li key={f.name} className={f.available ? "text-emerald-200" : "text-amber-200"}>{f.available ? "✔" : "✖"} {f.name} <span className="text-slate-400">· {f.detail} · worth {f.weight}</span></li>)}</ul>
+    </details>
+  </div>;
+}
+
+/** Whale System 2: a separate system. It reads the other systems' data but changes nothing in them. */
+export function Ws2View() {
+  const [tab, setTab] = useState<"analyse" | "log" | "method">("analyse");
+  const [overview, setOverview] = useState<Overview | null>(null);
+  const [coin, setCoin] = useState(""); const [busy, setBusy] = useState(""); const [error, setError] = useState(""); const [result, setResult] = useState<Ws2Result | null>(null);
+  const load = useCallback(async () => { try { const d = await (await fetch("/api/ws2", { cache: "no-store" })).json() as Overview; if (d.error) setError(d.error); else setOverview(d); } catch { setError("Whale System 2 is unavailable."); } }, []);
+  const analyse = useCallback(async (c: string) => {
+    const clean = c.trim().toUpperCase().replace(/USDT$/, ""); if (!clean) return;
+    setBusy(clean); setError("");
+    try { const d = await (await fetch("/api/ws2", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "analyse", coin: clean }) })).json() as { result?: Ws2Result; error?: string }; if (d.result) { setResult(d.result); setTab("analyse"); void load(); } else setError(d.error ?? "Analysis failed."); }
+    catch { setError("Analysis failed."); } finally { setBusy(""); }
+  }, [load]);
+  useEffect(() => { void load(); const c = new URLSearchParams(window.location.search).get("coin"); if (c) { setCoin(c); void analyse(c); } }, [load, analyse]);
+  const save = async (patch: Partial<Settings>) => { const d = await (await fetch("/api/ws2", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ action: "settings", ...patch }) })).json() as { settings?: Settings }; if (d.settings) setOverview(o => o ? { ...o, settings: d.settings! } : o); };
+  const st = overview?.settings;
+  return <main className="mx-auto min-h-screen max-w-6xl px-4 pb-24 pt-6 text-slate-100">
+    <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200">Boma Scans · separate system</p>
+    <h1 className="mt-1 text-3xl font-bold text-white">🐋² Whale System 2</h1>
+    <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">A stricter second opinion. It scores direction, entry timing, exhaustion and data quality separately, and it is allowed to say <b>no trade</b>. It reads the same market and whale data as the other systems but changes nothing in them. It runs in shadow mode: every signal is logged and scored later, so its accuracy is measured before it is trusted.</p>
+    <div className="mt-4 flex flex-wrap gap-2">{(["analyse", "log", "method"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "analyse" ? "Analyse" : t === "log" ? "Signal log & performance" + (overview ? " · " + overview.log.length : "") : "Data sources & method"}</Button>)}</div>
+    {error && <p className="mt-3 text-sm text-amber-200">{error}</p>}
+
+    {tab === "analyse" && <section className="mt-4 space-y-4">
+      <form className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3" onSubmit={e => { e.preventDefault(); void analyse(coin); }}>
+        <label className="text-xs text-slate-400" htmlFor="ws2-coin">Analyse any coin</label>
+        <input id="ws2-coin" value={coin} onChange={e => setCoin(e.target.value)} placeholder="NEAR, BTC, SOL…" className="rounded-lg border border-white/10 bg-slate-900 px-2 py-1.5 font-mono text-sm text-slate-100"/>
+        <Button type="submit" size="sm" disabled={!!busy} className="rounded-lg">{busy ? "Analysing " + busy + "…" : "Analyse"}</Button>
+        {st && st.watch.map(c => <Button key={c} type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => { setCoin(c); void analyse(c); }} className="rounded-lg">{c}</Button>)}
+      </form>
+      {st && <div className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3 text-xs text-slate-300">
+        <p className="font-semibold text-white">Watchlist (scanned every 15 minutes, logged, alert only on ENTRY READY)</p>
+        <div className="mt-2 flex flex-wrap items-center gap-2">
+          {st.watch.map(c => <span key={c} className="rounded-full border border-white/10 px-2 py-0.5 font-mono">{c} <button type="button" aria-label={"Remove " + c} onClick={() => void save({ watch: st.watch.filter(x => x !== c) })} className="ml-1 text-rose-300">×</button></span>)}
+          {result && !st.watch.includes(result.coin) && st.watch.length < 8 && <Button type="button" size="sm" variant="outline" onClick={() => void save({ watch: [...st.watch, result.coin] })} className="rounded-lg">+ Watch {result.coin}</Button>}
+          <label className="ml-auto flex items-center gap-1"><input type="checkbox" checked={st.alerts} onChange={e => void save({ alerts: e.target.checked })}/> Telegram alert on ENTRY READY</label>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-3">
+          <label>Equity $ <input type="number" defaultValue={st.equity} onBlur={e => void save({ equity: Number(e.target.value) })} className="w-24 rounded border border-white/10 bg-slate-900 px-1 py-0.5 font-mono"/></label>
+          <label>Risk per trade <select value={st.riskPct} onChange={e => void save({ riskPct: Number(e.target.value) })} className="rounded border border-white/10 bg-slate-900 px-1 py-0.5"><option value={0.25}>0.25%</option><option value={0.5}>0.5%</option><option value={1}>1%</option></select></label>
+          <label>Leverage <input type="number" defaultValue={st.leverage} onBlur={e => void save({ leverage: Number(e.target.value) })} className="w-14 rounded border border-white/10 bg-slate-900 px-1 py-0.5 font-mono"/>x <span className="text-slate-500">(sets margin only, never the size)</span></label>
+          <span className="text-slate-500">Scheduler: {overview?.schedule ? (overview.schedule.ok ? "running" : "not registered" + (overview.schedule.error ? " (" + overview.schedule.error + ")" : "")) : "not available here"}</span>
+        </div>
+      </div>}
+      {result ? <ResultView r={result}/> : <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm text-slate-400">Type a coin and press Analyse. Nothing is traded; this system only analyses and records.</p>}
+    </section>}
+
+    {tab === "log" && overview && <section className="mt-4 space-y-4">
+      <div className="grid gap-3 lg:grid-cols-3">{overview.performance.map(p => <div key={p.window} className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4 text-sm leading-6">
+        <p className="flex items-center justify-between"><b className="text-white">Last {p.window}</b><span className={"rounded-full px-2 py-0.5 text-[10px] font-bold " + (p.sample === "USABLE" ? "bg-emerald-300/20 text-emerald-100" : "bg-amber-300/20 text-amber-100")}>{p.sample}</span></p>
+        <p className="text-slate-300">{p.signals} signals logged · {p.scored} scored · {p.filled} filled</p>
+        <p className="text-slate-300">TP1 before stop: {p.filled ? p.tp1BeforeStop + " of " + p.filled + " (" + Math.round(p.tp1BeforeStop / p.filled * 100) + "%)" : "none yet"} · stops {p.stops}</p>
+        <p className="text-slate-300">Average net result: {p.avgNetR === null ? "n/a" : p.avgNetR + "R after fees"}</p>
+        <p className="text-slate-300">Direction right after 4 h: {p.directionJudged ? p.directionRight + " of " + p.directionJudged : "none yet"}</p>
+        {p.byStatus.length > 0 && <ul className="mt-1 text-xs text-slate-400">{p.byStatus.map(b => <li key={b.status}>{b.status}: {b.scored} scored, {b.filled} filled, {b.tp1} TP1+, {b.stops} stops{b.avgNetR !== null ? ", " + b.avgNetR + "R avg" : ""}</li>)}</ul>}
+      </div>)}</div>
+      <p className="text-xs text-slate-400">Shadow mode. Each signal is frozen when issued and scored once against the 15-minute candles that followed: the entry must actually trade within 4 hours; if the stop level trades first the trade is cancelled with no loss; a stop and target in the same candle counts as a stop; fees and slippage are deducted. Under 30 filled trades the figures prove nothing.</p>
+      <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-2 font-medium">Issued</th><th className="p-2 font-medium">Coin</th><th className="p-2 font-medium">Status</th><th className="p-2 font-medium">Bias</th><th className="p-2 text-right font-medium">Bull / Bear</th><th className="p-2 text-right font-medium">Exh.</th><th className="p-2 font-medium">Plan</th><th className="p-2 font-medium">Outcome</th></tr></thead>
+        <tbody>{overview.log.map(e => <tr key={e.id} className="border-t border-white/[0.05] align-top"><td className="p-2 text-slate-400">{melbourne(e.at)}</td><td className="p-2 font-mono text-white">{e.coin}</td><td className="p-2">{e.status}</td><td className="p-2">{e.side ?? "—"}</td><td className="p-2 text-right font-mono">{e.scores.bullishBias} / {e.scores.bearishBias}</td><td className="p-2 text-right font-mono">{e.scores.exhaustion}</td><td className="p-2 font-mono text-slate-300">{e.plan ? fmt(e.plan.entryLow) + "–" + fmt(e.plan.entryHigh) + " · stop " + fmt(e.plan.stop) : "—"}</td><td className="p-2 text-slate-300">{e.outcome ? e.outcome.result + (e.outcome.netR !== null && e.outcome.filled ? " · " + e.outcome.netR + "R" : "") + (e.outcome.forward4hPct !== null ? " · 4 h " + (e.outcome.forward4hPct >= 0 ? "+" : "") + e.outcome.forward4hPct.toFixed(2) + "%" : "") : "pending"}</td></tr>)}</tbody></table></div>
+    </section>}
+
+    {tab === "method" && overview && <section className="mt-4 space-y-4 text-sm leading-6 text-slate-300">
+      <div className="rounded-2xl border border-white/[0.08] bg-slate-950/50 p-4">
+        <h2 className="font-semibold text-white">How Whale System 2 differs from the original whale system</h2>
+        <ul className="mt-2 list-disc space-y-1 pl-5">
+          <li>LONG and SHORT are scored separately. They do not add up to 100, and both can be poor.</li>
+          <li>Direction, entry timing, exhaustion and data quality are four different questions with four different scores.</li>
+          <li>Whales: only <b>new</b> exposure counts fully. An old, profitable position is flagged as an old call with profit-taking risk.</li>
+          <li>Exchange top traders are shown per exchange and never averaged, because Binance and OKX measure different groups.</li>
+          <li>The retail crowd only counts when it is unusual for that coin, and only as squeeze fuel, never as a trigger.</li>
+          <li>Open interest is judged in coins. A fall in dollars caused by a falling price is not read as positions closing.</li>
+          <li>Funding near zero is called ordinary. It is not read as balanced leverage.</li>
+          <li>Position size comes from the stop distance, fees and your risk %, never from how strong the positioning looks.</li>
+          <li>Missing data is shown as UNAVAILABLE and scores nothing. Nothing is invented.</li>
+        </ul>
+        <p className="mt-2 text-amber-200">Unvalidated: the weights and thresholds below are starting hypotheses. No backtest of the positioning inputs has been run, because exchanges publish only days to weeks of that history. The signal log is the validation: once enough signals are scored, the weights can be re-fitted.</p>
+        <p className="mt-2 font-mono text-xs">Weights: {Object.entries(overview.weights).map(([k, v]) => k + " " + v).join(" · ")}</p>
+        <p className="font-mono text-xs">Thresholds: {Object.entries(overview.thresholds).map(([k, v]) => k + " " + v).join(" · ")}</p>
+        <p className="mt-1 text-xs text-slate-500">Model {overview.version}</p>
+      </div>
+      <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Metric", "Exchange", "Unit", "Who it covers", "Updates", "History", "If missing", "Limits"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
+        <tbody>{overview.sources.map(s => <tr key={s.metric + s.exchange} className="border-t border-white/[0.05] align-top"><td className="p-2 text-white">{s.metric}<span className="block font-mono text-[10px] text-slate-500">{s.endpoint}</span></td><td className="p-2">{s.exchange}</td><td className="p-2">{s.unit}</td><td className="p-2">{s.population}</td><td className="p-2">{s.update}</td><td className="p-2">{s.history}</td><td className="p-2">{s.missing}</td><td className="p-2">{s.limits}</td></tr>)}</tbody></table></div>
+    </section>}
+  </main>;
+}

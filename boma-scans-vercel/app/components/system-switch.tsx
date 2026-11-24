@@ -2,13 +2,14 @@
 import { useEffect, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 
-export type SystemView = "scanner" | "whales" | "before";
+export type SystemView = "scanner" | "whales" | "before" | "whales2";
 export const VIEW_EVENT = "boma:view";
 
 /** Current system from the URL: /whales or ?view=whales means the whale system. */
 export function readView(): SystemView {
   if (typeof window === "undefined") return "scanner";
   if (window.location.pathname.startsWith("/before-telegram")) return "before";
+  if (window.location.pathname.startsWith("/whales-2")) return "whales2";
   return window.location.pathname.startsWith("/whales") || new URLSearchParams(window.location.search).get("view") === "whales" ? "whales" : "scanner";
 }
 
@@ -30,6 +31,7 @@ export function SystemSwitch() {
   const go = (next: SystemView) => {
     if (next === view) return;
     if (next === "before") { router.push("/before-telegram"); return; }
+    if (next === "whales2") { router.push("/whales-2"); return; }
     if (pathname === "/") {
       const url = new URL(window.location.href);
       if (next === "whales") url.searchParams.set("view", "whales"); else url.searchParams.delete("view");
@@ -42,5 +44,6 @@ export function SystemSwitch() {
     <button type="button" role="tab" aria-selected={view === "scanner"} onClick={() => go("scanner")} className={"rounded-lg px-3 py-1.5 transition " + (view === "scanner" ? "bg-cyan-300/20 text-cyan-100" : "text-slate-400 hover:text-white")}>📡 Scanner</button>
     <button type="button" role="tab" aria-selected={view === "whales"} onClick={() => go("whales")} className={"rounded-lg px-3 py-1.5 transition " + (view === "whales" ? "bg-violet-300/20 text-violet-100" : "text-slate-400 hover:text-white")}>🐋 Whales</button>
     <button type="button" role="tab" aria-selected={view === "before"} onClick={() => go("before")} className={"rounded-lg px-3 py-1.5 transition " + (view === "before" ? "bg-amber-300/20 text-amber-100" : "text-slate-400 hover:text-white")}>🕰 Before Telegram</button>
+    <button type="button" role="tab" aria-selected={view === "whales2"} onClick={() => go("whales2")} className={"rounded-lg px-3 py-1.5 transition " + (view === "whales2" ? "bg-fuchsia-300/20 text-fuchsia-100" : "text-slate-400 hover:text-white")}>🐋² Whale System 2</button>
   </div>;
 }
