@@ -141,6 +141,8 @@ export async function replayScanner(symbol: string, days: number, stepHours: num
     if (analysis.decision !== "SETUP") continue;
     const btcFast = symbol === "BTCUSDT" ? fast : btcH1.slice(Math.max(0, pB1(t) - 480), pB1(t));
     const row = scannerRowFromAnalysis(ticker, analysis, false, instrument, "DAY", analyzeBtcRelationship(symbol, fast, btcFast, analysis, btcD.slice(Math.max(0, pBD(t) - 360), pBD(t))));
+    // The row is stamped with the real clock; in a replay its analysis time is the sample time, or the freshness check rejects everything.
+    row.analyzedAt = t + 2000;
     if (row.bias !== "LONG" && row.bias !== "SHORT") continue;
     const pick = getMediumRiskShortlist([row], 10_000, true, 1, t + 2000)[0]; let gate = false;
     try { gate = majorEventGate(row, analysis, fast).ok; } catch { gate = false; }
