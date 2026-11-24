@@ -5,8 +5,9 @@ import { fmt, type Levels, type Ws2Result } from "@/app/lib/ws2/engine";
 import type { Ws2LogEntry, Ws2Performance } from "@/app/lib/ws2/outcomes";
 import type { Ws2Source } from "@/app/lib/ws2/registry";
 
-type Settings = { watch: string[]; alerts: boolean; equity: number; riskPct: number; leverage: number };
-type Overview = { version: string; settings: Settings; log: Ws2LogEntry[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
+type Settings = { watch: string[]; alerts: boolean; universe: number; equity: number; riskPct: number; leverage: number };
+type BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string };
+type Overview = { version: string; settings: Settings; log: Ws2LogEntry[]; board: BoardRow[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) + " Melbourne";
 const statusTone = (s: string) => s === "ENTRY READY" ? "border-emerald-300/60 bg-emerald-300/[0.12] text-emerald-50" : s === "CHASING RISK" || s === "INVALIDATED" ? "border-rose-300/50 bg-rose-300/[0.10] text-rose-50" : s === "NO TRADE" || s === "DATA UNAVAILABLE" || s === "WATCHING" ? "border-white/15 bg-white/[0.04] text-slate-100" : "border-amber-300/50 bg-amber-300/[0.10] text-amber-50";
 const usd = (v: number) => "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-AU") : v.toFixed(2));
@@ -96,7 +97,7 @@ function ResultView({ r }: { r: Ws2Result }) {
 
 /** Whale System 2: a separate system. It reads the other systems' data but changes nothing in them. */
 export function Ws2View() {
-  const [tab, setTab] = useState<"analyse" | "log" | "method">("analyse");
+  const [tab, setTab] = useState<"board" | "analyse" | "log" | "method">("board");
   const [overview, setOverview] = useState<Overview | null>(null);
   const [coin, setCoin] = useState(""); const [busy, setBusy] = useState(""); const [error, setError] = useState(""); const [result, setResult] = useState<Ws2Result | null>(null);
   const load = useCallback(async () => { try { const d = await (await fetch("/api/ws2", { cache: "no-store" })).json() as Overview; if (d.error) setError(d.error); else setOverview(d); } catch { setError("Whale System 2 is unavailable."); } }, []);
@@ -113,8 +114,23 @@ export function Ws2View() {
     <p className="text-xs font-bold uppercase tracking-widest text-fuchsia-200">Boma Scans · separate system</p>
     <h1 className="mt-1 text-3xl font-bold text-white">🐋² Whale System 2</h1>
     <p className="mt-2 max-w-3xl text-sm leading-6 text-slate-300">A stricter second opinion. It scores direction, entry timing, exhaustion and data quality separately, and it is allowed to say <b>no trade</b>. It reads the same market and whale data as the other systems but changes nothing in them. It runs in shadow mode: every signal is logged and scored later, so its accuracy is measured before it is trusted.</p>
-    <div className="mt-4 flex flex-wrap gap-2">{(["analyse", "log", "method"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "analyse" ? "Analyse" : t === "log" ? "Signal log & performance" + (overview ? " · " + overview.log.length : "") : "Data sources & method"}</Button>)}</div>
+    <div className="mt-4 flex flex-wrap gap-2">{(["board", "analyse", "log", "method"] as const).map(t => <Button key={t} type="button" size="sm" variant={tab === t ? "default" : "outline"} onClick={() => setTab(t)} className="rounded-xl">{t === "board" ? "Market board" + (overview ? " · " + overview.board.length : "") : t === "analyse" ? "Analyse one coin" : t === "log" ? "Signal log & performance" + (overview ? " · " + overview.log.length : "") : "Data sources & method"}</Button>)}</div>
     {error && <p className="mt-3 text-sm text-amber-200">{error}</p>}
+
+    {tab === "board" && <section className="mt-4 space-y-3">
+      <p className="text-sm leading-6 text-slate-300">Every coin System 2 has read in the last 24 hours, best opportunity first. The automatic scan covers your watchlist every 15 minutes and rotates through the {st?.universe || "watchlist-only"}{st?.universe ? " most-traded Bybit pairs" : ""}, about once an hour. Most rows will say wait or no trade; that is the system working.</p>
+      {st && <p className="flex flex-wrap items-center gap-3 text-xs text-slate-300"><label>Scan the top <select value={st.universe} onChange={e => void save({ universe: Number(e.target.value) })} className="rounded border border-white/10 bg-slate-900 px-1 py-0.5"><option value={0}>0 (watchlist only)</option><option value={20}>20</option><option value={40}>40</option><option value={80}>80</option></select> Bybit pairs by turnover</label><label className="flex items-center gap-1"><input type="checkbox" checked={st.alerts} onChange={e => void save({ alerts: e.target.checked })}/> Telegram alert when any scanned coin becomes ENTRY READY</label><Button type="button" size="sm" variant="ghost" onClick={() => void load()} className="rounded-lg">Refresh</Button></p>}
+      {overview && overview.board.length === 0 ? <p className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-4 text-sm text-slate-400">No readings yet. The first automatic scan fills this within 15 minutes, or analyse a coin yourself.</p>
+        : overview && <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Coin", "Status", "Bias", "Opp.", "Bull / Bear", "Entry L / S", "Exh.", "Data", "Squeeze stage", "Whales", "Top traders", "Read"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
+          <tbody>{overview.board.map(b => <tr key={b.symbol} onClick={() => { setCoin(b.coin); void analyse(b.coin); }} className="cursor-pointer border-t border-white/[0.05] align-top hover:bg-white/[0.04]">
+            <td className="p-2 font-mono font-bold text-white">{b.coin}<span className="block text-[10px] font-normal text-slate-500">{b.price ? fmt(b.price) : ""}</span></td>
+            <td className="p-2"><span className={"rounded-full border px-2 py-0.5 font-semibold " + statusTone(b.status)}>{b.status}</span></td>
+            <td className={"p-2 font-semibold " + (b.side === "LONG" ? "text-emerald-300" : b.side === "SHORT" ? "text-rose-300" : "text-slate-500")}>{b.side ?? "—"}</td>
+            <td className="p-2 font-mono text-cyan-200">{b.scores.opportunity}</td><td className="p-2 font-mono">{b.scores.bullishBias} / {b.scores.bearishBias}</td><td className="p-2 font-mono">{b.scores.longEntry} / {b.scores.shortEntry}</td><td className="p-2 font-mono text-amber-200">{b.scores.exhaustion}</td><td className="p-2 font-mono">{b.scores.reliability}</td>
+            <td className="p-2 text-slate-300">{b.squeeze}</td><td className="p-2 text-slate-300">{b.whales}</td><td className="p-2 text-slate-300">{b.top.split(":")[0]}</td><td className="p-2 text-slate-400">{melbourne(b.at)}</td>
+          </tr>)}</tbody></table></div>}
+      <p className="text-xs text-slate-500">Tap a row for the full reading. Scores are uncalibrated heuristics, not win probabilities.</p>
+    </section>}
 
     {tab === "analyse" && <section className="mt-4 space-y-4">
       <form className="flex flex-wrap items-center gap-2 rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3" onSubmit={e => { e.preventDefault(); void analyse(coin); }}>
@@ -124,7 +140,7 @@ export function Ws2View() {
         {st && st.watch.map(c => <Button key={c} type="button" size="sm" variant="outline" disabled={!!busy} onClick={() => { setCoin(c); void analyse(c); }} className="rounded-lg">{c}</Button>)}
       </form>
       {st && <div className="rounded-2xl border border-white/[0.08] bg-slate-950/40 p-3 text-xs text-slate-300">
-        <p className="font-semibold text-white">Watchlist (scanned every 15 minutes, logged, alert only on ENTRY READY)</p>
+        <p className="font-semibold text-white">Priority watchlist (read on every 15-minute scan; the rest of the market rotates hourly)</p>
         <div className="mt-2 flex flex-wrap items-center gap-2">
           {st.watch.map(c => <span key={c} className="rounded-full border border-white/10 px-2 py-0.5 font-mono">{c} <button type="button" aria-label={"Remove " + c} onClick={() => void save({ watch: st.watch.filter(x => x !== c) })} className="ml-1 text-rose-300">×</button></span>)}
           {result && !st.watch.includes(result.coin) && st.watch.length < 8 && <Button type="button" size="sm" variant="outline" onClick={() => void save({ watch: [...st.watch, result.coin] })} className="rounded-lg">+ Watch {result.coin}</Button>}

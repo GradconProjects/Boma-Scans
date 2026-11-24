@@ -111,6 +111,16 @@ The full registry is in `app/lib/ws2/registry.ts` and on the page under "Data so
 - **No walk-forward, ablation or regime breakdown** yet; they need the log.
 - Daily loss limits, portfolio exposure and correlation limits are not implemented; sizing is per trade.
 
+## Market coverage
+
+System 2 is a general engine. No coin has special rules; NEAR is only the regression example.
+
+- Every 15 minutes the scan reads the priority watchlist plus the next 10 of the most-traded Bybit USDT perpetuals by 24 h turnover (20, 40 or 80 pairs, default 40), so the whole universe is covered about once an hour.
+- The universe is whatever trades most that day. Nothing is hand-picked.
+- The Market board lists the latest reading for every coin from the last 24 hours, ranked by opportunity.
+- A coin gets a new log entry only when its status or side changes, or after 4 hours, so the log records decisions and not repeats.
+- Any coin can also be analysed on demand on the page or with `/ws2 COIN`.
+
 ## Validation plan (prospective)
 
 1. The 15-minute job analyses the System 2 watchlist and freezes each signal in `ws2-log` with its inputs, scores and plan.

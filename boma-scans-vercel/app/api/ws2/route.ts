@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getOwnerUser } from "@/app/server/owner-auth";
-import { analyseWs2, saveWs2Settings, scoreWs2Log, ws2Log, ws2Settings } from "@/app/server/ws2/store";
+import { analyseWs2, saveWs2Settings, scoreWs2Log, ws2Board, ws2Log, ws2Settings } from "@/app/server/ws2/store";
 import { ensureWs2Schedule } from "@/app/server/ws2/schedule";
 import { summarise } from "@/app/lib/ws2/outcomes";
 import { WS2_SOURCES } from "@/app/lib/ws2/registry";
@@ -15,12 +15,12 @@ export async function GET(request: NextRequest) {
   const schedule = await ensureWs2Schedule(request.nextUrl.origin).catch(() => null);
   await scoreWs2Log(3).catch(() => 0);
   const log = await ws2Log(); const now = Date.now();
-  return reply({ version: WS2_VERSION, settings: await ws2Settings(), log: log.slice(-80).reverse(), performance: [7, 30, 90].map(d => summarise(log, d, now)), sources: WS2_SOURCES, weights: WS2_WEIGHTS, thresholds: WS2_THRESHOLDS, schedule });
+  return reply({ version: WS2_VERSION, settings: await ws2Settings(), log: log.slice(-120).reverse(), board: Object.values(await ws2Board()).sort((a, b) => (b.scores.opportunity ?? 0) - (a.scores.opportunity ?? 0)), performance: [7, 30, 90].map(d => summarise(log, d, now)), sources: WS2_SOURCES, weights: WS2_WEIGHTS, thresholds: WS2_THRESHOLDS, schedule });
 }
 export async function POST(request: NextRequest) {
   const user = await getOwnerUser(); if (!user) return reply({ error: "Sign in at /login." }, 401);
   if (request.headers.get("origin") && request.headers.get("origin") !== request.nextUrl.origin) return reply({ error: "Origin rejected." }, 403);
-  const body = await request.json().catch(() => ({})) as { action?: string; coin?: string; watch?: string[]; alerts?: boolean; equity?: number; riskPct?: number; leverage?: number };
+  const body = await request.json().catch(() => ({})) as { action?: string; coin?: string; watch?: string[]; alerts?: boolean; universe?: number; equity?: number; riskPct?: number; leverage?: number };
   if (body.action === "analyse") {
     const coin = String(body.coin ?? "").toUpperCase().replace(/[^A-Z0-9]/g, ""); if (!coin) return reply({ error: "Which coin?" }, 400);
     try { const { result } = await analyseWs2(coin); return reply({ result }); } catch (error) { return reply({ error: error instanceof Error ? error.message : "Analysis failed." }, 502); }

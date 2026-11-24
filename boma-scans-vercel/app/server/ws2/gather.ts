@@ -18,8 +18,8 @@ async function bybit<T>(path: string, params: Record<string, string>): Promise<T
 async function closed(symbol: string, interval: string, ms: number, limit: number, now: number): Promise<Candle[]> {
   try { const all = await bars(symbol, interval, limit) as Candle[]; return all.filter(c => c.time + ms <= now); } catch { return []; }
 }
-export type Ws2Settings = { watch: string[]; alerts: boolean; equity: number; riskPct: number; leverage: number; feePct: number; slippagePct: number };
-export const WS2_DEFAULTS: Ws2Settings = { watch: ["BTC", "ETH", "SOL"], alerts: true, equity: 10_000, riskPct: 0.5, leverage: 5, feePct: 0.055, slippagePct: 0.02 };
+export type Ws2Settings = { watch: string[]; alerts: boolean; /** How many of the most-traded Bybit pairs the automatic scan rotates through (0 = watchlist only). */ universe: number; equity: number; riskPct: number; leverage: number; feePct: number; slippagePct: number };
+export const WS2_DEFAULTS: Ws2Settings = { watch: ["BTC", "ETH", "SOL"], alerts: true, universe: 40, equity: 10_000, riskPct: 0.5, leverage: 5, feePct: 0.055, slippagePct: 0.02 };
 
 /** Collects everything Whale System 2 needs for one Bybit pair. Read-only: borrows from the scanner and the whale tracker without changing them. */
 export async function gatherWs2(symbol: string, settings: Ws2Settings, now = Date.now()): Promise<Ws2Input> {
