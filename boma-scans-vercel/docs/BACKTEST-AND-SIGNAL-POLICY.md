@@ -1,5 +1,8 @@
 # Signal recovery and backtest-calibrated policy
 
+> **Update, November 2026: these figures are superseded.** A three-year replay of the Scanner on 489 pairs with stricter scoring found READY signals averaging −0.09R after fees, not the gains reported below. The figures below came from 23 pairs and about 100 to 200 trades, too few to be reliable, and the harness also saw unfinished higher-timeframe candles. The "skip Monday and Tuesday" finding was confirmed; the 03:00–10:00 dead zone was not. See `docs/SYSTEM-COMPARISON.md`.
+
+
 ## Why signals stopped
 
 The scoring engine did not change between Before-Telegram and W-Telegram. Both builds shipped a take-profit policy that made qualified entries almost impossible:

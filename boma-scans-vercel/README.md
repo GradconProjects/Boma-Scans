@@ -220,3 +220,7 @@ A strip under the top bar on every section shows the overall market direction, B
 - "Coins" are the 30 most-traded crypto perpetuals on Bybit other than BTC. Stock and commodity contracts are left out. Refreshes every 3 minutes. Telegram: `/market`.
 
 Code: `app/lib/market-direction.ts`, `app/server/market-direction.ts`, `app/components/market-direction-strip.tsx`.
+
+## How the systems compare (three-year replay)
+
+The Scanner and Whale System 2 were replayed on every Bybit crypto pair over three years with the same scoring. Neither showed a profit edge after fees; both beat random entries. LONG entries lost in both. Monday and Tuesday (Melbourne) lost money in both, in every year, so System 2 now holds entry signals on those days. Full tables, the correction to the earlier Scanner backtest and two suggested Scanner changes are in `docs/SYSTEM-COMPARISON.md`.

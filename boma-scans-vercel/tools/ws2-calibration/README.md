@@ -16,3 +16,13 @@ Needs Python 3 with numpy. The split is chronological with a 30-hour gap between
 `python3 -I fit5.py calibration.json rows rows_1 rows_2 rows_3 rows_4 rows_5`
 
 `fit5.py` removes duplicate readings from the overlaps, uses the same 60/20/20 split and also reports each half-year block.
+
+## Scanner comparison
+
+`collect_scanner.sh` replays the original Scanner hourly for the same six chunks into `sc_0` … `sc_5` (`&system=scanner&step=1&days=185`). Then:
+
+- `python3 -I scanner_fit.py calibration.json scanner.json sc_0 … sc_5`: levels, sides, periods, score bands, half-year blocks.
+- `scanner_tiers.py`: by liquidity tier and on the 23 pairs of the earlier backtest.
+- `scanner_windows.py`: Melbourne weekday and hour.
+- `weekday_check.py` and `explore_mr.py` (need `X3.npy`, written by `explore_mr.py` on first run): weekday effect and mean-reversion tests on System 2's rows.
+- `build_comparison.py` writes `comparison.json`; copy it to `app/lib/ws2/comparison-data.json`.

@@ -196,3 +196,17 @@ test("Rating: every reading gets a 1–10 grade with its unseen-data record; gra
   const none = applyCalibration(runWs2({ ...nearInput(), candles: { m15: [], h1: [], h4: [], d1: [] }, price: null }), cal); assert.equal(none.status, "DATA UNAVAILABLE"); assert.equal(none.calibration.lead, null);
   assert.match(none.headline, /Bybit returned only 0 closed 1h candles for NEARUSDT/);
 });
+
+test("Weekday rule: ENTRY READY on a Melbourne Monday or Tuesday becomes a wait; other days are untouched", () => {
+  const cmp = JSON.parse(readFileSync(new URL("../app/lib/ws2/comparison-data.json", import.meta.url), "utf8")); const days = cmp.ws2["lead side by weekday"];
+  assert.ok(days.Mon.avgNetR < 0 && days.Tue.avgNetR < 0, "Monday and Tuesday lost in the replay"); assert.ok(cmp.scanner.levels["READY (every check passed)"].all.avgNetR < 0.05, "the Scanner comparison is stated as measured");
+  const { melbourneWeekday } = rmod.exports;
+  const monday = Date.UTC(2026, 10, 23, 2, 0, 0), thursday = Date.UTC(2026, 10, 26, 2, 0, 0); assert.equal(melbourneWeekday(monday), "Mon"); assert.equal(melbourneWeekday(thursday), "Thu");
+  assert.equal(melbourneWeekday(Date.UTC(2026, 10, 22, 14, 0, 0)), "Mon", "Sunday 14:00 UTC is already Monday in Melbourne");
+  const base = runWs2(nearInput()); const good = { ...cal, models: { market: { ...cal.models.market, intercept: 9 }, pullback: { ...cal.models.pullback, intercept: 9 } } };
+  const ready = at => ({ ...base, at, status: "ENTRY READY" });
+  const mon = applyCalibration(ready(monday), good, days); assert.equal(mon.status, "AWAITING CONFIRMATION"); assert.match(mon.headline, /it is Monday in Melbourne/); assert.match(mon.sizing, /^NOT AUTHORISED on Monday or Tuesday/); assert.equal(mon.calibration.weekday.early, true);
+  const thu = applyCalibration(ready(thursday), good, days); assert.equal(thu.status, "ENTRY READY"); assert.equal(thu.calibration.weekday.early, false); assert.match(thu.calibration.weekday.note, /It is Thursday in Melbourne/);
+  assert.ok(mon.explain.some(e => e.q === "Does the day of the week matter?")); assert.ok(ratingLines(thu).some(l => l.startsWith("📅 ")));
+  assert.equal(applyCalibration(ready(monday), good).calibration.weekday, null, "without weekday data nothing is assumed");
+});

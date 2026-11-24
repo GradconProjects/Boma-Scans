@@ -8,7 +8,9 @@ import type { Ws2Source } from "@/app/lib/ws2/registry";
 
 type Settings = { watch: string[]; alerts: boolean; universe: number; equity: number; riskPct: number; leverage: number };
 type BoardRow = { coin: string; symbol: string; at: number; status: string; side: string | null; price: number | null; scores: Record<string, number>; headline: string; squeeze: string; top: string; whales: string; rating?: number | null };
-type Overview = { version: string; calibration: Omit<Ws2Calibration, "pairStats">; settings: Settings; log: Ws2LogEntry[]; board: BoardRow[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
+type Stat = { n?: number; filled?: number; avgNetR?: number | null; se?: number | null; won?: number | null };
+type Comparison = { builtFrom: { ws2Readings: number; ws2Pairs: number; from: string; to: string }; ws2: Record<string, Stat | Record<string, Stat>>; scanner: { pairs: number; hourlyEvaluations: number; from: string; to: string; levels: Record<string, { signals: number; all: Stat; LONG: Stat; SHORT: Stat }>; windows: Record<string, Record<string, Stat | Record<string, Stat>>> }; earlierBacktest: { withFormingCandles: { n: number; avgRTaker: number }; closedCandlesOnly: { n: number; avgRTaker: number }; sameReplay23Pairs: { n: number; avgNetR: number; se: number } } };
+type Overview = { version: string; calibration: Omit<Ws2Calibration, "pairStats">; comparison: Comparison; settings: Settings; log: Ws2LogEntry[]; board: BoardRow[]; performance: Ws2Performance[]; sources: Ws2Source[]; weights: Record<string, number>; thresholds: Record<string, number>; schedule: { ok: boolean; error?: string } | null; error?: string };
 const melbourne = (t: number) => new Date(t).toLocaleString("en-AU", { timeZone: "Australia/Melbourne", day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }) + " Melbourne";
 const statusTone = (s: string) => s === "ENTRY READY" ? "border-emerald-300/60 bg-emerald-300/[0.12] text-emerald-50" : s === "CHASING RISK" || s === "INVALIDATED" ? "border-rose-300/50 bg-rose-300/[0.10] text-rose-50" : s === "NO TRADE" || s === "DATA UNAVAILABLE" || s === "WATCHING" ? "border-white/15 bg-white/[0.04] text-slate-100" : "border-amber-300/50 bg-amber-300/[0.10] text-amber-50";
 const usd = (v: number) => "$" + (v >= 1000 ? Math.round(v).toLocaleString("en-AU") : v.toFixed(2));
@@ -49,6 +51,7 @@ function ResultView({ r }: { r: Ws2Result }) {
         </div>
         <p className="mt-2 text-sm leading-6 text-slate-100">{r.calibration.leadPlain}</p>
         {r.calibration.blocked && <p className="mt-1 text-sm font-semibold text-rose-100">⛔ Blocked: setups rated 1–2 lost money in every period of the test.</p>}
+        {r.calibration.weekday && <p className={"mt-1 text-sm leading-6 " + (r.calibration.weekday.early ? "font-semibold text-amber-100" : "text-slate-200")}>📅 {r.calibration.weekday.note}</p>}
         <p className="mt-1 text-xs text-slate-400">Both sides, for comparison: {(["LONG", "SHORT"] as const).map(sd => sd + " pullback " + (r.calibration.ratings[sd].pullback ? r.calibration.ratings[sd].pullback!.rating + "/10" : "n/a") + ", market " + (r.calibration.ratings[sd].market ? r.calibration.ratings[sd].market!.rating + "/10" : "n/a")).join(" · ")}</p>
         {r.calibration.pair && r.calibration.pair.ratedSetups >= 20 && r.calibration.pair.avgNetR !== null && <p className="mt-1 text-xs text-slate-300">📒 {r.symbol} itself: {r.calibration.pair.ratedSetups} well-rated setups (8–10) over the whole test averaged {(r.calibration.pair.avgNetR >= 0 ? "+" : "−") + Math.abs(r.calibration.pair.avgNetR).toFixed(2)}R, {Math.round((r.calibration.pair.won ?? 0) * 100)}% in profit. Small sample.</p>}
       </> : <p className="mt-1 text-sm text-slate-300">{r.calibration.leadPlain}</p>}
@@ -110,6 +113,38 @@ function ResultView({ r }: { r: Ws2Result }) {
   </div>;
 }
 
+const rs = (s?: Stat) => !s || s.avgNetR === undefined || s.avgNetR === null ? "n/a" : (s.avgNetR >= 0 ? "+" : "−") + Math.abs(s.avgNetR).toFixed(2) + "R";
+const rn = (s?: Stat) => ((s?.filled ?? s?.n ?? 0)).toLocaleString("en-AU");
+/** Scanner and System 2 on the same footing, and the one timing effect both showed. */
+function ComparisonReport({ c }: { c: Comparison }) {
+  const w = c.ws2 as Record<string, Stat>; const days = c.ws2["lead side by weekday"] as Record<string, Stat>; const sw = c.scanner.windows["major-event setups"]; const sd = sw.byWeekday as Record<string, Stat>;
+  const lv = c.scanner.levels; const rows: Array<[string, Stat, Stat?, Stat?]> = [
+    ["Scanner · every setup the engine calls", lv["all setups (engine calls a setup)"].all, lv["all setups (engine calls a setup)"].LONG, lv["all setups (engine calls a setup)"].SHORT],
+    ["Scanner · setups with a major event (CHoCH, break or sweep; stop 2+ ATR)", lv["setups with a major event (CHoCH, break, sweep; stop 2+ ATR)"].all, lv["setups with a major event (CHoCH, break, sweep; stop 2+ ATR)"].LONG, lv["setups with a major event (CHoCH, break, sweep; stop 2+ ATR)"].SHORT],
+    ["Scanner · READY (every check passed)", lv["READY (every check passed)"].all, lv["READY (every check passed)"].LONG, lv["READY (every check passed)"].SHORT],
+    ["System 2 · ENTRY READY", w["ENTRY READY, all days"]], ["System 2 · any reading with a lead side", w["lead side, all days"]],
+    ["No system · always LONG", w["always LONG"]], ["No system · always SHORT", w["always SHORT"]]];
+  return <div className="space-y-4 rounded-2xl border-2 border-fuchsia-300/30 bg-fuchsia-300/[0.04] p-4">
+    <div>
+      <h2 className="font-semibold text-white">⚖️ Scanner and System 2 compared on the same footing</h2>
+      <p className="mt-1">Both engines were replayed over the same three years ({c.builtFrom.from} to {c.builtFrom.to}) on every Bybit crypto pair, with the same rules: no look-ahead, partial exits at the five targets, the stop never moved, fees and slippage deducted. The Scanner was checked every hour ({c.scanner.hourlyEvaluations.toLocaleString("en-AU")} checks on {c.scanner.pairs} pairs); System 2 every four hours ({c.builtFrom.ws2Readings.toLocaleString("en-AU")} readings).</p>
+      <ul className="mt-2 list-disc space-y-1 pl-5 text-slate-100">
+        <li><b>Neither system showed a profit edge.</b> Both lose less than entering at random.</li>
+        <li><b>The Scanner&apos;s READY signals did worst</b> ({rs(lv["READY (every check passed)"].all)}); its setups with a major event did best (about break-even).</li>
+        <li><b>LONG entries lost in both systems.</b> SHORT entries were about break-even.</li>
+        <li><b>Monday and Tuesday (Melbourne) lost money in both systems, in all three years.</b> Other days were about break-even. Opening hours made no difference.</li>
+        <li><b>Trading against a stretched move was tested and was worse</b> than following the bias (about −0.08 to −0.10R).</li>
+      </ul>
+    </div>
+    <div className="overflow-x-auto"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Rule", "Trades", "Finished in profit", "Average result", "± error", "LONG only", "SHORT only"].map(h => <th key={h} className="p-1.5 font-medium">{h}</th>)}</tr></thead>
+      <tbody>{rows.map(([label, a, l, s]) => <tr key={label} className="border-t border-white/[0.05]"><td className="p-1.5 text-slate-100">{label}</td><td className="p-1.5 font-mono">{rn(a)}</td><td className="p-1.5 font-mono">{a?.won !== undefined && a?.won !== null ? Math.round(a.won * 100) + "%" : "n/a"}</td><td className={"p-1.5 font-mono " + ((a?.avgNetR ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{rs(a)}</td><td className="p-1.5 font-mono text-slate-400">{a?.se !== undefined && a?.se !== null ? a.se.toFixed(2) : ""}</td><td className="p-1.5 font-mono">{l ? rs(l) : ""}</td><td className="p-1.5 font-mono">{s ? rs(s) : ""}</td></tr>)}</tbody></table></div>
+    <div className="overflow-x-auto"><p className="text-xs font-bold uppercase tracking-widest text-slate-400">Day of the week (Melbourne time): average result after fees</p>
+      <table className="mt-1 w-full text-xs"><thead><tr className="text-left text-slate-500"><th className="p-1.5 font-medium">System</th>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(d => <th key={d} className="p-1.5 font-medium">{d}</th>)}</tr></thead>
+        <tbody>{([["System 2 · lead side", days], ["Scanner · major-event setups", sd]] as const).map(([label, d]) => <tr key={label} className="border-t border-white/[0.05]"><td className="p-1.5 text-slate-100">{label}</td>{["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"].map(k => <td key={k} className={"p-1.5 font-mono " + ((d[k]?.avgNetR ?? 0) >= 0 ? "text-emerald-300" : "text-rose-300")}>{rs(d[k])}</td>)}</tr>)}</tbody></table>
+      <p className="mt-1 text-xs text-slate-300">Scanner major-event setups outside Monday, Tuesday and 03:00–10:00: {rs(sw["inside the backtested windows"] as Stat)} over {rn(sw["inside the backtested windows"] as Stat)} trades, positive in each year. On Monday or Tuesday: {rs(sw["Monday or Tuesday"] as Stat)}. Between 03:00 and 10:00 on any day: {rs(sw["03:00–10:00 any day"] as Stat)}, no different from other hours.</p></div>
+    <p className="text-xs text-slate-400">The earlier Scanner backtest (23 pairs, about 185 trades) reported better figures. Re-run on the current engine it gives {c.earlierBacktest.withFormingCandles.avgRTaker >= 0 ? "+" : "−"}{Math.abs(c.earlierBacktest.withFormingCandles.avgRTaker).toFixed(2)}R after taker fees; that harness also let the engine see unfinished 4-hour and daily candles, and with that closed it gives +{c.earlierBacktest.closedCandlesOnly.avgRTaker.toFixed(2)}R. On those same 23 pairs this replay gives −{Math.abs(c.earlierBacktest.sameReplay23Pairs.avgNetR).toFixed(2)}R ± {c.earlierBacktest.sameReplay23Pairs.se.toFixed(2)}: a sample that small cannot tell a small gain from a small loss. Not replayed for either system: the AI second read, whale positions and exchange top-trader ratios.</p>
+  </div>;
+}
 const rr = (v?: number) => v === undefined ? "n/a" : (v >= 0 ? "+" : "−") + Math.abs(v).toFixed(2) + "R";
 /** What the calibration test found, with the real numbers. */
 function CalibrationReport({ cal }: { cal: Omit<Ws2Calibration, "pairStats"> }) {
@@ -235,6 +270,7 @@ export function Ws2View() {
         <p className="font-mono text-xs">Thresholds: {Object.entries(overview.thresholds).map(([k, v]) => k + " " + v).join(" · ")}</p>
         <p className="mt-1 text-xs text-slate-500">Model {overview.version}</p>
       </div>
+      <ComparisonReport c={overview.comparison}/>
       <CalibrationReport cal={overview.calibration}/>
       <div className="overflow-x-auto rounded-2xl border border-white/[0.08] bg-slate-950/40"><table className="w-full text-xs"><thead><tr className="text-left text-slate-500">{["Metric", "Exchange", "Unit", "Who it covers", "Updates", "History", "If missing", "Limits"].map(h => <th key={h} className="p-2 font-medium">{h}</th>)}</tr></thead>
         <tbody>{overview.sources.map(s => <tr key={s.metric + s.exchange} className="border-t border-white/[0.05] align-top"><td className="p-2 text-white">{s.metric}<span className="block font-mono text-[10px] text-slate-500">{s.endpoint}</span></td><td className="p-2">{s.exchange}</td><td className="p-2">{s.unit}</td><td className="p-2">{s.population}</td><td className="p-2">{s.update}</td><td className="p-2">{s.history}</td><td className="p-2">{s.missing}</td><td className="p-2">{s.limits}</td></tr>)}</tbody></table></div>

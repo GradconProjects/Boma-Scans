@@ -22,7 +22,10 @@ for (const v of Object.values(data)) if (!v.W && v["1D"]) { const w = {}; for (c
 const toC = r => ({time:r[0],open:r[1],high:r[2],low:r[3],close:r[4],volume:r[5]});
 const [f,c,m] = process.env.FRAMES ? process.env.FRAMES.split(",") : {SCALP:["5m","15m","1H"], DAY:["15m","1H","4H"], SWING:["1H","4H","1D"]}[style];
 const N = [481,401,361];
-function upto(rows, t, n) { let hi = rows.length; let lo = 0; while (lo < hi) { const mid = (lo+hi)>>1; if (rows[mid][0] <= t) lo = mid+1; else hi = mid; } return rows.slice(Math.max(0, lo-n), lo).map(toC); }
+// A candle is only known once it has closed (open time + its duration <= t). The earlier version used open time <= t, which let the engine
+// see the unfinished 4H / daily / weekly candle in full: a look-ahead error. Set LOOKAHEAD=1 to reproduce the old behaviour.
+const OLD_LOOKAHEAD = process.env.LOOKAHEAD === "1";
+function upto(rows, t, n) { const dur = !OLD_LOOKAHEAD && rows.length > 2 ? Math.min(rows[1][0]-rows[0][0], rows[2][0]-rows[1][0]) : 0; let hi = rows.length; let lo = 0; while (lo < hi) { const mid = (lo+hi)>>1; if (rows[mid][0] + dur <= t) lo = mid+1; else hi = mid; } return rows.slice(Math.max(0, lo-n), lo).map(toC); }
 const out = []; let evaluated = 0, ready = 0;
 for (const sym of Object.keys(data).filter((_, k) => k % Number(shards) === Number(shard))) {
   const F = data[sym][f], C = data[sym][c], M = data[sym][m], B = data.BTC[f];

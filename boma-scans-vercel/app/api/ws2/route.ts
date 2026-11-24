@@ -5,7 +5,7 @@ import { ensureWs2Schedule } from "@/app/server/ws2/schedule";
 import { summarise } from "@/app/lib/ws2/outcomes";
 import { WS2_SOURCES } from "@/app/lib/ws2/registry";
 import { WS2_THRESHOLDS, WS2_WEIGHTS } from "@/app/lib/ws2/engine";
-import { WS2_CALIBRATION } from "@/app/lib/ws2/calibrated";
+import { WS2_CALIBRATION, WS2_COMPARISON } from "@/app/lib/ws2/calibrated";
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 const reply = (body: unknown, status = 200) => NextResponse.json(body, { status, headers: { "Cache-Control": "no-store" } });
@@ -17,7 +17,7 @@ export async function GET(request: NextRequest) {
   await scoreWs2Log(3).catch(() => 0);
   const log = await ws2Log(); const now = Date.now();
   const { pairStats: _pairs, ...calibration } = WS2_CALIBRATION; void _pairs;
-  return reply({ version: WS2_CALIBRATION.version, calibration, settings: await ws2Settings(), log: log.slice(-120).reverse(), board: Object.values(await ws2Board()).sort((a, b) => (b.scores.opportunity ?? 0) - (a.scores.opportunity ?? 0)), performance: [7, 30, 90].map(d => summarise(log, d, now)), sources: WS2_SOURCES, weights: WS2_WEIGHTS, thresholds: WS2_THRESHOLDS, schedule });
+  return reply({ version: WS2_CALIBRATION.version, calibration, comparison: WS2_COMPARISON, settings: await ws2Settings(), log: log.slice(-120).reverse(), board: Object.values(await ws2Board()).sort((a, b) => (b.scores.opportunity ?? 0) - (a.scores.opportunity ?? 0)), performance: [7, 30, 90].map(d => summarise(log, d, now)), sources: WS2_SOURCES, weights: WS2_WEIGHTS, thresholds: WS2_THRESHOLDS, schedule });
 }
 export async function POST(request: NextRequest) {
   const user = await getOwnerUser(); if (!user) return reply({ error: "Sign in at /login." }, 401);

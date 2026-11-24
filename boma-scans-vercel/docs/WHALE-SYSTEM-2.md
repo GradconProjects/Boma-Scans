@@ -177,6 +177,7 @@ Did each input predict the next 24 hours? (0.50 = coin flip)
 - Every reading carries a **calibrated rating from 1 to 10** with the record of similar setups in the unseen data: how often they finished in profit and the average result after fees.
 - **Setups rated 1–2 are blocked** (status NO TRADE). That is the one rule the data supports in every period.
 - ENTRY READY is worded as a fair entry, not a proven edge.
+- **ENTRY READY is held on a Melbourne Monday or Tuesday.** Entries on those days lost money in both systems across three years; see `docs/SYSTEM-COMPARISON.md`.
 - Each pair shows its own count and result of well-rated setups, marked as a small sample.
 - The weights from the brief are unchanged: nothing in the test justified new ones, and the rating model now does the ranking.
 
@@ -188,7 +189,7 @@ Did each input predict the next 24 hours? (0.50 = coin flip)
 - **One model for all pairs.** A single pair has too few readings to fit separately.
 - Readings every 4 hours overlap, so errors are grouped by timestamp; they are still approximate.
 - No walk-forward re-fitting, no probability calibration beyond the ten rating bands, no portfolio or daily-loss limits.
-- Not compared with the original whale system or the Scanner on the same footing.
+- The Scanner comparison is in `docs/SYSTEM-COMPARISON.md`. The original whale system could not be replayed: whale positions have no history.
 
 ### Re-running the calibration
 
