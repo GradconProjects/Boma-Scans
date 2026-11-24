@@ -69,6 +69,7 @@ test("NEAR regression: bearish bias is recognised but the short is not approved"
   assert.notEqual(r.scores.bullishBias + r.scores.bearishBias, 100);
   assert.match(r.scoreNote, /UNCALIBRATED HEURISTIC/);
   assert.ok(ws2Lines(r).join("\n").includes("WHALE SYSTEM 2 · NEAR"));
+  for (const lv of [r.levels.pullback, r.levels.market]) { assert.equal(lv.targets.length, 5, "always five targets"); assert.ok(lv.targets.every((t, i) => i === 0 || t.r > lv.targets[i - 1].r), "targets in order"); assert.ok(lv.stop > lv.entry, "a short's stop is above its entry"); }
 });
 
 test("Flat market with no evidence is NO TRADE or WATCHING, and both sides score low", () => {

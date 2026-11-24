@@ -278,7 +278,7 @@ export function runWs2(input: Ws2Input): Ws2Result {
     const cands = [...(side === "SHORT" ? p1.lows : p1.highs).map(p => ({ price: p.price, source: "1h swing" })), ...(side === "SHORT" ? p4.lows : p4.highs).map(p => ({ price: p.price, source: "4h swing" })), ...(side === "SHORT" ? pd.lows : pd.highs).map(p => ({ price: p.price, source: "daily swing" }))]
       .map(c => ({ ...c, r: sign * (c.price - entry) / risk })).filter(c => c.r >= 0.7 && c.r <= 8).sort((a, b) => a.r - b.r);
     const targets: Levels["targets"] = []; for (const c of cands) { if (targets.length >= 5) break; if (!targets.length || c.r - last(targets).r >= 0.5) targets.push({ price: c.price, r: Number(c.r.toFixed(2)), source: c.source }); }
-    for (const r of [1, 1.8, 2.8, 4, 5.5]) { if (targets.length >= 5) break; if (targets.every(t => Math.abs(t.r - r) >= 0.5) && (!targets.length || r > last(targets).r)) targets.push({ price: entry + sign * r * risk, r, source: "volatility multiple (no structure found)" }); }
+    for (const r of [1, 1.8, 2.8, 4, 5.5, 3.4, 6.5, 2.2, 7.5]) { if (targets.length >= 5) break; if (targets.every(t => Math.abs(t.r - r) >= 0.5)) targets.push({ price: entry + sign * r * risk, r, source: "volatility multiple (no structure found)" }); }
     targets.sort((a, b) => a.r - b.r);
     const alloc = [0.3, 0.25, 0.2, 0.15, 0.1]; const weightedR = Number(targets.reduce((a, t, i) => a + t.r * (alloc[i] ?? 0), 0).toFixed(2));
     const s = input.settings; const riskUsd = s.equity * s.riskPct / 100; const perUnit = risk + entry * (2 * s.feePct + s.slippagePct) / 100; const qty = riskUsd / perUnit; const notional = qty * entry;
