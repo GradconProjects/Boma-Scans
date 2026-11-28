@@ -234,3 +234,9 @@ Also sent, because they are about your own trades or your own taps: targets, sto
 Not sent: individual whale opens and closes, whale exits on trades you are not in, watch-list moves, six-hourly check-ins, digests and forming setups. They remain visible in the app.
 
 The rule is enforced in one place, where every scheduled message is sent (`app/lib/telegram-policy.ts`). `/quiet off` sends everything again; `/quiet on` returns to entries only.
+
+## Confirmed scan entries
+
+A Scanner signal is a **confirmed scan entry**, and is pushed to Telegram, when every engine check has passed (READY) and the AI second read does not reject it.
+
+The major-event check (change of character, breakout or sweep with a 2+ ATR stop) and ranked whales being on the other side used to hold the call. Together with READY they almost never coincided (twice in a three-year replay), so no scan entry reached Telegram. They are now flags on the card, each with its reason, and do not hold the call. Only the owner's own Monday/Tuesday switch, off by default, can hold a scan entry.

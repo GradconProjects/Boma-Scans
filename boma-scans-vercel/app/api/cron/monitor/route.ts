@@ -20,7 +20,7 @@ import { applyRefinedLevels, reviewLines, type SignalReview } from "@/app/lib/ai
 import { storedReviews } from "@/app/server/ai";
 import { entryCall, planKeyOf } from "@/app/lib/trigger-monitor";
 import { followEnteredTrades, saveWhaleSettings, trackWhales, whaleAlerts, whaleSettings, whaleSignals } from "@/app/server/whale-tracker";
-import { majorEventGate, tradingWindowGate, windowVerdict } from "@/app/lib/push-policy";
+import { majorEventGate, tradingWindowGate, windowVerdict, evidenceFlagLines } from "@/app/lib/push-policy";
 import { pushSettings } from "@/app/server/push-settings";
 import { whaleAlignment } from "@/app/server/whale-align";
 import { OWNER_ID } from "@/app/server/owner-auth";
@@ -106,8 +106,9 @@ export async function GET(request: NextRequest) {
       const gate = majorEventGate(row, analysis, candles);
       const window = tradingWindowGate(now, (await pushSettings()).tradingWindows);
       const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
-      if (pick && (!gate.ok || !window.ok || whales.stance === "AGAINST")) memory.held = [{ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(window.reason ? [window.reason] : []), ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10);
-      else if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ GOOD TIME TO TRADE" : "⛔ NOT A GOOD TIME: " + windowVerdict(now).detail)], buttons: signalButtons(symbol) })); if (event) events.push(event); }
+      // Same rule as the scan: a READY plan is a confirmed entry; the major-event check and whales against it are flags, not holds.
+      if (pick && !window.ok) memory.held = [{ symbol, planKey: planKeyOf(row), reason: window.reason ?? "held by your Monday/Tuesday switch", at: now }, ...(memory.held ?? []).filter(h => h.symbol !== symbol)].slice(0, 10);
+      else if (pick) { const event = await reviewed(await withPositioning({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(pick), false, now, undefined, entryCall(row, prices[symbol] ?? row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ " + windowVerdict(now).title : "🚩 " + windowVerdict(now).title + ": " + windowVerdict(now).detail), ...(gate.ok ? ["⚡ Major event: " + gate.event] : gate.reasons.map(r => "🚩 " + r.charAt(0).toUpperCase() + r.slice(1) + ".")), (whales.stance === "AGAINST" ? "🚩 Whales AGAINST this side: " : whales.stance === "WITH" ? "🐋 Whales with you: " : "🐋 Whales neutral: ") + whales.detail, ...evidenceFlagLines({ side: row.bias, at: now, majorEvent: gate.ok })], buttons: signalButtons(symbol) })); if (event) events.push(event); }
     }
   });
   const reviews = await storedReviews().catch(() => ({}));

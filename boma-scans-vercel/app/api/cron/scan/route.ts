@@ -71,17 +71,19 @@ export async function GET(request: NextRequest) {
       let positioning: string[] = [];
       try { const snapshot = await whaleSnapshot(); const data = await positioningFor(symbol, snapshot); const verdict = judgePositioning(data, row.bias, row.price, row.stop); positioning = ["", "🐋 " + verdict.headline, positioningSummary(data, row.bias), ...verdict.notes.slice(0, 3)]; } catch { /* optional context */ }
       try { positioning = ["", ...matrixLines(await positioningMatrixFor(symbol, row.bias === "SHORT" ? "SHORT" : "LONG", now))]; } catch { /* keep the short form */ }
-      // Push policy: a major structural event, a stop that can hold four hours, and no ranked whales against it.
+      // A READY plan (every engine check passed) that the AI second read does not reject is a confirmed scan entry and is pushed.
+      // The major-event check and whales being against it no longer hold the call; they are flagged on the card with the reason.
+      // Only the owner's own Monday/Tuesday switch (off by default) can hold it.
       const gate = majorEventGate(row, result.analysis, result.candles);
       const window = tradingWindowGate(now, (await pushSettings()).tradingWindows);
       const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
-      if (!gate.ok || !window.ok || whales.stance === "AGAINST") { held.push({ symbol, planKey: planKeyOf(row), reason: [...gate.reasons, ...(window.reason ? [window.reason] : []), ...(whales.stance === "AGAINST" ? ["whales against: " + whales.detail] : [])].join("; "), at: now }); return; }
+      if (!window.ok) { held.push({ symbol, planKey: planKeyOf(row), reason: window.reason ?? "held by your Monday/Tuesday switch", at: now }); return; }
       // Careful second read before the push; a REJECT holds the signal and is listed in the hourly monitor list instead.
       const review = await reviewBeforePush(result);
       if (review?.verdict === "REJECT") { held.push({ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }); return; }
       // The reviewer's level refinements (inside the guardrails) become the signal's levels.
       const finalPick = review?.applied ? getMediumRiskShortlist([applyRefinedLevels(row, review.applied)], equity, true, 1, now)[0] ?? pick : pick;
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ " + windowVerdict(now).title : "🚩 " + windowVerdict(now).title + ": " + windowVerdict(now).detail), "⚡ Major event: " + gate.event + " · stop " + (Math.abs(row.executionPlan.entry - row.stop) / result.analysis.metrics.atr).toFixed(1) + " ATR (holds ~" + gate.survivalHours + " h of normal range)", "🐋 Whales " + (whales.stance === "WITH" ? "with you: " : "neutral: ") + whales.detail, ...positioning, ...(review ? ["", ...reviewLines(review)] : []), ...evidenceFlagLines({ side: row.bias, at: now, majorEvent: gate.ok })], buttons: signalButtons(symbol) });
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ " + windowVerdict(now).title : "🚩 " + windowVerdict(now).title + ": " + windowVerdict(now).detail), ...(gate.ok ? ["⚡ Major event: " + gate.event + " · stop " + (Math.abs(row.executionPlan.entry - row.stop) / result.analysis.metrics.atr).toFixed(1) + " ATR (holds ~" + gate.survivalHours + " h of normal range)"] : gate.reasons.map(r => "🚩 " + r.charAt(0).toUpperCase() + r.slice(1) + ".")), (whales.stance === "AGAINST" ? "🚩 Whales AGAINST this side: " : whales.stance === "WITH" ? "🐋 Whales with you: " : "🐋 Whales neutral: ") + whales.detail, ...positioning, ...(review ? ["", ...reviewLines(review)] : []), ...evidenceFlagLines({ side: row.bias, at: now, majorEvent: gate.ok })], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.
