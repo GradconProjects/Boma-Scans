@@ -143,11 +143,14 @@ export async function POST(request:NextRequest) {
       const ticker=normalizeTicker(quote.result!.list[0] as Record<string,unknown>);
       const analysis=analyzeMarket(fast,contextBars,macroBars,ticker,signal.style,{flexibility:signal.flexibility});
       const btcContext=analyzeBtcRelationship(signal.symbol,fast,btc,analysis,btcDaily);
-      // Same push policy as the scheduled scan: a major structural event, a stop that holds four hours, whales not against.
+      // Same push policy as the scheduled scan. The major-event read and the whale stance are computed for information only.
       const gateRow=scannerRowFromAnalysis(ticker,analysis,false,undefined,signal.style,btcContext);
       const gate=majorEventGate(gateRow,analysis,fast);
       const whales=await whaleAlignment(signal.symbol,analysis.bias).catch(()=>({stance:"NEUTRAL" as const,detail:"",coin:null}));
-      if(!gate.ok || !tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows).ok || whales.stance==="AGAINST")continue;
+      // A confirmed entry does not have to line up with a major event, and whales against the side do not hold it; both are information only.
+      // Only the owner's own Monday/Tuesday switch (off by default) can hold a call.
+      void gate; void whales;
+      if(!tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows).ok)continue;
       // Same plan = same side and the trigger/stop within 15% of a normal candle
       // range. Exact float equality silently dropped valid alerts whenever the
       // server saw one more candle or a slightly different history window.
