@@ -63,9 +63,10 @@ export async function GET(request: NextRequest) {
     if (Date.now() - now > 38_000) { skipped++; return; }
     analysed++;
     try {
-      // One retry: a pair must not be dropped from the scan because a single data request failed.
+      // Two retries, spaced out: a pair must not be dropped from the scan because a single data request failed.
       const analyse = () => analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle);
-      const result = await analyse().catch(async () => { await new Promise(resolve => setTimeout(resolve, 500)); return analyse(); }); const { row } = result;
+      const pause = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
+      const result = await analyse().catch(async () => { await pause(500); return analyse(); }).catch(async () => { await pause(1_200); return analyse(); }); const { row } = result;
       if (debug) diagnostics.push({ symbol, decision: row.decision, bias: row.bias, setup: row.setupType, regime: row.regime, trendFrames: row.trendFrames, entryReady: row.entryReady, plan: row.executionPlan.status, direction: row.direction, score: row.score, entryQuality: row.entryQuality, rating: row.ratingScore, riskBand: row.riskBand, btc: row.btcRelationship.divergenceVerdict, costR: Number(row.executionCostR.toFixed(2)), costLimit: Number(row.spreadCostLimitR.toFixed(2)), failedChecks: row.entryChecks.filter(c => c.required && c.status !== "PASS").map(c => c.label), analyzedAgeS: Math.round((now - row.analyzedAt) / 1000), lev: row.exchangeMaxLeverage, step: row.quantityStep });
       if (!isMediumRiskTake(row, true, now)) {
         // Setup forming: trend, regime and quality are there; only the retest and the closed-candle trigger are missing.
