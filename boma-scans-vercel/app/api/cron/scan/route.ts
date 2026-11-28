@@ -118,5 +118,7 @@ export async function GET(request: NextRequest) {
     try { await writeOwnerRecord("monitor-memory", JSON.stringify({ ...memory, autoMonitored: next, forming: formingList, held: heldList })); } catch { /* best effort */ }
   }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
+  // A record of every scan, so the owner can see that it ran, how long it took and what it found.
+  try { await writeOwnerRecord("scan-last-run", JSON.stringify({ at: now, ms: Date.now() - now, scanned: analysed, universe: universe.length, skipped, qualified, held: held.map(h => h.symbol), sent: delivery.sent, problems: problems.length })); } catch { /* best effort */ }
   return NextResponse.json({ ok: true, scanned: analysed, skippedForTime: skipped, ms: Date.now() - now, universe: universe.length, qualified, held: held.map(h => h.symbol), forming: forming.map(row => row.symbol), ...(debug ? { diagnostics } : {}), sent: delivery.sent, problems: [...problems, ...delivery.errors].slice(0, 10) });
 }

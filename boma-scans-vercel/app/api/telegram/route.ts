@@ -45,13 +45,15 @@ export async function GET(request:NextRequest) {
   if(env.TELEGRAM_BOT_TOKEN){try {const me=await telegramCall(env.TELEGRAM_BOT_TOKEN,"getMe",{}) as {username?:string}|undefined;bot=me?.username??null;} catch { bot=null; }}
   let server:{lastRunAt?:number;autoMonitored?:string[];inTrade?:string[];armed?:unknown[];skipped?:string[];lastError?:string}={};
   try {const raw=await readRecord(user.userId,"monitor-memory");if(raw){const parsed=JSON.parse(raw.payload) as {lastRunAt?:number;autoMonitored?:string[];lastError?:string;symbols?:Record<string,{armed?:unknown;skipped?:string}>};server={lastRunAt:parsed.lastRunAt,autoMonitored:parsed.autoMonitored??[],inTrade:Object.entries(parsed.symbols??{}).filter(([,m])=>m.armed).map(([s])=>s),armed:Object.values(parsed.symbols??{}).map(m=>m.armed).filter(Boolean),skipped:Object.entries(parsed.symbols??{}).filter(([,m])=>m.skipped&&!m.armed).map(([,m])=>m.skipped as string),lastError:parsed.lastError};}} catch { /* none yet */ }
+  let lastScan:{at:number;ms:number;scanned:number;universe:number;skipped:number;qualified:string[];held:string[];sent:number;problems:number}|null=null;
+  try {const raw=await readRecord(user.userId,"scan-last-run");if(raw)lastScan=JSON.parse(raw.payload);} catch { /* none yet */ }
   const key=await cronKey();
   const origin=request?.nextUrl?.origin??"";
   const schedule=config?.enabled?await ensureSchedule(origin,request?.nextUrl?.searchParams.get("schedule")==="retry").catch(()=>null):null;
   // What actually went out: the last deliveries, newest first (keys name the source).
   let deliveries:Array<{key:string;status:string;at:number}>=[];
   try { if(env.DB) deliveries=(await env.DB.prepare("SELECT signal_key AS key,status,created_at AS at FROM telegram_deliveries WHERE user_id=? ORDER BY created_at DESC LIMIT 60").bind(user.userId).all<{key:string;status:string;at:number}>()).results; } catch { /* diagnostics only */ }
-  return reply({configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null,deliveries,push:{...await pushSettings(),window:tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows)}});
+  return reply({lastScan,configured:!!env.TELEGRAM_BOT_TOKEN,chatId:config?.chatId??"",enabled:config?.enabled??false,persistent:!!env.DB,senders,bot,server,cron:key?{monitorUrl:origin+"/api/cron/monitor?key="+key,scanUrl:origin+"/api/cron/scan?key="+key,derived:!process.env.CRON_SECRET,schedule}:null,deliveries,push:{...await pushSettings(),window:tradingWindowGate(Date.now(),(await pushSettings()).tradingWindows)}});
 }
 export async function POST(request:NextRequest) {
   const user=await getOwnerUser();if(!user)return reply({error:"Sign in at /login to configure Telegram."},401);
