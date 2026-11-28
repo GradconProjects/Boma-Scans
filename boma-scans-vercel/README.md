@@ -224,3 +224,13 @@ Code: `app/lib/market-direction.ts`, `app/server/market-direction.ts`, `app/comp
 ## How the systems compare (three-year replay)
 
 The Scanner and Whale System 2 were replayed on every Bybit crypto pair over three years with the same scoring. Neither showed a profit edge after fees; both beat random entries. LONG entries lost in both. Monday and Tuesday (Melbourne) lost money in both, in every year. Nothing is restricted because of this: readings and Scanner cards carry short flags (Monday/Tuesday, LONG side, low rating, no major event), each with a one-sentence reason. Full tables, the correction to the earlier Scanner backtest and two suggested Scanner changes are in `docs/SYSTEM-COMPARISON.md`.
+
+## Telegram quiet mode (default)
+
+Only confirmed entry calls are pushed: a Scanner confirmed entry, a confirmed whale entry signal, or Whale System 2 reaching ENTRY READY (once per coin and side, not repeated while it stays ready).
+
+Also sent, because they are about your own trades or your own taps: targets, stops and advice on a trade you marked as entered, whales leaving a coin you are in, and confirmations when you record an entry or exit. Replies to commands and buttons always work.
+
+Not sent: individual whale opens and closes, whale exits on trades you are not in, watch-list moves, six-hourly check-ins, digests and forming setups. They remain visible in the app.
+
+The rule is enforced in one place, where every scheduled message is sent (`app/lib/telegram-policy.ts`). `/quiet off` sends everything again; `/quiet on` returns to entries only.

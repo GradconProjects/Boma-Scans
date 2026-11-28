@@ -5,6 +5,7 @@ import { telegramCall, telegramChunks } from "@/app/server/telegram";
 import { renderTelegramHtml } from "@/app/lib/signal-alerts";
 import { keyboardRows } from "@/app/lib/telegram-events";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
+import { telegramDecision, type PolicyContext, type TelegramMode } from "@/app/lib/telegram-policy";
 
 export type TelegramConfig = { chatId: string; enabled: boolean };
 
@@ -42,12 +43,26 @@ async function claim(key: string): Promise<boolean> {
   return true;
 }
 
-/** Sends each event once (de-duplicated by key across devices and the scheduler). */
-export async function deliverEvents(config: TelegramConfig, events: TelegramEvent[], origin: string): Promise<{ sent: number; errors: string[] }> {
+/** The owner's Telegram mode and entered whale trades, read straight from the records (no import cycle). Defaults to entries only. */
+export async function telegramPolicyContext(): Promise<PolicyContext> {
+  let mode: TelegramMode = "ENTRIES_ONLY"; let enteredCoins: string[] = [];
+  try { const saved = JSON.parse((await readOwnerRecord("push-settings")) ?? "{}") as { telegramMode?: string }; if (saved.telegramMode === "EVERYTHING") mode = "EVERYTHING"; } catch { /* default */ }
+  try { const whales = JSON.parse((await readOwnerRecord("whale-settings")) ?? "{}") as { entered?: Array<{ coin?: string }> }; enteredCoins = (whales.entered ?? []).map(t => String(t.coin ?? "")).filter(Boolean); } catch { /* none */ }
+  return { mode, enteredCoins };
+}
+
+/**
+ * Sends each event once (de-duplicated by key across devices and the scheduler).
+ * Every scheduled message passes through here, so this is where "confirmed entries only" is enforced: anything else is
+ * dropped before it is claimed or sent.
+ */
+export async function deliverEvents(config: TelegramConfig, events: TelegramEvent[], origin: string): Promise<{ sent: number; errors: string[]; filtered: number }> {
   const token = env.TELEGRAM_BOT_TOKEN;
   let sent = 0; const errors: string[] = [];
-  if (!token || !config.enabled) return { sent, errors: ["Telegram not configured"] };
-  for (const event of events.slice(0, 20)) {
+  if (!token || !config.enabled) return { sent, errors: ["Telegram not configured"], filtered: 0 };
+  const context = await telegramPolicyContext().catch(() => ({ mode: "ENTRIES_ONLY" as TelegramMode, enteredCoins: [] as string[] }));
+  const allowed = events.filter(event => telegramDecision(event.key, context).send); const filtered = events.length - allowed.length;
+  for (const event of allowed.slice(0, 20)) {
     const lines = event.symbol && !event.lines.some(line => line.startsWith("🔗 ")) ? [...event.lines, "🔗 Open in app: " + origin.replace(/\/$/, "") + "/?pair=" + event.symbol] : event.lines;
     if (!(await claim(event.key))) continue;
     try {
@@ -60,5 +75,5 @@ export async function deliverEvents(config: TelegramConfig, events: TelegramEven
       if (env.DB) await env.DB.prepare("UPDATE telegram_deliveries SET status='UNCONFIRMED' WHERE user_id=? AND signal_key=?").bind(OWNER_ID, "event:" + event.key).run();
     }
   }
-  return { sent, errors };
+  return { sent, errors, filtered };
 }

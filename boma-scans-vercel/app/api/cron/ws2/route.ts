@@ -31,8 +31,9 @@ export async function GET(request: NextRequest) {
   const events: TelegramEvent[] = [];
   if (settings.alerts) for (const r of results) {
     const p = previous[r.symbol];
-    if (r.status === "ENTRY READY" && r.side && !(p && p.status === "ENTRY READY" && p.side === r.side && Date.now() - p.at < 4 * 3_600_000))
-      events.push({ key: "ws2:ready:" + r.coin + ":" + r.side + ":" + Math.floor(Date.now() / (4 * 3_600_000)), lines: [...ws2Lines(r), "🔗 Open in app: " + request.nextUrl.origin + "/whales-2?coin=" + r.coin] });
+    // One call per coin and side: while it stays ENTRY READY it is not sent again; the daily key is a second guard.
+    if (r.status === "ENTRY READY" && r.side && !(p && p.status === "ENTRY READY" && p.side === r.side && Date.now() - p.at < 24 * 3_600_000))
+      events.push({ key: "ws2:ready:" + r.coin + ":" + r.side + ":" + Math.floor(Date.now() / 86_400_000), lines: [...ws2Lines(r), "🔗 Open in app: " + request.nextUrl.origin + "/whales-2?coin=" + r.coin] });
   }
   let sent = 0; if (events.length) { const config = await telegramConfig().catch(() => null); if (config) sent = (await deliverEvents(config, events, request.nextUrl.origin)).sent; }
   const scored = await scoreWs2Log(4).catch(() => 0);
