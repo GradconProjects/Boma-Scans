@@ -59,11 +59,13 @@ export async function GET(request: NextRequest) {
   // qualify are analysed (a pair under the style's turnover floor can never be a confirmed entry), most liquid first, and no
   // new pair is started after 38 seconds. Whatever was found by then is reviewed and sent.
   let skipped = 0; let analysed = 0;
-  await mapLimit(universe, 8, async symbol => {
+  await mapLimit(universe, 6, async symbol => {
     if (Date.now() - now > 38_000) { skipped++; return; }
     analysed++;
     try {
-      const result = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle); const { row } = result;
+      // One retry: a pair must not be dropped from the scan because a single data request failed.
+      const analyse = () => analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle);
+      const result = await analyse().catch(async () => { await new Promise(resolve => setTimeout(resolve, 500)); return analyse(); }); const { row } = result;
       if (debug) diagnostics.push({ symbol, decision: row.decision, bias: row.bias, setup: row.setupType, regime: row.regime, trendFrames: row.trendFrames, entryReady: row.entryReady, plan: row.executionPlan.status, direction: row.direction, score: row.score, entryQuality: row.entryQuality, rating: row.ratingScore, riskBand: row.riskBand, btc: row.btcRelationship.divergenceVerdict, costR: Number(row.executionCostR.toFixed(2)), costLimit: Number(row.spreadCostLimitR.toFixed(2)), failedChecks: row.entryChecks.filter(c => c.required && c.status !== "PASS").map(c => c.label), analyzedAgeS: Math.round((now - row.analyzedAt) / 1000), lev: row.exchangeMaxLeverage, step: row.quantityStep });
       if (!isMediumRiskTake(row, true, now)) {
         // Setup forming: trend, regime and quality are there; only the retest and the closed-candle trigger are missing.
