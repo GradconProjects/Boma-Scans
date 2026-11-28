@@ -17,7 +17,7 @@ import { analyzePair, marketRead } from "@/app/server/market-analysis";
 import { parseMonitoredSymbols } from "@/app/lib/trigger-monitor";
 import { getMediumRiskShortlist, isMediumRiskTake } from "@/app/lib/recommendations";
 import { signalKey, snapshotSignal, telegramSignalText } from "@/app/lib/signal-alerts";
-import { SCAN_TURNOVER_FLOOR, STYLE_CONFIG, type TradingStyle } from "@/app/lib/market";
+import { SCAN_TURNOVER_FLOOR, STYLE_CONFIG, STYLE_LIQUIDITY_FLOOR, type TradingStyle } from "@/app/lib/market";
 import type { FlexibilityMode } from "@/app/lib/entry-policy";
 import type { TelegramEvent } from "@/app/lib/telegram-events";
 
@@ -51,11 +51,17 @@ export async function GET(request: NextRequest) {
   const limit = Number(process.env.SERVER_SCAN_PAIRS) > 0 ? Number(process.env.SERVER_SCAN_PAIRS) : 1000;
   const tickers = await marketRead({ kind: "tickers" });
   const universe = (tickers.result!.list as Array<{ symbol?: string; turnover24h?: string }>)
-    .filter(item => item.symbol?.endsWith("USDT") && !BLACKLIST.has(item.symbol) && Number(item.turnover24h) >= SCAN_TURNOVER_FLOOR)
+    .filter(item => item.symbol?.endsWith("USDT") && !BLACKLIST.has(item.symbol) && Number(item.turnover24h) >= Math.max(SCAN_TURNOVER_FLOOR, STYLE_LIQUIDITY_FLOOR[style]))
     .sort((a, b) => Number(b.turnover24h) - Number(a.turnover24h)).slice(0, limit).map(item => item.symbol as string);
   const events: TelegramEvent[] = []; const qualified: string[] = []; const problems: string[] = []; const forming: ScannerRow[] = []; const held: Array<{ symbol: string; planKey: string; reason: string; at: number }> = [];
   const debug = request.nextUrl.searchParams.get("debug") === "1"; const diagnostics: Record<string, unknown>[] = [];
-  await mapLimit(universe, 6, async symbol => {
+  // The whole scan must finish inside the 60-second function limit, or nothing is sent at all. So: only pairs liquid enough to
+  // qualify are analysed (a pair under the style's turnover floor can never be a confirmed entry), most liquid first, and no
+  // new pair is started after 38 seconds. Whatever was found by then is reviewed and sent.
+  let skipped = 0; let analysed = 0;
+  await mapLimit(universe, 8, async symbol => {
+    if (Date.now() - now > 38_000) { skipped++; return; }
+    analysed++;
     try {
       const result = await analyzePair(symbol, STYLE_CONFIG[style].interval, style, flexibility, Number(workspace.fee) || 0.055, Number(workspace.slippage) || 0.02, targetStyle); const { row } = result;
       if (debug) diagnostics.push({ symbol, decision: row.decision, bias: row.bias, setup: row.setupType, regime: row.regime, trendFrames: row.trendFrames, entryReady: row.entryReady, plan: row.executionPlan.status, direction: row.direction, score: row.score, entryQuality: row.entryQuality, rating: row.ratingScore, riskBand: row.riskBand, btc: row.btcRelationship.divergenceVerdict, costR: Number(row.executionCostR.toFixed(2)), costLimit: Number(row.spreadCostLimitR.toFixed(2)), failedChecks: row.entryChecks.filter(c => c.required && c.status !== "PASS").map(c => c.label), analyzedAgeS: Math.round((now - row.analyzedAt) / 1000), lev: row.exchangeMaxLeverage, step: row.quantityStep });
@@ -79,11 +85,14 @@ export async function GET(request: NextRequest) {
       const whales = await whaleAlignment(symbol, row.bias).catch(() => ({ stance: "NEUTRAL" as const, detail: "whale data unavailable", coin: null }));
       if (!window.ok) { held.push({ symbol, planKey: planKeyOf(row), reason: window.reason ?? "held by your Monday/Tuesday switch", at: now }); return; }
       // Careful second read before the push; a REJECT holds the signal and is listed in the hourly monitor list instead.
-      const review = await reviewBeforePush(result);
+      // The second read gets whatever time is left; if it cannot finish, the call still goes out, flagged as not reviewed.
+      const TIMED_OUT = Symbol("timeout"); const budget = Math.max(2_500, 52_000 - (Date.now() - now));
+      const raced = await Promise.race([reviewBeforePush(result), new Promise<typeof TIMED_OUT>(resolve => setTimeout(() => resolve(TIMED_OUT), budget))]);
+      const unreviewed = raced === TIMED_OUT; const review = raced === TIMED_OUT ? null : raced;
       if (review?.verdict === "REJECT") { held.push({ symbol, planKey: planKeyOf(row), reason: review.summary, at: now }); return; }
       // The reviewer's level refinements (inside the guardrails) become the signal's levels.
       const finalPick = review?.applied ? getMediumRiskShortlist([applyRefinedLevels(row, review.applied)], equity, true, 1, now)[0] ?? pick : pick;
-      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ " + windowVerdict(now).title : "🚩 " + windowVerdict(now).title + ": " + windowVerdict(now).detail), ...(gate.ok ? ["⚡ Major event: " + gate.event + " · stop " + (Math.abs(row.executionPlan.entry - row.stop) / result.analysis.metrics.atr).toFixed(1) + " ATR (holds ~" + gate.survivalHours + " h of normal range)"] : gate.reasons.map(r => "🚩 " + r.charAt(0).toUpperCase() + r.slice(1) + ".")), (whales.stance === "AGAINST" ? "🚩 Whales AGAINST this side: " : whales.stance === "WITH" ? "🐋 Whales with you: " : "🐋 Whales neutral: ") + whales.detail, ...positioning, ...(review ? ["", ...reviewLines(review)] : []), ...evidenceFlagLines({ side: row.bias, at: now, majorEvent: gate.ok })], buttons: signalButtons(symbol) });
+      events.push({ key: "signal:" + signalKey(row) + ":" + (row.executionPlan.confirmationTime ?? row.analyzedAt), symbol, lines: [...telegramSignalText(snapshotSignal(finalPick), false, now, undefined, entryCall(finalPick.row, finalPick.row.price).line).split("\n"), "", "🕰 " + windowVerdict(now).label + " · " + (windowVerdict(now).good ? "✅ " + windowVerdict(now).title : "🚩 " + windowVerdict(now).title + ": " + windowVerdict(now).detail), ...(gate.ok ? ["⚡ Major event: " + gate.event + " · stop " + (Math.abs(row.executionPlan.entry - row.stop) / result.analysis.metrics.atr).toFixed(1) + " ATR (holds ~" + gate.survivalHours + " h of normal range)"] : gate.reasons.map(r => "🚩 " + r.charAt(0).toUpperCase() + r.slice(1) + ".")), (whales.stance === "AGAINST" ? "🚩 Whales AGAINST this side: " : whales.stance === "WITH" ? "🐋 Whales with you: " : "🐋 Whales neutral: ") + whales.detail, ...positioning, ...(review ? ["", ...reviewLines(review)] : unreviewed ? ["", "🚩 The AI second read did not finish in time, so this call was not reviewed."] : []), ...evidenceFlagLines({ side: row.bias, at: now, majorEvent: gate.ok })], buttons: signalButtons(symbol) });
     } catch (error) { problems.push(symbol + ": " + (error instanceof Error ? error.message : "failed")); }
   });
   // Best forming setups: push once with levels, and follow them so the trigger / entry-range alerts fire.
@@ -106,5 +115,5 @@ export async function GET(request: NextRequest) {
     try { await writeOwnerRecord("monitor-memory", JSON.stringify({ ...memory, autoMonitored: next, forming: formingList, held: heldList })); } catch { /* best effort */ }
   }
   const delivery = await deliverEvents(config, events, request.nextUrl.origin);
-  return NextResponse.json({ ok: true, scanned: universe.length, qualified, held: held.map(h => h.symbol), forming: forming.map(row => row.symbol), ...(debug ? { diagnostics } : {}), sent: delivery.sent, problems: [...problems, ...delivery.errors].slice(0, 10) });
+  return NextResponse.json({ ok: true, scanned: analysed, skippedForTime: skipped, ms: Date.now() - now, universe: universe.length, qualified, held: held.map(h => h.symbol), forming: forming.map(row => row.symbol), ...(debug ? { diagnostics } : {}), sent: delivery.sent, problems: [...problems, ...delivery.errors].slice(0, 10) });
 }
